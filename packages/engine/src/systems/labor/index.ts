@@ -1,5 +1,11 @@
 import type { TurnContext } from '../../core/context';
-import { operatingCompanies, stochasticRound, trainees } from '../../core/companies';
+import {
+  emptyFlows,
+  newStaff,
+  operatingCompanies,
+  stochasticRound,
+  trainees,
+} from '../../core/companies';
 import { laborPoolKey } from '../../core/keys';
 import { clamp, sum } from '../../core/math';
 import { applyModifiers } from '../../core/modifiers';
@@ -65,14 +71,11 @@ function completeTrainings(ctx: TurnContext, company: Company): void {
       fromPool.laborForce -= batch.count;
       toPool.laborForce += batch.count;
       // A trained employee asks for the wage of the new occupation.
-      const target = (company.workforce[toKey] ??= {
-        regionId: staff.regionId,
-        occupationId: batch.toOccupationId,
-        headcount: 0,
-        wage: toPool.marketWage,
-        rampingUp: 0,
-        inTraining: [],
-      });
+      const target = (company.workforce[toKey] ??= newStaff(
+        staff.regionId,
+        batch.toOccupationId,
+        toPool.marketWage,
+      ));
       const wage = Math.max(target.wage, toPool.marketWage);
       target.wage =
         (target.headcount * target.wage + batch.count * wage) / (target.headcount + batch.count);
@@ -103,7 +106,10 @@ export const laborSystem: System = {
     // 0. Last quarter's recruits are up to speed; finished trainings move up.
     for (const company of companies) {
       hired[company.id] = {};
-      for (const staff of Object.values(company.workforce)) staff.rampingUp = 0;
+      for (const staff of Object.values(company.workforce)) {
+        staff.rampingUp = 0;
+        staff.lastQuarter = emptyFlows();
+      }
       completeTrainings(ctx, company);
     }
 
@@ -116,19 +122,14 @@ export const laborSystem: System = {
         let staff = company.workforce[key];
         if (!staff) {
           if (h.hire <= 0) continue;
-          staff = company.workforce[key] = {
-            regionId: h.regionId,
-            occupationId: h.occupationId,
-            headcount: 0,
-            wage: h.wageOffer,
-            rampingUp: 0,
-            inTraining: [],
-          };
+          staff = company.workforce[key] = newStaff(h.regionId, h.occupationId, h.wageOffer);
         }
         staff.wage = h.wageOffer;
+        staff.lastQuarter.requested = h.hire;
         const f = Math.min(h.fire, staff.headcount - trainees(staff));
         if (f <= 0) continue;
         staff.headcount -= f;
+        staff.lastQuarter.dismissed = f;
         fired += f;
         ctx.ledger(company.id).other += f * staff.wage * L.severanceQuarters;
       }
@@ -181,6 +182,7 @@ export const laborSystem: System = {
         if (n <= 0 || !staff) return;
         staff.headcount += n;
         staff.rampingUp += n;
+        staff.lastQuarter.hired = n;
         (hired[r.company.id] ??= {})[key] = n;
         ctx.ledger(r.company.id).other += n * staff.wage * L.hiringCost;
       });
@@ -211,11 +213,13 @@ export const laborSystem: System = {
           stochasticRound(eligible * rate, rng.next()),
         );
         staff.headcount -= Math.max(0, leavers);
+        staff.lastQuarter.quits += Math.max(0, leavers);
         const traineeRate = rate * (1 - L.training.attritionReduction);
         for (const batch of staff.inTraining) {
           const l = Math.min(batch.count, stochasticRound(batch.count * traineeRate, rng.next()));
           batch.count -= l;
           staff.headcount -= l;
+          staff.lastQuarter.quits += l;
         }
         staff.inTraining = staff.inTraining.filter((b) => b.count > 0);
       }

@@ -372,6 +372,85 @@ Précisions retenues en codant les systèmes ; les coefficients sont dans
 - **Faillite** : la société est gelée (plus de décisions, de production ni
   de ventes) et ses salariés retournent au marché du travail. Les enchères
   sur ses actifs viendront avec les rachats (phase 2).
-- **Pas encore implémenté** : `capex` (étape 4, lot 1.3) et `rnd`
-  (étape 9, lot 1.4), dont les décisions sont refusées avec
-  `not_available` ; dividendes et opérations sur actions (phase 2).
+- **Pas encore implémenté** : `rnd` (étape 9, lot 1.4), dont les décisions
+  sont refusées avec `not_available` ; dividendes et opérations sur actions
+  (phase 2). `capex` est arrivé avec le lot 1.3 (§14).
+
+## 14. Choix d'implémentation (lot 1.3)
+
+- **Capex** (étape 4) : un investissement est payé à la commande, au niveau
+  de prix du début de trimestre (`buildCost × landCostIndex` pour une usine),
+  et immobilisé aussitôt ; un actif en chantier n'est ni amorti, ni
+  entretenu, ni productif. Mise en service à `completesAt` (usine :
+  `factory.buildQuarters`, ligne : `line.buildQuarters`, jamais avant son
+  usine). La modernisation arrête la ligne `modernizeQuarters` trimestres,
+  puis ajoute `modernizeTechGain` au niveau techno (plafond `maxTechLevel`)
+  et remet l'âge à 0 ; son coût s'ajoute à la VNC et à la dotation. Chaque
+  actif porte sa dotation trimestrielle. Une cession rapporte
+  `VNC × (1 − assetResaleDiscount)` ; la moins-value est passée en dotations.
+  Les investissements sont financés par la trésorerie et la dette nouvelle
+  (pas par le découvert) et réduisent d'autant le budget des dépenses
+  discrétionnaires. Limites : `factory.maxSites`, `factory.maxLines`.
+- **Observation** (`ai/observation.ts`) : la seule porte de `GameState` vers
+  l'IA et la base de `PlayerView`. Elle contient la société de l'acteur en
+  entier, les marchés, et pour les autres : prix et qualité en rayon,
+  rupture de stock (oui/non), part de marché, marque, usines visibles,
+  notation, comptes publiés avec `publicationLagQuarters` de retard. La
+  demande adressée à chaque ligne rivale reste privée. Une règle ESLint
+  interdit au planner d'importer l'état, les systèmes ou le contexte de tour,
+  et un test vérifie que modifier les données privées d'un rival ne change ni
+  l'observation ni les décisions.
+- **Planner IA** : prévision par lissage exponentiel de la demande
+  désaisonnalisée (avant limite de stock) et des prix **mondiaux** des
+  matières (le spot du trimestre passé reflète surtout la demande passée :
+  s'en servir créait un cycle d'achats de période 2) ; production = prévision
+  + `targetCoverage` × demande suivante − stock ; effectifs déduits du plan
+  (opérateurs par la productivité observée, ingénieurs au moins au ratio de
+  support car ils jouent sur la productivité) ; prix = coût complet (charges
+  fixes réparties sur au moins `costingUtilization` de la capacité, sinon la
+  marge sur coût complet s'emballe quand le volume baisse) × marge du profil,
+  mélangé géométriquement au prix moyen des rivaux × positionnement, variation
+  bornée à `maxPriceChange` par trimestre et plancher au coût variable ;
+  achats calés sur max(plan, prévision) pour éviter l'effet coup de fouet ;
+  contrats à hauteur de `riskAversion` des besoins ; capex selon
+  l'utilisation des capacités, la trésorerie et le levier ; emprunt quand la
+  trésorerie projetée passe sous le coussin, remboursement au-delà.
+- **Guerre des prix** : un rival baisse de plus de `priceCutTrigger` et la
+  part de l'IA recule de plus de `shareLossTrigger` → riposte avec une
+  probabilité égale à l'agressivité (un tirage par planification, utilisé ou
+  non), remise `discount` qui s'éteint en `durationQuarters`, délai
+  `cooldownQuarters`, rancune en mémoire. La riposte est une nouvelle publique
+  du journal (`ai_price_war`).
+- **Surenchère salariale** : départs au-dessus de `attritionTrigger` × le
+  taux de base, ou plus de `hiringShortfallTrigger` des embauches demandées
+  non obtenues → prime `+step` (plafond `max`), qui retombe de `decay` sans
+  pression. Les flux du trimestre sont gardés par groupe (`Staff.lastQuarter`).
+- **Bourse v1** (étape 11) : fondamental sur les comptes publiés
+  (`w·EBITDA·multiple + (1 − w)·CA·multiple de CA`, `w` selon la marge
+  d'EBITDA, × croissance × taux), plancher à la valeur liquidative ;
+  facteur de marché = bruit − sensibilité × variation du taux directeur +
+  sensibilité × variation de ln(demande) ; surprise = écart de l'EBITDA publié
+  au consensus (lissé). Les ordres s'exécutent au nouveau cours, qui inclut
+  leur propre impact ; un ordre à cours limité non respecté ou non couvert
+  par la trésorerie est réduit puis on recalcule. Liquidité :
+  `maxFloatPerQuarter` du flottant par détenteur et par trimestre ;
+  participation plafonnée à `maxMinorityStake` (pas de contrôle en phase 1) ;
+  pas d'ordre sur ses propres titres (rachats : phase 2). Les participations
+  sont à la juste valeur : variation et plus-values passent en résultat
+  financier (`pnl.financial`, non imposé), après l'étape comptable, avec la
+  trésorerie et le flux d'investissement du trimestre. Une société en
+  faillite est radiée au cours plancher. Indice chaîné pondéré par les
+  capitalisations.
+- **Vues** : `defaultDecisions` reconduit prix, qualité visée, salaires,
+  objectifs de production et marketing, sans les opérations ponctuelles
+  (capex, contrats, emprunts, ordres, embauches, licenciements, formations) ;
+  les achats spot sont recalculés pour couvrir la production prévue.
+  `previewDecisions` rejoue financement et capex sur une copie puis estime
+  le reste en espérance (embauches dans la limite des chômeurs, attrition
+  moyenne, demande par réponse logit locale au prix et au marketing, rivaux
+  supposés inchangés) : aucune information sur les décisions à venir des
+  rivaux n'est utilisée. Le rapport de tour ne garde que les entrées
+  publiques du journal et celles du joueur, et compare prévu et réalisé.
+- **sim-cli** : le joueur est en pilote automatique (`playerProfileId`) ou
+  passif (`defaultDecisions`). Bornes de sanité dans
+  `packages/sim-cli/src/metrics.ts`.

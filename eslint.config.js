@@ -2,6 +2,12 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 
+const enginePatterns = [
+  { group: ['react', 'react-dom', 'react/*'], message: 'No UI code in the engine.' },
+  { group: ['node:*', 'fs', 'path', 'crypto'], message: 'The engine is platform-free.' },
+  { group: ['@game/web', '@game/web/*'], message: 'The engine never imports the UI.' },
+];
+
 export default tseslint.config(
   { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**'] },
   js.configs.recommended,
@@ -30,13 +36,25 @@ export default tseslint.config(
         { name: 'localStorage', message: 'No DOM in the engine.' },
         { name: 'performance', message: 'The engine must not read the clock.' },
       ],
+      'no-restricted-imports': ['error', { patterns: enginePatterns }],
+    },
+  },
+  {
+    // Anti-cheat by construction: the planner only reads an Observation. It may
+    // not reach GameState, the systems or the turn context (ai/observation.ts
+    // is the one door from the state to the AI).
+    files: ['packages/engine/src/ai/**/*.ts'],
+    ignores: ['packages/engine/src/ai/observation.ts'],
+    rules: {
       'no-restricted-imports': [
         'error',
         {
           patterns: [
-            { group: ['react', 'react-dom', 'react/*'], message: 'No UI code in the engine.' },
-            { group: ['node:*', 'fs', 'path', 'crypto'], message: 'The engine is platform-free.' },
-            { group: ['@game/web', '@game/web/*'], message: 'The engine never imports the UI.' },
+            ...enginePatterns,
+            {
+              regex: '(^|/)(model/state|core/context|core/pipeline|systems|views)(/|$)',
+              message: 'The AI planner only reads its Observation (ai/observation.ts).',
+            },
           ],
         },
       ],

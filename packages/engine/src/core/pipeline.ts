@@ -2,6 +2,8 @@ import type { CompanyDecisions } from '../model/decisions';
 import type { TurnReport } from '../model/events';
 import type { GameState } from '../model/state';
 import { accountingSystem } from '../systems/accounting';
+import { aiSystem } from '../systems/ai';
+import { capexSystem } from '../systems/capex';
 import { commoditiesSystem } from '../systems/commodities';
 import { eventsSystem } from '../systems/events';
 import { financePreSystem } from '../systems/finance';
@@ -10,7 +12,9 @@ import { macroSystem } from '../systems/macro';
 import { productionSystem } from '../systems/production';
 import { productsSystem } from '../systems/products';
 import { reportingSystem } from '../systems/reporting';
+import { stockMarketSystem } from '../systems/stockmarket';
 import { filterControlled, validationSystem } from '../systems/validation';
+import { buildTurnReport } from '../views/report';
 import { createTurnContext, type TurnContext } from './context';
 import type { System, SystemId } from './system';
 
@@ -19,19 +23,19 @@ const pending = (id: SystemId): System => ({ id, run: () => {} });
 
 /** Fixed resolution order (docs/ARCHITECTURE.md §7). */
 export const PIPELINE: readonly System[] = [
-  pending('ai'), // 0. AI decisions from Observation(S_t) (lot 1.3)
+  aiSystem, // 0. AI decisions from Observation(S_t)
   validationSystem, // 1. bound and normalize every decision
   macroSystem, // 2. cycle, inflation, policy rate
   eventsSystem, // 2. draw events, apply or expire modifiers
   financePreSystem, // 3. loans, repayments (equity, dividends: phase 2)
-  pending('capex'), // 4. construction, commissioning, disposals
+  capexSystem, // 4. commissioning, construction, disposals
   laborSystem, // 5. dismissals, matching, attrition, training, wages
   commoditiesSystem, // 6. contract deliveries, spot clearing, stocks
   productionSystem, // 7. capacity, output, quality (SectorModule)
   productsSystem, // 8. demand, logit shares, sales, brand
-  pending('rnd'), // 9. projects, tech level, obsolescence
+  pending('rnd'), // 9. projects, tech level, obsolescence (lot 1.4)
   accountingSystem, // 10. statements, tax, cash, solvency
-  pending('stockmarket'), // 11. fundamental, price, orders, registry
+  stockMarketSystem, // 11. fundamental, price, orders, registry, index
   pending('mna'), // 12. acquisitions, changes of control
   pending('conglomerate'), // 12. synergies, complexity, consolidation
   pending('victory'), // 13. end conditions
@@ -57,7 +61,6 @@ export function resolveTurn(
   // The player only decides for the companies it controls.
   const { kept, issues } = filterControlled(draft, draft.meta.playerActorId, player);
   const ctx = createTurnContext(draft, structuredClone(kept));
-  ctx.issues.push(...issues);
   runPipeline(ctx);
-  return { state: draft, report: { turn: ctx.turn, events: ctx.events, issues: ctx.issues } };
+  return { state: draft, report: buildTurnReport(state, draft, ctx, issues) };
 }

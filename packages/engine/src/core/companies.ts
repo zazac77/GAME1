@@ -1,4 +1,4 @@
-import type { Company, Site, Staff } from '../model/company';
+import type { Company, ProductionLine, Site, Staff, StaffFlows } from '../model/company';
 import type { Id } from '../model/ids';
 import type { GameState } from '../model/state';
 import { sum } from './math';
@@ -16,6 +16,25 @@ export const isOperating = (company: Company): boolean =>
 
 export const operationalSites = (company: Company): Site[] =>
   Object.values(company.sites).filter((s) => s.status === 'operational');
+
+/** Lines of an operational site that produce (not under construction nor modernizing). */
+export const producingLines = (site: Site): ProductionLine[] =>
+  site.status === 'operational'
+    ? Object.values(site.lines).filter((l) => l.status === 'operational')
+    : [];
+
+export const emptyFlows = (): StaffFlows => ({ requested: 0, hired: 0, quits: 0, dismissed: 0 });
+
+/** A staff group with nobody in it yet. */
+export const newStaff = (regionId: Id, occupationId: Id, wage: number): Staff => ({
+  regionId,
+  occupationId,
+  headcount: 0,
+  wage,
+  rampingUp: 0,
+  inTraining: [],
+  lastQuarter: emptyFlows(),
+});
 
 /** Staff in training (counted in headcount, not producing). */
 export const trainees = (staff: Staff): number => sum(staff.inTraining.map((b) => b.count));

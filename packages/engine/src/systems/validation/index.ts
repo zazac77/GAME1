@@ -1,4 +1,4 @@
-import { controlledCompanyIds } from '../../core/companies';
+import { controlledCompanyIds, isOperating } from '../../core/companies';
 import type { System } from '../../core/system';
 import type { CompanyDecisions, ValidationIssue } from '../../model/decisions';
 import type { Id } from '../../model/ids';
@@ -59,6 +59,8 @@ export const validationSystem: System = {
       );
       ctx.decisions[companyId] = decisions;
       ctx.issues.push(...issues);
+      // Kept privately for defaultDecisions ("same as last quarter").
+      if (isOperating(company)) company.lastDecisions = structuredClone(decisions);
     }
   },
 };

@@ -1,4 +1,6 @@
 import type { GameConfig } from '../config/schema';
+import { newAiMemory } from '../ai/memory';
+import { newStaff } from '../core/companies';
 import { newId } from '../core/ids';
 import { laborPoolKey } from '../core/keys';
 import { clamp, sum } from '../core/math';
@@ -18,6 +20,11 @@ export interface NewGameOptions {
   playerName: string;
   companyName: string;
   mode?: GameMode;
+  /**
+   * Autopilot: the player's company is run by the AI planner with this
+   * profile whenever no decisions are submitted for it (sim-cli).
+   */
+  playerProfileId?: AiProfileId;
 }
 
 interface Participant {
@@ -42,6 +49,7 @@ const zeroStatements = (balance: BalanceSheet): Statements => ({
     depreciation: 0,
     ebit: 0,
     interest: 0,
+    financial: 0,
     tax: 0,
     netIncome: 0,
   },
@@ -53,6 +61,9 @@ const zeroStatements = (balance: BalanceSheet): Statements => ({
 export function generateWorld(config: GameConfig, opts: NewGameOptions): GameState {
   if (!opts.playerName.trim() || !opts.companyName.trim()) {
     throw new Error('playerName and companyName must not be empty');
+  }
+  if (opts.playerProfileId && !config.ai.profiles[opts.playerProfileId]) {
+    throw new Error(`Unknown AI profile ${opts.playerProfileId}`);
   }
   const rngState = seedRng(opts.seed);
   const rng = createRng(rngState);
@@ -139,7 +150,7 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
       baseVolume: m.baseVolume,
       refPrice: m.refPrice,
       segments: m.segments.map((s) => ({ ...s })),
-      lastResult: { shares: {}, demand: 0, volume: 0, avgPrice: m.refPrice },
+      lastResult: { shares: {}, demand: 0, allocated: {}, volume: 0, avgPrice: m.refPrice },
     } satisfies ProductMarket;
   }
 
@@ -150,6 +161,7 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
   const participants: Participant[] = [
     {
       kind: 'player',
+      ...(opts.playerProfileId ? { profileId: opts.playerProfileId } : {}),
       regionId: scenario.playerHqRegionId,
       actorName: opts.playerName.trim(),
       companyName: opts.companyName.trim(),
@@ -176,7 +188,7 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
     state.actors[actorId] = actor;
     state.companies[company.id] = company;
     if (p.kind === 'player') state.meta.playerActorId = actorId;
-    else state.aiMemory[actorId] = { grudges: {}, watchlist: [] };
+    if (p.profileId) state.aiMemory[actorId] = newAiMemory();
     listCompany(state, company, actorId);
   }
 
@@ -255,12 +267,14 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
     const lineId = newId(state.meta, 'line');
     lines[lineId] = {
       id: lineId,
+      status: 'operational',
       capacity: industry.line.capacity,
       age: start.lineAgeQuarters,
       techLevel: industry.line.initialTechLevel,
       bookValue:
         industry.line.buildCost *
         Math.max(0, 1 - start.lineAgeQuarters / industry.line.depreciationQuarters),
+      depreciationPerQuarter: industry.line.buildCost / industry.line.depreciationQuarters,
     };
   }
   const siteId = newId(state.meta, 'site');
@@ -274,6 +288,8 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
       industry.factory.buildCost *
       region.landCostIndex *
       Math.max(0, 1 - start.lineAgeQuarters / industry.factory.depreciationQuarters),
+    buildingDepreciationPerQuarter:
+      (industry.factory.buildCost * region.landCostIndex) / industry.factory.depreciationQuarters,
     warehouseCapacity: industry.factory.warehouseCapacity,
   };
 
@@ -285,12 +301,8 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
     const pool = state.labor[key];
     if (!pool) throw new Error(`Unknown labor pool ${key}`);
     workforce[key] = {
-      regionId: region.id,
-      occupationId,
+      ...newStaff(region.id, occupationId, pool.marketWage * (1 + (profile?.wagePremium ?? 0))),
       headcount,
-      wage: pool.marketWage * (1 + (profile?.wagePremium ?? 0)),
-      rampingUp: 0,
-      inTraining: [],
     };
   }
 
@@ -413,5 +425,7 @@ function listCompany(state: GameState, company: Company, actorId: Id): void {
     referencePrice: price,
     fundamental: price,
     history: [price],
+    consensus: 0,
+    publishedQuarter: -1,
   };
 }

@@ -33,21 +33,20 @@ export function storageCost(state: GameState, company: Company): number {
   return cost * multiplier * state.macro.priceLevel;
 }
 
-/** Straight-line depreciation of lines and buildings; returns the charge. */
-export function depreciate(state: GameState, company: Company): number {
-  const cfg = state.config.sectors.industry;
+/**
+ * Straight-line depreciation of the assets in service (buildings of
+ * operational sites, lines not under construction); returns the charge.
+ */
+export function depreciate(company: Company): number {
   let charge = 0;
   for (const site of Object.values(company.sites)) {
     if (site.status !== 'operational') continue;
-    const landIndex = state.regions[site.regionId]?.landCostIndex ?? 1;
-    const building = Math.min(
-      site.buildingBookValue,
-      (cfg.factory.buildCost * landIndex) / cfg.factory.depreciationQuarters,
-    );
+    const building = Math.min(site.buildingBookValue, site.buildingDepreciationPerQuarter);
     site.buildingBookValue -= building;
     charge += building;
     for (const line of Object.values(site.lines)) {
-      const d = Math.min(line.bookValue, cfg.line.buildCost / cfg.line.depreciationQuarters);
+      if (line.status === 'under_construction') continue;
+      const d = Math.min(line.bookValue, line.depreciationPerQuarter);
       line.bookValue -= d;
       charge += d;
     }
@@ -150,7 +149,8 @@ export const accountingSystem: System = {
       const opening = company.books.current.balance;
 
       ledger.storage += storageCost(draft, company);
-      const depreciation = depreciate(draft, company);
+      // Book value lost on disposals is charged with depreciation.
+      const depreciation = depreciate(company) + ledger.writeOffs;
       const interest = interestCharge(draft, company);
 
       const ebitda =
@@ -206,6 +206,7 @@ export const accountingSystem: System = {
           depreciation,
           ebit,
           interest,
+          financial: 0, // fair value of financial assets: stock market step
           tax,
           netIncome,
         },
@@ -214,7 +215,7 @@ export const accountingSystem: System = {
           cash,
           inventory: inventoryValue(company),
           fixedAssets: fixedAssetValue(company),
-          financialAssets: 0,
+          financialAssets: opening.financialAssets, // revalued by the stock market step
           debt: totalDebt(company),
           equity: opening.equity + netIncome,
           minorityInterests: 0,

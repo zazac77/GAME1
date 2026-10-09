@@ -8,6 +8,10 @@ export interface Quote {
   fundamental: Money;
   /** Price at the start of each quarter, oldest first. */
   history: Money[];
+  /** Market consensus on the next published quarterly EBITDA. */
+  consensus: Money;
+  /** Last quarter whose results are public (−1: none yet). */
+  publishedQuarter: Quarter;
 }
 
 export interface StockOrder {

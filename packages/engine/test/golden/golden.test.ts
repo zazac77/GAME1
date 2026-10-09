@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { hashState } from '../../src/core/hash';
-import { newGame, playSteady } from '../helpers';
+import { newGame, playTurns } from '../helpers';
 
 // Any change in the simulation shows up here. After an intentional balancing
 // change, update with `npm test -- -u` and justify it in the commit message.
 describe('golden game', () => {
+  // The player runs steady decisions, the AI planners play their companies.
   it('seed 20240 over 8 quarters', () => {
-    const state = playSteady(newGame(20240), 8);
+    const state = playTurns(newGame(20240), 8);
     const summary = {
       hash: hashState(state),
       turn: state.meta.turn,
@@ -19,6 +20,7 @@ describe('golden game', () => {
         netIncome: Math.round(c.books.current.pnl.netIncome),
         cash: Math.round(c.books.current.balance.cash),
         equity: Math.round(c.books.current.balance.equity),
+        lines: Object.values(c.sites).reduce((n, s) => n + Object.keys(s.lines).length, 0),
         price: Number(state.stock.quotes[c.id]?.price.toFixed(2)),
       })),
       macro: {
@@ -31,6 +33,7 @@ describe('golden game', () => {
         avgPrice: Number(m.lastResult.avgPrice.toFixed(2)),
       })),
       events: state.log.filter((e) => e.kind === 'event').map((e) => [e.turn, e.data?.eventId]),
+      index: Number(state.stock.index.value.toFixed(2)),
       spot: Object.fromEntries(
         Object.values(state.commodities).map((m) => [m.id, Number(m.spotPrice.toFixed(2))]),
       ),

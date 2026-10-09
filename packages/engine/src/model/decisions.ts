@@ -69,7 +69,9 @@ export type ValidationIssueCode =
   | 'invalid_value' // NaN, negative or non-integer where it matters: dropped or fixed
   | 'clamped' // value brought back within its bounds
   | 'duplicate' // second entry for the same key: ignored
-  | 'budget' // discretionary spending scaled down to the available liquidity
+  | 'budget' // discretionary spending scaled down (or an investment dropped) for lack of liquidity
+  | 'limit' // a capacity, technology or holding limit is reached: the order is dropped
+  | 'invalid_state' // the asset is not in a state that allows the order (e.g. under construction)
   | 'not_available'; // feature arriving in a later lot
 
 /** Why a decision was changed by validation. Rendered in French by the UI. */

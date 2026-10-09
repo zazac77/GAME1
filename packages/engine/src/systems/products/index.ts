@@ -139,6 +139,7 @@ export const productsSystem: System = {
           sellers.map((s) => [s.line.id, volume > 0 ? s.sold / volume : 0]),
         ),
         demand: sum(sellers.map((s) => s.allocated)),
+        allocated: Object.fromEntries(sellers.map((s) => [s.line.id, s.allocated])),
         volume,
         avgPrice: volume > 0 ? revenue / volume : ref,
       };

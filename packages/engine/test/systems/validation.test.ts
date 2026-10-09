@@ -75,9 +75,10 @@ describe('validation', () => {
         ],
         newContracts: [{ commodityId: 'com_steel', qtyPerQuarter: -3, quarters: 4 }],
       },
-      capex: [{ kind: 'build_site', regionId: 'reg_nord' }],
+      capex: [{ kind: 'build_site', regionId: 'reg_atlantide' }],
+      rnd: [{ type: 'process', budget: 1000 }],
       finance: { dividend: 1000, borrow: -5 },
-      stockOrders: [{ targetId: 'co_002', side: 'buy', shares: 10 }],
+      stockOrders: [{ targetId: 'co_999', side: 'buy', shares: 10 }],
     };
     const { decisions, issues } = normalizeDecisions(state, company, d);
     expect(decisions).toEqual(emptyDecisions(company.id));
@@ -89,10 +90,11 @@ describe('validation', () => {
       'purchasing.spot[1].qty:invalid_value',
       'purchasing.spot[2]:invalid_value', // energy is bought at consumption
       'purchasing.newContracts[0].qtyPerQuarter:invalid_value',
-      'capex:not_available',
-      'stockOrders:not_available',
+      'rnd:not_available',
       'finance.dividend:not_available',
       'finance.borrow:invalid_value',
+      'capex[0]:unknown_id',
+      'stockOrders[0]:unknown_id',
     ]);
   });
 
@@ -135,7 +137,9 @@ describe('validation', () => {
     hostile.pricing[lineId] = { price: 1 };
     const { state: next, report } = resolveTurn(state, [hostile]);
     expect(report.issues.map((i) => i.code)).toContain('not_controlled');
-    expect(next.companies[rival]?.productLines[lineId]?.price).toBe(before?.[lineId]?.price);
+    // The rival's own planner set its price; the hostile one was ignored.
+    const price = next.companies[rival]?.productLines[lineId]?.price ?? 0;
+    expect(price).toBeGreaterThan(0.5 * (before?.[lineId]?.price ?? 0));
   });
 
   it('ignores the decisions of a bankrupt company', () => {

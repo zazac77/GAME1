@@ -283,7 +283,10 @@ serializeGame(state): SaveFile ; deserializeGame(file): GameState   // + migrati
 ```
 
 `resolveTurn` appelle en interne le planner IA pour chaque acteur IA. L'UI
-ne connaît donc que le joueur.
+ne connaît donc que le joueur. Pour `sim-cli`, `NewGameOptions.playerProfileId`
+met la société du joueur en pilote automatique : le planner la joue dès
+qu'aucune décision n'est soumise pour elle. L'étape 0 est le système
+`systems/ai`, qui appelle `ai/observation.ts` puis `ai/planner.ts`.
 
 ## 7. Pipeline de résolution d'un tour
 

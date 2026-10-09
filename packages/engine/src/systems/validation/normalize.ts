@@ -1,8 +1,10 @@
-import { indexedRefPrice, isOperating, operationalSites, trainees } from '../../core/companies';
+import { indexedRefPrice, isOperating, trainees } from '../../core/companies';
+import { emptyDecisions } from '../../core/decisions';
 import { laborPoolKey } from '../../core/keys';
 import { clamp, sum } from '../../core/math';
 import type { Company } from '../../model/company';
 import type {
+  CapexOrder,
   CompanyDecisions,
   HrDecision,
   ValidationIssue,
@@ -10,22 +12,10 @@ import type {
 } from '../../model/decisions';
 import type { Id } from '../../model/ids';
 import type { GameState } from '../../model/state';
+import { capexOrderCost } from '../capex';
 import { borrowingCapacity } from '../finance/credit';
 
-/** Decisions that change nothing: keep prices, produce at full capacity, buy nothing. */
-export const emptyDecisions = (companyId: Id): CompanyDecisions => ({
-  companyId,
-  pricing: {},
-  production: {},
-  hr: [],
-  purchasing: { spot: [], newContracts: [] },
-  capex: [],
-  marketing: {},
-  rnd: [],
-  finance: {},
-  stockOrders: [],
-  mna: [],
-});
+export { emptyDecisions } from '../../core/decisions';
 
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 
@@ -94,7 +84,8 @@ export function normalizeDecisions(
   }
 
   // ---- human resources ----------------------------------------------------
-  const siteRegions = new Set(operationalSites(company).map((s) => s.regionId));
+  // Hiring needs a factory in the region (in service or being built).
+  const siteRegions = new Set(Object.values(company.sites).map((s) => s.regionId));
   const seenPools = new Set<string>();
   (input.hr ?? []).forEach((h, i) => {
     const path = `hr[${i}]`;
@@ -201,9 +192,7 @@ export function normalizeDecisions(
   }
 
   // ---- features of later lots --------------------------------------------
-  if ((input.capex ?? []).length > 0) flag('capex', 'not_available');
   if ((input.rnd ?? []).length > 0) flag('rnd', 'not_available');
-  if ((input.stockOrders ?? []).length > 0) flag('stockOrders', 'not_available');
   if ((input.mna ?? []).length > 0) flag('mna', 'not_available');
   if ((input.intraGroup ?? []).length > 0) flag('intraGroup', 'not_available');
   const fin = input.finance ?? {};
@@ -237,6 +226,118 @@ export function normalizeDecisions(
     }
   }
 
+  // ---- capex: investments paid when ordered, from cash and new debt -----
+  const capexBudget = Math.max(0, cash + (out.finance.borrow ?? 0) - (out.finance.repay ?? 0));
+  let capexSpent = 0;
+  const ind = config.sectors.industry;
+  let siteCount = Object.keys(company.sites).length;
+  const lineCount: Record<Id, number> = {};
+  for (const [siteId, site] of Object.entries(company.sites)) {
+    lineCount[siteId] = Object.keys(site.lines).length;
+  }
+  const soldSites = new Set<Id>();
+  const extendedSites = new Set<Id>();
+  const touchedLines = new Set<Id>();
+  (input.capex ?? []).forEach((o, i) => {
+    const path = `capex[${i}]`;
+    let order: CapexOrder;
+    switch (o?.kind) {
+      case 'build_site': {
+        if (!state.regions[o.regionId]) return flag(path, 'unknown_id');
+        if (siteCount >= ind.factory.maxSites) return flag(path, 'limit');
+        order = { kind: 'build_site', regionId: o.regionId };
+        break;
+      }
+      case 'add_line': {
+        if (!company.sites[o.siteId]) return flag(path, 'unknown_id');
+        if (soldSites.has(o.siteId)) return flag(path, 'duplicate');
+        if ((lineCount[o.siteId] ?? 0) >= ind.factory.maxLines) return flag(path, 'limit');
+        order = { kind: 'add_line', siteId: o.siteId };
+        break;
+      }
+      case 'modernize_line':
+      case 'sell_line': {
+        const line = company.sites[o.siteId]?.lines[o.lineId];
+        if (!line) return flag(path, 'unknown_id');
+        if (touchedLines.has(o.lineId) || soldSites.has(o.siteId)) return flag(path, 'duplicate');
+        if (line.status !== 'operational') return flag(path, 'invalid_state');
+        if (o.kind === 'modernize_line' && line.techLevel >= ind.line.maxTechLevel) {
+          return flag(path, 'limit');
+        }
+        order = { kind: o.kind, siteId: o.siteId, lineId: o.lineId };
+        break;
+      }
+      case 'sell_site': {
+        const site = company.sites[o.siteId];
+        if (!site) return flag(path, 'unknown_id');
+        const busy =
+          soldSites.has(site.id) ||
+          extendedSites.has(site.id) ||
+          Object.keys(site.lines).some((l) => touchedLines.has(l));
+        if (busy) return flag(path, 'duplicate');
+        if (site.status !== 'operational') return flag(path, 'invalid_state');
+        order = { kind: 'sell_site', siteId: o.siteId };
+        break;
+      }
+      default:
+        return flag(path, 'invalid_value');
+    }
+    const cost = capexOrderCost(state, order);
+    if (capexSpent + cost > capexBudget) return flag(path, 'budget', cost, 0);
+    capexSpent += cost;
+    if (order.kind === 'build_site') siteCount += 1;
+    if (order.kind === 'add_line') {
+      lineCount[order.siteId] = (lineCount[order.siteId] ?? 0) + 1;
+      extendedSites.add(order.siteId);
+    }
+    if (order.kind === 'modernize_line' || order.kind === 'sell_line')
+      touchedLines.add(order.lineId);
+    if (order.kind === 'sell_site') soldSites.add(order.siteId);
+    out.capex.push(order);
+  });
+
+  // ---- stock orders: minority stakes, executed at the end of the quarter -
+  const SM = config.stockMarket;
+  const seenTargets = new Set<Id>();
+  (input.stockOrders ?? []).forEach((o, i) => {
+    const path = `stockOrders[${i}]`;
+    const target = state.companies[o?.targetId];
+    const quote = state.stock.quotes[o?.targetId];
+    const register = state.stock.registry[o?.targetId];
+    if (!target || !quote || !register) return flag(path, 'unknown_id');
+    if (target.id === company.id) return flag(path, 'invalid_value'); // buybacks: phase 2
+    if (!target.listed || !isOperating(target)) return flag(path, 'invalid_state');
+    if (o.side !== 'buy' && o.side !== 'sell') return flag(`${path}.side`, 'invalid_value');
+    if (seenTargets.has(target.id)) return flag(path, 'duplicate');
+    if (!isNum(o.shares) || o.shares < 0) return flag(`${path}.shares`, 'invalid_value', o.shares);
+    seenTargets.add(target.id);
+    const float = register.public ?? 0;
+    const held = register[company.id] ?? 0;
+    // Liquidity: at most maxFloatPerQuarter of the float per holder and per quarter.
+    const tradable = Math.floor(SM.maxFloatPerQuarter * float);
+    const max =
+      o.side === 'buy'
+        ? Math.min(
+            tradable,
+            float,
+            Math.max(0, Math.floor(SM.maxMinorityStake * target.sharesOutstanding) - held),
+            Math.floor(Math.max(0, cash) / quote.price),
+          )
+        : Math.min(tradable, held);
+    const shares = bound(`${path}.shares`, Math.floor(o.shares), 0, max);
+    if (shares <= 0) return;
+    const order: CompanyDecisions['stockOrders'][number] = {
+      targetId: target.id,
+      side: o.side,
+      shares,
+    };
+    if (o.limitPrice !== undefined) {
+      if (isNum(o.limitPrice) && o.limitPrice > 0) order.limitPrice = o.limitPrice;
+      else flag(`${path}.limitPrice`, 'invalid_value', o.limitPrice);
+    }
+    out.stockOrders.push(order);
+  });
+
   // ---- budget: discretionary spending within the available liquidity -----
   const spotCost = (o: CompanyDecisions['purchasing']['spot'][number]): number => {
     const market = state.commodities[o.commodityId];
@@ -252,7 +353,8 @@ export function normalizeDecisions(
     0,
     cash +
       (out.finance.borrow ?? 0) -
-      (out.finance.repay ?? 0) +
+      (out.finance.repay ?? 0) -
+      capexSpent +
       config.finance.spendingOverdraftShareOfRevenue * revenue,
   );
   if (spending > liquidity) {

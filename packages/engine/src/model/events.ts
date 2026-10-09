@@ -1,4 +1,5 @@
 import type { ValidationIssue } from './decisions';
+import type { Alert, PlayerTurnSummary } from './views';
 import type { Id, ModifierKey, Quarter } from './ids';
 
 export type ModifierTargetKind =
@@ -41,6 +42,10 @@ export interface TurnReport {
   /** The quarter that was resolved. */
   turn: Quarter;
   events: GameEvent[];
-  /** Changes made to the submitted decisions. */
+  /** Changes made to the player's decisions. */
   issues: ValidationIssue[];
+  /** Planned versus actual for the player's company (absent once it is gone). */
+  summary?: PlayerTurnSummary;
+  /** Alerts on the player's company at the start of the next quarter. */
+  alerts: Alert[];
 }

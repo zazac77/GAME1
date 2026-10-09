@@ -2,12 +2,13 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { CompanyDecisions, GameState } from '../../src';
 import { defaultConfig } from '../../src/config/default';
-import { isOperating, trainees } from '../../src/core/companies';
+import { fixedAssetValue, isOperating, trainees } from '../../src/core/companies';
 import { laborPoolKey } from '../../src/core/keys';
 import { sum } from '../../src/core/math';
 import { industryModule, mainProductLine } from '../../src/sectors/industry';
 import { unemployed } from '../../src/systems/labor/pools';
 import { emptyDecisions } from '../../src/systems/validation';
+import { resolveTurn } from '../../src';
 import { assertJsonSafe, newGame, resolveAll } from '../helpers';
 
 // ---- random decisions, expressed relative to the state they apply to --------
@@ -35,6 +36,21 @@ const specArb = fc.record({
   marketing: fc.double({ min: 0, max: 3e6, noNaN: true }),
   borrow: fc.double({ min: 0, max: 3e7, noNaN: true }),
   repay: fc.double({ min: 0, max: 2e7, noNaN: true }),
+  capex: fc.array(
+    fc.record({
+      kind: fc.constantFrom('build_site', 'add_line', 'modernize_line', 'sell_line', 'sell_site'),
+      pick: fc.nat(20),
+    }),
+    { maxLength: 3 },
+  ),
+  stock: fc.option(
+    fc.record({
+      target: fc.nat(3),
+      side: fc.constantFrom<'buy' | 'sell'>('buy', 'sell'),
+      shares: fc.nat(300_000),
+      limitFactor: fc.option(fc.double({ min: 0.5, max: 2, noNaN: true })),
+    }),
+  ),
   garbage: fc.boolean(),
 });
 type Spec = fc.Arbitrary<typeof specArb extends fc.Arbitrary<infer T> ? T : never>;
@@ -82,6 +98,30 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
   }
   d.marketing[line.id] = spec.marketing;
   d.finance = { borrow: spec.borrow, repay: spec.repay };
+  const regions = Object.keys(state.regions).sort();
+  const sites = Object.keys(company.sites).sort();
+  for (const o of spec.capex) {
+    const siteId = sites[o.pick % Math.max(1, sites.length)] ?? 'site_x';
+    const lineIds = Object.keys(company.sites[siteId]?.lines ?? {}).sort();
+    const lineId = lineIds[o.pick % Math.max(1, lineIds.length)] ?? 'line_x';
+    if (o.kind === 'build_site') {
+      d.capex.push({ kind: 'build_site', regionId: regions[o.pick % regions.length] ?? '' });
+    } else if (o.kind === 'add_line' || o.kind === 'sell_site')
+      d.capex.push({ kind: o.kind, siteId });
+    else d.capex.push({ kind: o.kind, siteId, lineId });
+  }
+  if (spec.stock) {
+    const others = Object.keys(state.companies).sort();
+    const targetId = others[spec.stock.target % others.length] ?? '';
+    const order: CompanyDecisions['stockOrders'][number] = {
+      targetId,
+      side: spec.stock.side,
+      shares: spec.stock.shares,
+    };
+    const price = state.stock.quotes[targetId]?.price ?? 1;
+    if (spec.stock.limitFactor !== null) order.limitPrice = price * spec.stock.limitFactor;
+    d.stockOrders.push(order);
+  }
   if (spec.garbage) {
     // Validation must survive anything a buggy UI or planner could send.
     d.pricing[line.id] = { price: Number.NaN };
@@ -142,7 +182,42 @@ function checkInvariants(before: GameState, after: GameState): void {
     expect(c.brand).toBeGreaterThanOrEqual(0);
     expect(c.brand).toBeLessThanOrEqual(100);
     if (c.status === 'bankrupt') expect(c.workforce).toEqual({});
+    if (quarter === turn) {
+      // Fixed assets = Σ book values; financial assets at fair value.
+      expect(b.fixedAssets).toBeCloseTo(fixedAssetValue(c), 3);
+      const fairValue = sum(
+        Object.entries(after.stock.registry).map(
+          ([t, register]) => (register[c.id] ?? 0) * (after.stock.quotes[t]?.price ?? 0),
+        ),
+      );
+      expect(b.financialAssets).toBeCloseTo(fairValue, 3);
+      expect(c.books.history.at(-1)).toEqual(c.books.current);
+    }
+    for (const site of Object.values(c.sites)) {
+      expect(site.buildingBookValue).toBeGreaterThanOrEqual(0);
+      // Projects due are commissioned (a bankrupt company's assets are frozen).
+      const live = isOperating(c);
+      if (live && site.status === 'under_construction')
+        expect(site.completesAt).toBeGreaterThan(turn);
+      for (const l of Object.values(site.lines)) {
+        expect(l.bookValue).toBeGreaterThanOrEqual(0);
+        if (live && l.status !== 'operational') expect(l.completesAt).toBeGreaterThan(turn);
+      }
+    }
   }
+
+  // Shares outstanding = Σ registry; no negative holding.
+  for (const [companyId, register] of Object.entries(after.stock.registry)) {
+    for (const n of Object.values(register)) {
+      expect(Number.isInteger(n)).toBe(true);
+      expect(n).toBeGreaterThanOrEqual(0);
+    }
+    expect(sum(Object.values(register))).toBe(after.companies[companyId]?.sharesOutstanding);
+  }
+  for (const q of Object.values(after.stock.quotes)) {
+    expect(q.price).toBeGreaterThanOrEqual(after.config.stockMarket.minPrice);
+  }
+  expect(after.stock.index.value).toBeGreaterThan(0);
 
   // Conservation of labor: unemployed = laborForce − outside − Σ headcount ≥ 0.
   for (const [key, pool] of Object.entries(after.labor)) {
@@ -195,10 +270,24 @@ describe('invariants (property-based)', () => {
     );
   });
 
+  it('hold over games played by the AI planners (investments and disposals included)', () => {
+    for (const seed of [2, 99]) {
+      let state = newGame(seed, undefined, { mode: 'sandbox', playerProfileId: 'low_cost' });
+      for (let t = 0; t < 30; t++) {
+        const next = resolveTurn(state, []).state;
+        checkInvariants(state, next);
+        state = next;
+      }
+      expect(state.log.some((e) => e.kind === 'capex_started')).toBe(true);
+    }
+  });
+
   it('hold over a long game of passive companies (distress and bankruptcies)', () => {
     let state = newGame(77, undefined, { mode: 'sandbox' });
+    const passive = Object.keys(state.companies).map((id) => emptyDecisions(id));
     for (let t = 0; t < 30; t++) {
-      const next = resolveAll(state, []).state;
+      // Submitted (empty) decisions keep the AI planners out.
+      const next = resolveAll(state, passive).state;
       checkInvariants(state, next);
       state = next;
     }

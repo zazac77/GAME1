@@ -256,6 +256,11 @@ const industrySchema = z.strictObject({
     buildQuarters: posInt,
     depreciationQuarters: posInt,
     modernizeCost: pos,
+    /** The line stops producing for this many quarters while it is modernized. */
+    modernizeQuarters: posInt,
+    /** Tech level gained by a modernization (age reset to 0), up to maxTechLevel. */
+    modernizeTechGain: pos,
+    maxTechLevel: pos,
     initialTechLevel: pos,
     /** Productivity lost per quarter of age. */
     agingPenalty: nonNeg,
@@ -270,6 +275,8 @@ const industrySchema = z.strictObject({
     /** Units (materials and finished goods) the site can store. */
     warehouseCapacity: pos,
     maxLines: posInt,
+    /** Factories a company can own (built or under construction). */
+    maxSites: posInt,
   }),
   /** Occupation whose headcount drives output. */
   operatorOccupationId: id,
@@ -303,7 +310,7 @@ const industrySchema = z.strictObject({
   logisticsCostPerUnit: nonNeg,
   /** Storage cost of a finished unit per quarter. */
   finishedGoodsStorageCost: nonNeg,
-  /** Resale discount on specific assets. */
+  /** Resale discount on specific assets (on their book value). */
   assetResaleDiscount: share,
   startingCompany: z.strictObject({
     lines: posInt,
@@ -356,8 +363,24 @@ const stockMarketSchema = z.strictObject({
   initialPriceToBook: pos,
   /** Max share of a float one holder can trade per quarter. */
   maxFloatPerQuarter: share,
+  /** Phase 1: a company holds at most this share of another one (no control). */
+  maxMinorityStake: share,
+  /** Price floor, and price of a bankrupt (delisted) company. */
+  minPrice: pos,
   /** EV / EBITDA multiple by sector. */
   sectorMultiples: z.partialRecord(sectorId, pos),
+  fundamental: z.strictObject({
+    /** EV multiple × (1 + growthWeight·clamp(year-on-year revenue growth, ±growthCap)). */
+    growthWeight: nonNeg,
+    growthCap: share,
+    /** EV multiple × exp(−rateSensitivity·(policy rate − neutral rate)). */
+    rateSensitivity: nonNeg,
+    /** EV / revenue by sector, blended in while the EBITDA margin is below fullEbitdaMargin. */
+    salesMultiples: z.partialRecord(sectorId, pos),
+    fullEbitdaMargin: pos,
+    /** Liquidation floor: inventories at this share of book value, fixed assets after assetResaleDiscount. */
+    inventoryLiquidationShare: share,
+  }),
   priceFormation: z.strictObject({
     /** λ: pull towards the fundamental value. */
     fundamentalPull: share,
@@ -369,6 +392,17 @@ const stockMarketSchema = z.strictObject({
     orderImpact: nonNeg,
     /** σ: idiosyncratic quarterly noise. */
     noise: nonNeg,
+    /** Quarterly volatility of the common market factor r_market. */
+    marketVolatility: nonNeg,
+    /** r_market falls by this much per point of policy rate increase over the quarter. */
+    marketRateSensitivity: nonNeg,
+    /** r_market response to the change of ln(demand index). */
+    marketDemandSensitivity: nonNeg,
+    /** surprise = (EBITDA − consensus) / max(|consensus|, floor·revenue), clamped to ±surpriseCap. */
+    surpriseFloorShareOfRevenue: pos,
+    surpriseCap: pos,
+    /** Share of the gap to the published EBITDA closed by the consensus. */
+    consensusSmoothing: share,
   }),
   indexBase: pos,
   /** Listed companies publish their results with this lag. */
@@ -380,13 +414,18 @@ const aiProfileSchema = z.strictObject({
   priceMarkup: z.number(),
   /** Quality (0..100) aimed at. */
   qualityTarget: z.number().min(0).max(100),
-  /** Starting price, relative to the market reference price. */
+  /** Starting price relative to the reference price, then positioning against the rivals' average. */
   startPriceIndex: pos,
+  /** Weight of the positioned rivals' price against cost-plus in the target price (geometric blend). */
+  competitorPriceWeight: share,
   /** Wage offer relative to the market wage. */
   wagePremium: z.number(),
+  /** Share of the material needs secured by long-term contracts; caution with investments. */
   riskAversion: share,
   /** Probability of retaliating in a price war. */
   aggressiveness: share,
+  /** Price premium taken while rivals are out of stock (opportunist). */
+  stockoutPremium: nonNeg,
   marketingShareOfRevenue: share,
   rndShareOfRevenue: share,
 });
@@ -395,6 +434,94 @@ const aiSchema = z.strictObject({
   profiles: z.partialRecord(aiProfileId, aiProfileSchema),
   /** Finished-goods coverage aimed at, in quarters of expected sales. */
   targetCoverage: nonNeg,
+  /** Weight of the newest observation in the smoothed forecasts (demand, prices). */
+  forecastSmoothing: share,
+  /** Demand assumed before the first sales, as a share of the output ceiling. */
+  initialDemandShareOfCapacity: share,
+  /** Max relative price change per quarter. */
+  maxPriceChange: share,
+  /**
+   * Standard costing: fixed costs per unit are spread over at least this share
+   * of the line capacity (avoids the death spiral of cost-plus on a falling volume).
+   */
+  costingUtilization: share,
+  /** The price never goes below the variable unit cost × this. */
+  priceFloorOverVariableCost: pos,
+  priceWar: z.strictObject({
+    /** A rival cutting its price by more than this share… */
+    priceCutTrigger: share,
+    /** …while the own market share falls by more than this (absolute) triggers a riposte. */
+    shareLossTrigger: share,
+    /** Riposte: discount on the target price, fading linearly over durationQuarters. */
+    discount: share,
+    durationQuarters: posInt,
+    /** Quarters between two ripostes. */
+    cooldownQuarters: nonNegInt,
+    /** Grudge gained against the rival per riposte; grudges fade by grudgeDecay per quarter. */
+    grudgeGain: share,
+    grudgeDecay: share,
+  }),
+  wageOutbid: z.strictObject({
+    /** A quit rate above base attrition × this… */
+    attritionTrigger: pos,
+    /** …or this share of the requested hires not obtained raises the wage boost by `step`. */
+    hiringShortfallTrigger: share,
+    step: nonNeg,
+    /** Max boost on top of the profile wage premium. */
+    max: nonNeg,
+    /** Boost lost per quarter without pressure. */
+    decay: nonNeg,
+  }),
+  hr: z.strictObject({
+    /** Dismissals when headcount exceeds the need × fireAbove, down to need × fireTo. */
+    fireAbove: z.number().min(1),
+    fireTo: z.number().min(1),
+  }),
+  purchasing: z.strictObject({
+    /** Extra share of materials bought on top of the planned need. */
+    safetyStock: nonNeg,
+    /** A world price below its smoothed value by this share… */
+    opportunisticDiscount: share,
+    /** …triggers extra purchases of this many quarters of need. */
+    opportunisticCoverQuarters: nonNeg,
+    contractQuarters: posInt,
+    /** Contracts are topped up when the contracted volume falls below target × this. */
+    contractRefillThreshold: share,
+  }),
+  capex: z.strictObject({
+    /** Expected demand / line capacity above which capacity is added. */
+    expandUtilization: pos,
+    /** Below this for shrinkQuarters in a row, the oldest line is sold. */
+    shrinkUtilization: share,
+    shrinkQuarters: posInt,
+    /** Lines older than this are modernized when cash allows. */
+    modernizeMinAge: nonNegInt,
+    /** Cash kept after an investment, in quarters of cash costs (× (1 + riskAversion)). */
+    cashAfterQuarters: nonNeg,
+    /** No investment above this net debt / EBITDA. */
+    maxLeverage: nonNeg,
+  }),
+  finance: z.strictObject({
+    /** Cash buffer aimed at, in quarters of cash costs. */
+    cashBufferQuarters: nonNeg,
+    /** Term debt is repaid with the cash above this many quarters of cash costs. */
+    repayAboveQuarters: nonNeg,
+  }),
+});
+
+const viewsSchema = z.strictObject({
+  /** Published quarters shown for each competitor. */
+  competitorHistoryQuarters: posInt,
+  alerts: z.strictObject({
+    /** Material stock + contract deliveries below this many quarters of full-capacity need. */
+    materialCoverQuarters: nonNeg,
+    /** Wage below the market wage by more than this share. */
+    wageGapShare: share,
+    /** Net debt / EBITDA above this share of the covenant. */
+    covenantNearShare: share,
+    /** Units sold above this share of the line capacity. */
+    capacityUtilization: share,
+  }),
 });
 
 const effectSchema = z.strictObject({
@@ -462,6 +589,7 @@ export const gameConfigSchema = z
     finance: financeSchema,
     stockMarket: stockMarketSchema,
     ai: aiSchema,
+    views: viewsSchema,
     events: eventsSchema,
     scenario: scenarioSchema,
     victory: victorySchema,
@@ -555,6 +683,16 @@ export const gameConfigSchema = z
     if (!cfg.stockMarket.sectorMultiples[cfg.scenario.playerSector]) {
       issue(['stockMarket', 'sectorMultiples'], 'missing multiple for the player sector');
     }
+    if (!cfg.stockMarket.fundamental.salesMultiples[cfg.scenario.playerSector]) {
+      issue(
+        ['stockMarket', 'fundamental', 'salesMultiples'],
+        'missing multiple for the player sector',
+      );
+    }
+    if (industry.line.initialTechLevel > industry.line.maxTechLevel) {
+      issue(['sectors', 'industry', 'line', 'maxTechLevel'], 'below initialTechLevel');
+    }
+    if (cfg.ai.hr.fireTo > cfg.ai.hr.fireAbove) issue(['ai', 'hr'], 'fireTo > fireAbove');
   });
 
 /** Effective, validated configuration. Copied into every GameState. */

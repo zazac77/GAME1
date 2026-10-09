@@ -12,6 +12,8 @@ export interface IncomeStatement {
   depreciation: Money;
   ebit: Money;
   interest: Money;
+  /** Fair value changes of financial assets (unrealized and realized, untaxed). */
+  financial: Money;
   tax: Money;
   netIncome: Money;
 }

@@ -1,4 +1,5 @@
 import type { GameConfig } from '../config/schema';
+import type { AiMemory } from './ai';
 import type { Actor, Company } from './company';
 import type { GameEvent, Modifier, ScheduledEffect } from './events';
 import type { GameMode, Id, LaborPoolKey, Quarter } from './ids';
@@ -23,13 +24,6 @@ export interface GameMeta {
   playerActorId: Id;
   /** Last number allocated per id prefix ("co" → 4 means co_004 exists). */
   idCounters: Record<string, number>;
-}
-
-export interface AiMemory {
-  /** Rival company id → grudge level (0..1). */
-  grudges: Record<Id, number>;
-  lastRetaliationAt?: Quarter;
-  watchlist: Id[];
 }
 
 /** Compact series for the charts. Point i describes the start of quarter turns[i]. */

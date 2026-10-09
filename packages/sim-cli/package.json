@@ -1,0 +1,12 @@
+{
+  "name": "@game/sim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@game/engine": "0.1.0"
+  }
+}

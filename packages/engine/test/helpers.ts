@@ -47,7 +47,11 @@ export function resolveAll(
     systems = systems.slice(0, end + 1);
   }
   runPipeline(ctx, systems);
-  return { state: draft, report: { turn: ctx.turn, events: ctx.events, issues: ctx.issues }, ctx };
+  return {
+    state: draft,
+    report: { turn: ctx.turn, events: ctx.events, issues: ctx.issues, alerts: [] },
+    ctx,
+  };
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { AiProfileId, Id, ItemId, Money, Quarter, SectorId, StaffKey } from './ids';
+import type { CompanyDecisions } from './decisions';
 import type { Books, CreditStatus, Loan } from './finance';
 
 export interface Actor {
@@ -10,27 +11,37 @@ export interface Actor {
   rootCompanyId: Id;
 }
 
+export type AssetStatus = 'operational' | 'under_construction';
+
 export interface ProductionLine {
   id: Id;
+  /** A modernizing line does not produce until completesAt. */
+  status: AssetStatus | 'modernizing';
+  /** Quarter at which construction or modernization completes. */
+  completesAt?: Quarter;
   /** Units per quarter. */
   capacity: number;
-  /** Quarters since commissioning. */
+  /** Quarters since commissioning (or last modernization). */
   age: number;
   techLevel: number;
   /** Net book value. */
   bookValue: Money;
+  /** Straight-line charge per quarter (cost / useful life), until the book value is 0. */
+  depreciationPerQuarter: Money;
 }
 
 export interface Site {
   id: Id;
   kind: 'factory';
   regionId: Id;
-  status: 'operational' | 'under_construction';
+  status: AssetStatus;
   /** Quarter at which construction completes (under_construction only). */
   completesAt?: Quarter;
   lines: Record<Id, ProductionLine>;
   /** Net book value of land and buildings. */
   buildingBookValue: Money;
+  /** Straight-line charge of the building per quarter. */
+  buildingDepreciationPerQuarter: Money;
   /** Units the site can store. */
   warehouseCapacity: number;
 }
@@ -39,6 +50,16 @@ export interface TrainingBatch {
   toOccupationId: Id;
   count: number;
   doneAt: Quarter;
+}
+
+/** Labor flows of a staff group during the last resolved quarter. */
+export interface StaffFlows {
+  /** Hires asked for. */
+  requested: number;
+  hired: number;
+  /** Voluntary departures (trainees included). */
+  quits: number;
+  dismissed: number;
 }
 
 export interface Staff {
@@ -50,6 +71,7 @@ export interface Staff {
   /** New hires at reduced productivity (included in headcount). */
   rampingUp: number;
   inTraining: TrainingBatch[];
+  lastQuarter: StaffFlows;
 }
 
 export interface StockLot {
@@ -114,6 +136,11 @@ export interface Company {
   loans: Loan[];
   credit: CreditStatus;
   books: Books;
+  /**
+   * Normalized decisions of the last resolved quarter (private: never shown
+   * to competitors). Base of defaultDecisions.
+   */
+  lastDecisions?: CompanyDecisions;
   /** Sector-specific state, typed by the SectorModule. */
   sectorState?: unknown;
 }

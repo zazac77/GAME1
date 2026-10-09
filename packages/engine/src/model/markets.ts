@@ -68,6 +68,8 @@ export interface ProductMarketResult {
   shares: Record<Id, number>;
   /** Units demanded from the simulated firms, before stock limits. */
   demand: number;
+  /** Product line id → units demanded from it, before stock limits. */
+  allocated: Record<Id, number>;
   /** Units sold. */
   volume: number;
   avgPrice: Money;

@@ -23,6 +23,8 @@ export interface TurnLedger {
   purchases: Money;
   /** Proceeds of asset sales (investing). */
   disposals: Money;
+  /** Book value lost on asset sales (booked with depreciation). */
+  writeOffs: Money;
   /** Capital expenditure (investing). */
   capex: Money;
   borrowed: Money;
@@ -42,6 +44,7 @@ export const emptyLedger = (): TurnLedger => ({
   other: 0,
   purchases: 0,
   disposals: 0,
+  writeOffs: 0,
   capex: 0,
   borrowed: 0,
   repaid: 0,
@@ -58,6 +61,8 @@ export interface TurnContext {
   readonly rng: Rng;
   /** Quarter being resolved. */
   readonly turn: Quarter;
+  /** Price level at the start of the quarter, before the macro step (prices quoted to decisions). */
+  readonly openingPriceLevel: number;
   /**
    * Decisions of every company (player and AI), by company id. After the
    * validation step, every active company has normalized decisions.
@@ -83,6 +88,7 @@ export function createTurnContext(draft: GameState, decisions: CompanyDecisions[
     config: draft.config,
     rng: createRng(draft.meta.rng),
     turn,
+    openingPriceLevel: draft.macro.priceLevel,
     decisions: byCompany,
     issues: [],
     events,

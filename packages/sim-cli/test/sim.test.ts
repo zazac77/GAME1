@@ -1,0 +1,45 @@
+import { describe, expect, it } from 'vitest';
+import { gameMetrics, median, std, summarize } from '../src/metrics';
+import { formatSummary, toCsv } from '../src/report';
+import { runGame } from '../src/run';
+
+describe('sim-cli', () => {
+  it('computes robust statistics', () => {
+    expect(std([1, 1, 1])).toBe(0);
+    expect(std([1, 3])).toBeCloseTo(Math.SQRT2, 12);
+    expect(median([3, 1, 2])).toBe(2);
+    expect(median([4, 1, 2, 3])).toBe(2.5);
+  });
+
+  // Acceptance of lot 1.3 (docs/PLAN.md): AI-only games without errors, within
+  // the sanity bounds, with at least one profitable AI and no systematic bankruptcy.
+  it('plays 50 AI-only games of 40 quarters', () => {
+    const games = Array.from({ length: 50 }, (_, i) =>
+      gameMetrics(runGame({ seed: 1000 + i, turns: 40, player: 'opportunist' })),
+    );
+    const summary = summarize(games);
+    expect(summary.errors).toBe(0);
+    expect(games.flatMap((g) => g.sanityViolations)).toEqual([]);
+    expect(games.every((g) => g.turns === 40)).toBe(true);
+    expect(summary.gamesWithProfitableAi).toBe(50);
+    expect(summary.gamesWithAllAiBankrupt).toBe(0);
+    for (const profile of Object.values(summary.byProfile)) {
+      expect(profile.bankruptcyRate).toBeLessThan(0.5);
+    }
+    expect(formatSummary(summary, 40)).toContain('50 × 40');
+    expect(toCsv(games).trim().split('\n')).toHaveLength(1 + 50 * 4);
+  }, 120_000);
+
+  it('a passive player (same decisions every quarter) does not win', () => {
+    const games = [7, 8, 9].map((seed) =>
+      gameMetrics(runGame({ seed, turns: 40, player: 'passive' })),
+    );
+    for (const g of games) {
+      const player = g.companies.find((c) => c.kind === 'player');
+      const best = Math.max(
+        ...g.companies.filter((c) => c.kind === 'ai').map((c) => c.finalEquity),
+      );
+      expect(player?.finalEquity ?? 0).toBeLessThan(best);
+    }
+  }, 60_000);
+});

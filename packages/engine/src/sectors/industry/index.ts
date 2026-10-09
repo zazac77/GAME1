@@ -1,5 +1,5 @@
 import type { TurnContext } from '../../core/context';
-import { operationalSites, trainees } from '../../core/companies';
+import { operationalSites, producingLines, trainees } from '../../core/companies';
 import { laborPoolKey } from '../../core/keys';
 import { clamp, sum } from '../../core/math';
 import { applyModifiers } from '../../core/modifiers';
@@ -16,8 +16,13 @@ export function lineCapacity(cfg: IndustryConfig, line: ProductionLine): number 
   return line.capacity * Math.max(0, 1 - cfg.line.agingPenalty * line.age);
 }
 
-const siteCapacity = (cfg: IndustryConfig, site: Site): number =>
-  sum(Object.values(site.lines).map((l) => lineCapacity(cfg, l)));
+/** Units per quarter of the producing lines of a site. */
+export const siteCapacity = (cfg: IndustryConfig, site: Site): number =>
+  sum(producingLines(site).map((l) => lineCapacity(cfg, l)));
+
+/** Material consumption multiplier of a quality level (the recipe is for quality ≤ 50). */
+export const materialFactor = (cfg: IndustryConfig, quality: number): number =>
+  1 + cfg.qualityCostSlope * Math.max(0, quality - 50);
 
 /** Producing staff: trainees excluded, new hires at reduced productivity. */
 function effectiveStaff(state: GameState, staff: Staff | undefined): number {
@@ -96,7 +101,7 @@ function materialsPerUnit(
   line: ProductLine,
 ): Record<Id, number> {
   const cfg = state.config.sectors.industry;
-  const factor = 1 + cfg.qualityCostSlope * Math.max(0, line.quality - 50);
+  const factor = materialFactor(cfg, line.quality);
   const out: Record<Id, number> = {};
   for (const [commodityId, perUnit] of Object.entries(cfg.recipe))
     out[commodityId] = perUnit * factor;
@@ -134,7 +139,7 @@ function updateQuality(state: GameState, company: Company, line: ProductLine): v
       : engineers > 0
         ? q.maxEngineerRatio
         : 0;
-  const lines = sites.flatMap((s) => Object.values(s.lines));
+  const lines = sites.flatMap(producingLines);
   const capacity = sum(lines.map((l) => l.capacity));
   const techLevel =
     capacity > 0
@@ -240,7 +245,7 @@ function produce(ctx: TurnContext, company: Company): void {
     lot.qty = qty;
   }
 
-  const lines = operationalSites(company).flatMap((s) => Object.values(s.lines));
+  const lines = operationalSites(company).flatMap(producingLines);
   ledger.other += lines.length * cfg.line.maintenanceCost * state.macro.priceLevel;
   for (const l of lines) l.age += 1;
   company.cumulativeOutput += total;

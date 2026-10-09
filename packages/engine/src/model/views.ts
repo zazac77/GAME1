@@ -46,6 +46,8 @@ export interface PlayerCosts {
   /** Cash a disposal would bring, by line id and by site id. */
   saleValue: Record<Id, Money>;
   rnd: Record<RndType, RndQuote>;
+  /** Agri: price of a farm and farmland still for sale (hectares), by region. */
+  farms?: { buy: Record<Id, Money>; landLeft: Record<Id, number>; hectares: number };
 }
 
 /** What the UI shows: the player's Observation plus journal, history and alerts. */

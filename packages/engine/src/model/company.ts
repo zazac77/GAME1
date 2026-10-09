@@ -32,7 +32,8 @@ export interface ProductionLine {
 
 export interface Site {
   id: Id;
-  kind: 'factory';
+  /** A factory holds production lines; a farm (agri) holds land and no line. */
+  kind: 'factory' | 'farm';
   regionId: Id;
   status: AssetStatus;
   /** Quarter at which construction completes (under_construction only). */
@@ -44,6 +45,10 @@ export interface Site {
   buildingDepreciationPerQuarter: Money;
   /** Units the site can store. */
   warehouseCapacity: number;
+  /** Farmland of a farm. */
+  hectares?: number;
+  /** Part of the building book value that is land (never depreciated). */
+  landValue?: Money;
 }
 
 export interface TrainingBatch {
@@ -99,6 +104,8 @@ export interface ProductLine {
   price: Money;
   /** Product R&D level (0..rnd.maxLevel, fractional with obsolescence): raises the reachable quality. */
   techLevel?: number;
+  /** Shelf presence won by retail listing fees (0..1), in sectors with listing. */
+  distribution?: number;
   users?: number;
 }
 

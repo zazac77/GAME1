@@ -534,3 +534,66 @@ Mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50).
 
 Limite connue : en mode passif, si le joueur et le low-cost font faillite,
 le duopole restant peut dépasser 60 % (1 partie sur 50, 74 %).
+
+## 17. Choix d'implémentation (lot 2.1 : agroalimentaire)
+
+- **Secteurs « à usines »** : industrie et agro partagent le même modèle
+  (usines, lignes, opérateurs, recette, qualité, R&D), dans `sectors/plant/`,
+  paramétré par `sectors.<secteur>` (même schéma zod). L'agro y ajoute ses
+  propres blocs (`farm`, `weather`, `listing`, `startingFarms`). La section
+  `sectors.agri` est facultative : une ancienne sauvegarde continue sans agro.
+- **Monde** : 3 IA par secteur (`scenario.aiCompetitors[].sector`). Les IA du
+  secteur du joueur tournent sur les régions autres que la sienne, celles des
+  autres secteurs sur toutes les régions. Le joueur peut déjà démarrer en agro
+  (`scenario.playerSector`) ; l'écran de choix arrive au lot 2.5.
+- **Saisons** : récolte en T3 (`farm.harvestSeason`) ; céréales et oléagineux
+  moins chers après la récolte, lait bon marché au printemps (`seasonality`) ;
+  demande alimentaire plus forte en T4.
+- **Météo régionale** (étape 2, système `weather`) :
+  `ln w = ρ·ln w_prev + σ·(√c·ε_commun + √(1−c)·ε_région)`, bornée. Le
+  rendement d'une région vaut `w × modificateurs agri.yield` (sécheresse
+  `ev_drought` : ×0,6). Le prix des cultures suit la récolte nationale
+  (moyenne pondérée par les terres) : `P × rendement_national^(−weatherSensitivity)`.
+- **Terres limitées et fermes** : `farm.landByRegion` hectares par région,
+  achetables par ferme de `farm.hectares` (ordre `buy_farm`, une mise en
+  culture d'un trimestre, au plus `farm.maxFarms`). Récolte =
+  `ha × rendement × w × min(1, ouvriers/cible) × (1 + bonus × min(1, agronomes/cible))`,
+  entrée en stock de céréales au coût de l'engrais épandu (les salaires sont
+  des charges de la période). La terre n'est pas amortie (`Site.landValue`)
+  et se revend avec une décote de 10 %.
+- **Périssabilité** (étape 8b, système `perishability`) : en fin de
+  trimestre, chaque stock perd `perishRate` (matières : lait 60 %, céréales
+  2 %) ou `finishedGoodsPerishRate` (produits alimentaires : 10 %). La valeur
+  perdue passe en coût des ventes.
+- **Référencement** : `distribution ∈ [0, 1]` par ligne de produit, terme
+  `βd · distribution` dans le logit (βd = 3 pour l'alimentaire, 0 pour
+  l'électroménager). `d' = d·(1−δ) + (1 − d·(1−δ))·(1 − exp(−frais / (unité × niveau des prix)))`.
+  Les frais (décision `listing`) sont une charge commerciale, comptée avec le
+  marketing. L'IA paie ce qu'il faut pour revenir à
+  `ai.listing.targetDistribution`, dans la limite d'une part du CA.
+- **Métiers et matières** : ouvrier agricole, opérateur agroalimentaire,
+  technicien qualité, agronome ; commercial et cadre restent transversaux
+  (viviers agrandis). Céréales, oléagineux, lait, emballages, engrais (non
+  stockable, acheté à la récolte) ; l'énergie est partagée.
+- **IA agro** : mêmes profils, ajustés par `ai.sectorProfiles.agri` (marges
+  plus fines : low-cost +2 %, opportuniste +8 %, premium +15 %).
+
+Équilibrage mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50,
+joueur industriel en pilote automatique) :
+
+| Indicateur (50 parties) | Cible | Résultat |
+|---|---|---|
+| Marge nette médiane agro | 3–8 % | 5,8 % (low-cost 3,1 %, opportuniste 6,3 %, premium 6,5 %) |
+| Marge nette médiane industrie | 4–10 % | 7,7 % |
+| Faillite des IA industrie / agro | 5–20 % | 6,7 % / 0 % |
+| Part de marché max (tous marchés) | < 60 % | 49,1 % |
+| Volatilité des matières / des cours | 5–15 % / 8–20 % | 12,3 % / 14,7 % |
+| Joueur passif 1er (de son secteur) | jamais | 0/50 |
+| Joueur « premium » en tête | 12–20 tours | 23/50 parties, tour 17 en médiane |
+
+Limite connue, pour le lot 2.5 : aucune IA agro ne fait faillite (même un
+low-cost sans marge reste solvable : secteur peu capitalistique, peu
+endetté). Le taux global de faillite des IA tombe donc à 3,3 %. Le volume de
+base du marché alimentaire est calé pour 3 sociétés ; avec un joueur agro,
+il faudra le recaler.
+

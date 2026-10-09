@@ -9,12 +9,14 @@ import { eventsSystem } from '../systems/events';
 import { financePreSystem } from '../systems/finance';
 import { laborSystem } from '../systems/labor';
 import { macroSystem } from '../systems/macro';
+import { perishabilitySystem } from '../systems/perishability';
 import { productionSystem } from '../systems/production';
 import { productsSystem } from '../systems/products';
 import { reportingSystem } from '../systems/reporting';
 import { rndSystem } from '../systems/rnd';
 import { stockMarketSystem } from '../systems/stockmarket';
 import { filterControlled, validationSystem } from '../systems/validation';
+import { weatherSystem } from '../systems/weather';
 import { buildTurnReport } from '../views/report';
 import { createTurnContext, type TurnContext } from './context';
 import type { System, SystemId } from './system';
@@ -28,12 +30,14 @@ export const PIPELINE: readonly System[] = [
   validationSystem, // 1. bound and normalize every decision
   macroSystem, // 2. cycle, inflation, policy rate
   eventsSystem, // 2. draw events, apply or expire modifiers
+  weatherSystem, // 2. regional weather (crop yields)
   financePreSystem, // 3. loans, repayments (equity, dividends: phase 2)
   capexSystem, // 4. commissioning, construction, disposals
   laborSystem, // 5. dismissals, matching, attrition, training, wages
   commoditiesSystem, // 6. contract deliveries, spot clearing, stocks
   productionSystem, // 7. capacity, output, quality (SectorModule)
-  productsSystem, // 8. demand, logit shares, sales, brand
+  productsSystem, // 8. listing, demand, logit shares, sales, brand
+  perishabilitySystem, // 8. perishable stocks lose a share of their units
   rndSystem, // 9. obsolescence, projects, R&D levels
   accountingSystem, // 10. statements, tax, cash, solvency
   stockMarketSystem, // 11. fundamental, price, orders, registry, index

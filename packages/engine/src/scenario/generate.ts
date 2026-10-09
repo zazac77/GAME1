@@ -1,5 +1,6 @@
 import type { GameConfig } from '../config/schema';
 import { newAiMemory } from '../ai/memory';
+import { profileOf } from '../ai/profiles';
 import { newStaff } from '../core/companies';
 import { newId } from '../core/ids';
 import { laborPoolKey } from '../core/keys';
@@ -8,9 +9,11 @@ import { createRng, seedRng } from '../core/rng';
 import { SCHEMA_VERSION } from '../core/version';
 import type { Actor, Company, ProductionLine, Site, Staff, StockLot } from '../model/company';
 import type { BalanceSheet, Statements } from '../model/finance';
-import type { AiProfileId, GameMode, Id, LaborPoolKey } from '../model/ids';
+import type { AiProfileId, GameMode, Id, LaborPoolKey, SectorId } from '../model/ids';
 import type { CommodityMarket, LaborPool, ProductMarket, Region } from '../model/markets';
 import type { GameState } from '../model/state';
+import { buyFarmCost, farmLandValue, farmlandLeft } from '../sectors/agri/farm';
+import { agriConfigOf, plantConfig } from '../sectors/config';
 import { recordHistory } from '../systems/reporting/history';
 import { COMPANY_NAMES, EXECUTIVE_NAMES } from './names';
 
@@ -29,6 +32,7 @@ export interface NewGameOptions {
 
 interface Participant {
   kind: 'player' | 'ai';
+  sector: SectorId;
   profileId?: AiProfileId;
   regionId: Id;
   actorName: string;
@@ -116,7 +120,7 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
 
   // ---- regions, labor pools (wages first: companies pay them) -------------
   for (const [regionId, r] of Object.entries(config.regions)) {
-    state.regions[regionId] = { id: regionId, ...r } satisfies Region;
+    state.regions[regionId] = { id: regionId, ...r, weather: 1 } satisfies Region;
     for (const [occupationId, occ] of Object.entries(config.labor.occupations)) {
       const marketWage = occ.baseWage * r.wageIndex;
       state.labor[laborPoolKey(regionId, occupationId)] = {
@@ -154,25 +158,35 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
     } satisfies ProductMarket;
   }
 
-  // ---- participants: player first, then AI rotating over the other regions --
-  const otherRegions = Object.keys(config.regions).filter((r) => r !== scenario.playerHqRegionId);
+  // ---- participants: player first, then the AI of each sector rotating over
+  // the regions (the player's sector leaves the player's HQ region aside) ----
+  const allRegions = Object.keys(config.regions);
+  const otherRegions = allRegions.filter((r) => r !== scenario.playerHqRegionId);
   const companyNames = rng.shuffle(COMPANY_NAMES);
   const executiveNames = rng.shuffle(EXECUTIVE_NAMES);
+  const rank: Partial<Record<SectorId, number>> = {};
   const participants: Participant[] = [
     {
       kind: 'player',
+      sector: scenario.playerSector,
       ...(opts.playerProfileId ? { profileId: opts.playerProfileId } : {}),
       regionId: scenario.playerHqRegionId,
       actorName: opts.playerName.trim(),
       companyName: opts.companyName.trim(),
     },
-    ...scenario.aiCompetitors.map((c, i): Participant => ({
-      kind: 'ai',
-      profileId: c.profileId,
-      regionId: otherRegions[i % otherRegions.length] ?? scenario.playerHqRegionId,
-      actorName: pickName(executiveNames, i, 'executive'),
-      companyName: pickName(companyNames, i, 'company'),
-    })),
+    ...scenario.aiCompetitors.map((c, i): Participant => {
+      const r = rank[c.sector] ?? 0;
+      rank[c.sector] = r + 1;
+      const regions = c.sector === scenario.playerSector ? otherRegions : allRegions;
+      return {
+        kind: 'ai',
+        sector: c.sector,
+        profileId: c.profileId,
+        regionId: regions[r % regions.length] ?? scenario.playerHqRegionId,
+        actorName: pickName(executiveNames, i, 'executive'),
+        companyName: pickName(companyNames, i, 'company'),
+      };
+    }),
   ];
 
   for (const p of participants) {
@@ -209,13 +223,27 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
   }
 
   // ---- commodity reference demand = nominal needs of the simulated firms ---
-  const industry = config.sectors.industry;
-  const nominalOutputs = Object.values(state.companies).map((c) => nominalOutput(config, c));
-  for (const [commodityId, perUnit] of Object.entries(industry.recipe)) {
+  // (fertilizer: what the farms spread at a harvest)
+  const refDemand: Record<Id, number> = {};
+  for (const company of Object.values(state.companies)) {
+    const output = nominalOutput(config, company);
+    for (const [commodityId, perUnit] of Object.entries(
+      plantConfig(config, company.sector).recipe,
+    )) {
+      refDemand[commodityId] = (refDemand[commodityId] ?? 0) + output * perUnit;
+    }
+    const farm = agriConfigOf(config, company.sector)?.farm;
+    if (farm) {
+      const hectares = sum(Object.values(company.sites).map((s) => s.hectares ?? 0));
+      refDemand[farm.fertilizerId] =
+        (refDemand[farm.fertilizerId] ?? 0) + hectares * farm.fertilizerPerHectare;
+    }
+  }
+  for (const [commodityId, demand] of Object.entries(refDemand)) {
     const market = state.commodities[commodityId];
     if (!market) continue;
-    market.refDemand = sum(nominalOutputs) * perUnit;
-    market.lastSimDemand = market.refDemand;
+    market.refDemand = demand;
+    market.lastSimDemand = demand;
   }
 
   // ---- stock market index ------------------------------------------------
@@ -237,7 +265,7 @@ function pickName(names: readonly string[], i: number, what: string): string {
 
 /** Units per quarter the company can make with its lines and operators. */
 function nominalOutput(config: GameConfig, company: Company): number {
-  const industry = config.sectors.industry;
+  const industry = plantConfig(config, company.sector);
   const lineCapacity = sum(
     Object.values(company.sites).flatMap((s) => Object.values(s.lines).map((l) => l.capacity)),
   );
@@ -251,11 +279,12 @@ function nominalOutput(config: GameConfig, company: Company): number {
 
 function createCompany(state: GameState, p: Participant, jitter: (x: number) => number): Company {
   const { config } = state;
-  const industry = config.sectors.industry;
+  const industry = plantConfig(config, p.sector);
+  const agri = agriConfigOf(config, p.sector);
   const start = industry.startingCompany;
   const region = state.regions[p.regionId];
   if (!region) throw new Error(`Unknown region ${p.regionId}`);
-  const profile = p.profileId ? config.ai.profiles[p.profileId] : undefined;
+  const profile = p.profileId ? profileOf(config, p.profileId, p.sector) : undefined;
   const market = state.productMarkets[industry.productMarketId];
   if (!market) throw new Error(`Unknown product market ${industry.productMarketId}`);
 
@@ -292,6 +321,31 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
       (industry.factory.buildCost * region.landCostIndex) / industry.factory.depreciationQuarters,
     warehouseCapacity: industry.factory.warehouseCapacity,
   };
+  const sites: Record<Id, Site> = { [siteId]: site };
+
+  // Agri: farms in the HQ region, bought at today's land price (land is not depreciated).
+  for (let i = 0; agri && i < agri.startingFarms; i++) {
+    const F = agri.farm;
+    const taken = sum(Object.values(sites).map((s) => s.hectares ?? 0));
+    if (farmlandLeft(state, region.id) - taken < F.hectares) break;
+    const farmId = newId(state.meta, 'site');
+    const cost = buyFarmCost(F, region.landCostIndex, 1);
+    const landValue = farmLandValue(F, region.landCostIndex, 1);
+    const equipment = cost - landValue;
+    sites[farmId] = {
+      id: farmId,
+      kind: 'farm',
+      regionId: region.id,
+      status: 'operational',
+      lines: {},
+      buildingBookValue:
+        landValue + equipment * Math.max(0, 1 - start.lineAgeQuarters / F.depreciationQuarters),
+      buildingDepreciationPerQuarter: equipment / F.depreciationQuarters,
+      landValue,
+      warehouseCapacity: F.warehouseCapacity,
+      hectares: F.hectares,
+    };
+  }
 
   // Workforce in the HQ region, paid at the market wage (+ profile premium).
   const workforce: Record<string, Staff> = {};
@@ -317,12 +371,12 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
   const company: Company = {
     id: companyId,
     name: p.companyName,
-    sector: config.scenario.playerSector,
+    sector: p.sector,
     hqRegionId: region.id,
     status: 'active',
     listed: true,
     sharesOutstanding: config.stockMarket.sharesOutstanding,
-    sites: { [siteId]: site },
+    sites,
     workforce,
     inventory: {},
     contracts: [],
@@ -334,6 +388,7 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
         qualityTarget: quality,
         price: jitter(market.refPrice * priceIndex),
         techLevel: 0,
+        ...(agri ? { distribution: agri.listing.initial } : {}),
       },
     },
     brand: clamp(jitter(start.brand), 0, 100),

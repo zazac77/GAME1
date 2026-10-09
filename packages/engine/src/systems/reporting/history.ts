@@ -9,6 +9,11 @@ function snapshot(state: GameState): Record<string, number> {
     'macro.demandIndex': state.macro.demandIndex,
     'stock.index': state.stock.index.value,
   };
+  if (state.config.sectors.agri) {
+    for (const region of Object.values(state.regions)) {
+      point[`region.${region.id}.weather`] = region.weather;
+    }
+  }
   for (const [key, pool] of Object.entries(state.labor)) {
     point[`labor.${key}.marketWage`] = pool.marketWage;
   }

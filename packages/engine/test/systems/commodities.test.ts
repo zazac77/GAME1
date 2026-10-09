@@ -11,7 +11,10 @@ const run = (state: GameState, decisions: CompanyDecisions[] = []) =>
 const setup = (overrides = {}) => {
   const state = newGame(4, { scenario: { initialJitter: 0 }, ...overrides });
   const id = playerCompanyId(state);
-  const others = Object.keys(state.companies).filter((c) => c !== id);
+  // The other steel buyers: the industry companies.
+  const others = Object.keys(state.companies).filter(
+    (c) => c !== id && state.companies[c]?.sector === 'industry',
+  );
   // Plenty of cash so that the budget never binds in these tests.
   for (const c of Object.values(state.companies)) c.books.current.balance.cash = 1e9;
   return { state, id, others };

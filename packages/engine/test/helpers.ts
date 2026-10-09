@@ -6,7 +6,9 @@ import { createTurnContext, type TurnContext } from '../src/core/context';
 import { laborPoolKey } from '../src/core/keys';
 import { PIPELINE, runPipeline } from '../src/core/pipeline';
 import type { System, SystemId } from '../src/core/system';
-import { industryModule, mainProductLine } from '../src/sectors/industry';
+import { sectorModule } from '../src/sectors';
+import { plantConfig } from '../src/sectors/config';
+import { mainProductLine } from '../src/sectors/plant';
 import { emptyDecisions } from '../src/systems/validation';
 
 /**
@@ -70,8 +72,9 @@ export function steadyDecisions(state: GameState, companyId: string): CompanyDec
   const company = state.companies[companyId];
   if (!company || !isOperating(company)) return d;
   const { config } = state;
-  const industry = config.sectors.industry;
-  for (const [occupationId, target] of Object.entries(industry.startingCompany.staff)) {
+  const plant = plantConfig(config, company.sector);
+  const module = sectorModule(company.sector);
+  for (const [occupationId, target] of Object.entries(plant.startingCompany.staff)) {
     const key = laborPoolKey(company.hqRegionId, occupationId);
     const pool = state.labor[key];
     if (!pool) continue;
@@ -86,13 +89,15 @@ export function steadyDecisions(state: GameState, companyId: string): CompanyDec
     });
   }
   const line = mainProductLine(state, company);
-  if (!line) return d;
-  const capacity = industryModule.plannedOutput(state, company, undefined);
+  if (!line || !module) return d;
+  const capacity = module.plannedOutput(state, company, undefined);
   const stock = company.inventory[line.id]?.qty ?? 0;
   const output = stock > 0.5 * capacity ? 0.5 * capacity : capacity;
-  const site = Object.keys(company.sites)[0];
+  const site = Object.keys(company.sites)
+    .sort()
+    .find((id) => company.sites[id]?.kind === 'factory');
   if (site) d.production[site] = { targetOutput: output };
-  const perUnit = industryModule.materialsPerUnit(state, company, line);
+  const perUnit = module.materialsPerUnit(state, company, line);
   for (const [commodityId, q] of Object.entries(perUnit)) {
     if (!config.commodities.markets[commodityId]?.storable) continue;
     const need = Math.min(output, capacity) * q * 1.05 - (company.inventory[commodityId]?.qty ?? 0);
@@ -100,6 +105,10 @@ export function steadyDecisions(state: GameState, companyId: string): CompanyDec
   }
   d.pricing[line.id] = { price: line.price * (1 + state.macro.inflation / 4) };
   d.marketing[line.id] = 100_000;
+  const listing = config.sectors.agri?.listing;
+  if (listing && line.distribution !== undefined) {
+    d.listing[line.id] = listing.feeUnit * state.macro.priceLevel;
+  }
   return d;
 }
 

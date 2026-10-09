@@ -4,7 +4,26 @@ import { applyModifiers } from '../../core/modifiers';
 import type { System } from '../../core/system';
 import type { Company, ProductLine } from '../../model/company';
 import type { Id } from '../../model/ids';
+import type { GameState } from '../../model/state';
+import { agriConfigOf, plantConfigOf } from '../../sectors/config';
 import { marketShares } from './logit';
+
+/**
+ * Shelf presence after this quarter's listing fees:
+ * d·(1 − decay) + (1 − d·(1 − decay))·(1 − exp(−fees / (feeUnit × price level))).
+ */
+export function nextDistribution(
+  state: GameState,
+  company: Company,
+  current: number,
+  fees: number,
+): number {
+  const L = agriConfigOf(state.config, company.sector)?.listing;
+  if (!L) return current;
+  const kept = current * (1 - L.decay);
+  const gain = 1 - Math.exp(-Math.max(0, fees) / (L.feeUnit * state.macro.priceLevel));
+  return clamp(kept + (1 - kept) * gain, 0, 1);
+}
 
 interface Seller {
   company: Company;
@@ -16,9 +35,10 @@ interface Seller {
 }
 
 /**
- * Step 8: total demand → logit shares by segment → sales limited by stock →
- * reallocation of unserved demand (with a loss) → revenue, cost of goods
- * sold, logistics, marketing → brand. Reads market.demand.
+ * Step 8: listing fees → shelf presence; total demand → logit shares by
+ * segment → sales limited by stock → reallocation of unserved demand (with a
+ * loss) → revenue, cost of goods sold, logistics, marketing → brand. Reads
+ * market.demand.
  */
 export const productsSystem: System = {
   id: 'products',
@@ -38,6 +58,14 @@ export const productsSystem: System = {
       const spend = sum(Object.values(d?.marketing ?? {}));
       marketingByCompany[company.id] = spend;
       ctx.ledger(company.id).marketing += spend;
+      // Retail listing: fees are a commercial expense, booked with marketing.
+      for (const lineId of Object.keys(company.productLines).sort()) {
+        const line = company.productLines[lineId] as ProductLine;
+        if (line.distribution === undefined) continue;
+        const fees = d?.listing[lineId] ?? 0;
+        line.distribution = nextDistribution(draft, company, line.distribution, fees);
+        ctx.ledger(company.id).marketing += fees;
+      }
     }
 
     const qualitySum: Record<Id, { sum: number; n: number }> = {};
@@ -68,6 +96,7 @@ export const productsSystem: System = {
           quality: s.line.quality,
           brand: s.company.brand,
           marketing: s.marketing,
+          distribution: s.line.distribution ?? 0,
         })),
         ref,
         P.marketingUnit,
@@ -125,7 +154,7 @@ export const productsSystem: System = {
         const logistics = draft.regions[s.company.hqRegionId]?.logisticsCostIndex ?? 1;
         ledger.other +=
           s.sold *
-          config.sectors.industry.logisticsCostPerUnit *
+          (plantConfigOf(config, s.company.sector)?.logisticsCostPerUnit ?? 0) *
           logistics *
           draft.macro.priceLevel;
         volume += s.sold;

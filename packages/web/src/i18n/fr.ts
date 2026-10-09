@@ -146,6 +146,7 @@ export const fr = {
     orders: 'Ordres du trimestre',
     noOrders: 'Aucun investissement ce trimestre.',
     buildSite: 'Construire une usine',
+    buyFarm: 'Acheter une exploitation agricole',
     addLine: 'Ajouter une ligne',
     modernizeLine: 'Moderniser',
     sellLine: 'Vendre la ligne',
@@ -356,15 +357,31 @@ export const fr = {
     occ_engineer: 'Ingénieur méthodes/qualité',
     occ_sales: 'Commercial',
     occ_manager: 'Cadre',
+    occ_farmhand: 'Ouvrier agricole',
+    occ_food_operator: 'Opérateur agroalimentaire',
+    occ_quality_tech: 'Technicien qualité',
+    occ_agronomist: 'Agronome',
   } as Record<string, string>,
   commodities: {
     com_steel: 'Acier',
     com_polymers: 'Polymères',
     com_electronics: 'Composants électroniques',
     com_energy: 'Énergie',
+    com_cereals: 'Céréales',
+    com_oilseeds: 'Oléagineux',
+    com_milk: 'Lait',
+    com_packaging: 'Emballages',
+    com_fertilizer: 'Engrais',
   } as Record<string, string>,
   productMarkets: {
     mkt_appliances: 'Électroménager',
+    mkt_food: 'Produits alimentaires',
+  } as Record<string, string>,
+  sectors: {
+    industry: 'Industrie',
+    agri: 'Agroalimentaire',
+    tech: 'Technologie',
+    holding: 'Holding',
   } as Record<string, string>,
   segments: { price: 'Sensibles au prix', quality: 'Sensibles à la qualité' } as Record<
     string,
@@ -376,6 +393,7 @@ export const fr = {
     ev_component_shortage: 'Pénurie de composants',
     ev_rate_hike: 'Hausse surprise des taux',
     ev_recession: 'Choc récessif',
+    ev_drought: 'Sécheresse',
   } as Record<string, string>,
   modifierKeys: {
     'macro.gdpGrowth': 'croissance',
@@ -388,6 +406,7 @@ export const fr = {
     'commodity.price': 'prix',
     'commodity.supply': 'livraisons',
     'market.demand': 'demande',
+    'agri.yield': 'rendement agricole',
   } satisfies Record<ModifierKey, string>,
   rndTypes: {
     process: 'Procédés',
@@ -572,19 +591,25 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
       const what =
         order === 'build_site'
           ? 'lance la construction d’une usine'
-          : order === 'add_line'
-            ? 'installe une nouvelle ligne'
-            : 'modernise une ligne';
+          : order === 'buy_farm'
+            ? 'achète une exploitation agricole'
+            : order === 'add_line'
+              ? 'installe une nouvelle ligne'
+              : 'modernise une ligne';
       return `${who} ${what} (${fmtMoney(num(d, 'cost'))}).`;
     }
     case 'site_commissioned':
-      return `${who} met en service une nouvelle usine.`;
+      return str(d, 'siteKind') === 'farm'
+        ? `${who} met en culture une nouvelle exploitation.`
+        : `${who} met en service une nouvelle usine.`;
+    case 'harvest':
+      return `${who} récolte ${fmtInt(num(d, 'qty'))} unités de ${commodityName(str(d, 'commodityId')).toLowerCase()} sur ${fmtInt(num(d, 'hectares'))} ha.`;
     case 'line_commissioned':
       return `${who} met en service une nouvelle ligne.`;
     case 'line_modernized':
       return `${who} termine la modernisation d’une ligne.`;
     case 'asset_sold':
-      return `${who} vend ${str(d, 'order') === 'sell_site' ? 'une usine' : 'une ligne'} pour ${fmtMoney(num(d, 'proceeds'))}.`;
+      return `${who} vend ${str(d, 'order') !== 'sell_site' ? 'une ligne' : str(d, 'siteKind') === 'farm' ? 'une exploitation agricole' : 'une usine'} pour ${fmtMoney(num(d, 'proceeds'))}.`;
     case 'rnd_started':
       return `${who} lance un projet de R&D ${fr.rndTypes[str(d, 'type') as RndType]?.toLowerCase() ?? ''}.`;
     case 'rnd_completed':
@@ -611,6 +636,7 @@ export const KNOWN_EVENT_KINDS = [
   'stock_trade',
   'capex_started',
   'site_commissioned',
+  'harvest',
   'line_commissioned',
   'line_modernized',
   'asset_sold',

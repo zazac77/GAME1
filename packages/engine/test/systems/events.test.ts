@@ -67,13 +67,14 @@ describe('modifiers', () => {
 });
 
 describe('events', () => {
-  it('ships the 5 MVP events as data', () => {
+  it('ships the 5 MVP events and the drought as data', () => {
     expect(defaultConfig.events.definitions.map((d) => d.id)).toEqual([
       'ev_strike',
       'ev_energy_crisis',
       'ev_component_shortage',
       'ev_rate_hike',
       'ev_recession',
+      'ev_drought',
     ]);
   });
 

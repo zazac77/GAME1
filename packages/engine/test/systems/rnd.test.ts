@@ -3,7 +3,7 @@ import type { Company, CompanyDecisions, GameState } from '../../src';
 import { defaultDecisions, previewDecisions, resolveTurn } from '../../src';
 import type { DeepPartial, GameConfig } from '../../src/config/schema';
 import { mainProductLine, operatorProductivity } from '../../src/sectors/industry';
-import { rndProjectCost } from '../../src/sectors/industry/rnd';
+import { rndProjectCost } from '../../src/sectors/plant/rnd';
 import { emptyDecisions, normalizeDecisions } from '../../src/systems/validation';
 import { newGame, playerCompanyId, resolveAll, steadyDecisions } from '../helpers';
 

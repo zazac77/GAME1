@@ -12,20 +12,20 @@ import type { System } from '../../core/system';
 import type { Company } from '../../model/company';
 import type { Statements } from '../../model/finance';
 import type { GameState } from '../../model/state';
+import { plantConfigOf } from '../../sectors/config';
 import { rate, trailingAnnual } from '../finance/credit';
 
 /** Storage of stored materials and finished goods; units above the warehouses cost more. */
 export function storageCost(state: GameState, company: Company): number {
   const { config } = state;
+  const finishedGoodsCost = plantConfigOf(config, company.sector)?.finishedGoodsStorageCost ?? 0;
   let units = 0;
   let cost = 0;
   for (const [itemId, lot] of Object.entries(company.inventory)) {
     if (lot.qty <= 0) continue;
     const commodity = config.commodities.markets[itemId];
     units += lot.qty;
-    cost +=
-      lot.qty *
-      (commodity ? commodity.storageCostPerUnit : config.sectors.industry.finishedGoodsStorageCost);
+    cost += lot.qty * (commodity ? commodity.storageCostPerUnit : finishedGoodsCost);
   }
   const capacity = sum(operationalSites(company).map((s) => s.warehouseCapacity));
   const overflowShare = units > capacity && units > 0 ? (units - capacity) / units : 0;
@@ -41,7 +41,11 @@ export function depreciate(company: Company): number {
   let charge = 0;
   for (const site of Object.values(company.sites)) {
     if (site.status !== 'operational') continue;
-    const building = Math.min(site.buildingBookValue, site.buildingDepreciationPerQuarter);
+    // Farmland (landValue) is not depreciated.
+    const building = Math.max(
+      0,
+      Math.min(site.buildingBookValue - (site.landValue ?? 0), site.buildingDepreciationPerQuarter),
+    );
     site.buildingBookValue -= building;
     charge += building;
     for (const line of Object.values(site.lines)) {

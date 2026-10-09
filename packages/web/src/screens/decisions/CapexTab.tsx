@@ -12,6 +12,8 @@ function orderLabel(o: CapexOrder, siteRegion: (siteId: string) => string): stri
   switch (o.kind) {
     case 'build_site':
       return `${t.buildSite} · ${regionName(o.regionId)}`;
+    case 'buy_farm':
+      return `${t.buyFarm} · ${regionName(o.regionId)}`;
     case 'add_line':
       return `${t.addLine} · ${siteRegion(o.siteId)}`;
     case 'modernize_line':

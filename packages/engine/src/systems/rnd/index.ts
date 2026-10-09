@@ -3,12 +3,13 @@ import { operatingCompanies } from '../../core/companies';
 import { newId } from '../../core/ids';
 import type { System } from '../../core/system';
 import type { Company, RndProject } from '../../model/company';
-import { mainProductLine } from '../../sectors/industry';
-import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/industry/rnd';
+import { plantConfigOf } from '../../sectors/config';
+import { mainProductLine } from '../../sectors/plant';
+import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/plant/rnd';
 
 /** Levels fade as the rivals catch up. */
 function obsolescence(ctx: TurnContext, company: Company): void {
-  const decay = ctx.config.sectors.industry.rnd.obsolescencePerQuarter;
+  const decay = plantConfigOf(ctx.config, company.sector)?.rnd.obsolescencePerQuarter ?? 0;
   company.processLevel = Math.max(0, company.processLevel - decay);
   for (const line of Object.values(company.productLines)) {
     if (line.techLevel !== undefined) line.techLevel = Math.max(0, line.techLevel - decay);
@@ -18,7 +19,8 @@ function obsolescence(ctx: TurnContext, company: Company): void {
 /** Starts the projects funded for the first time, at the start-of-quarter levels and prices. */
 function start(ctx: TurnContext, company: Company): void {
   const { draft, config, turn } = ctx;
-  const cfg = config.sectors.industry;
+  const cfg = plantConfigOf(config, company.sector);
+  if (!cfg) return;
   const line = mainProductLine(draft, company);
   for (const order of ctx.decisions[company.id]?.rnd ?? []) {
     if (company.rnd.some((p) => p.type === order.type)) continue;
@@ -47,7 +49,8 @@ function start(ctx: TurnContext, company: Company): void {
 /** Spends the quarter's budgets, moves the projects forward and completes them. */
 function advance(ctx: TurnContext, company: Company): void {
   const { config, rng } = ctx;
-  const cfg = config.sectors.industry;
+  const cfg = plantConfigOf(config, company.sector);
+  if (!cfg) return;
   const ledger = ctx.ledger(company.id);
   for (const order of ctx.decisions[company.id]?.rnd ?? []) {
     const project = company.rnd.find((p) => p.type === order.type);
@@ -65,7 +68,8 @@ function advance(ctx: TurnContext, company: Company): void {
 }
 
 function complete(ctx: TurnContext, company: Company, project: RndProject): void {
-  const R = ctx.config.sectors.industry.rnd;
+  const R = plantConfigOf(ctx.config, company.sector)?.rnd;
+  if (!R) return;
   let level: number;
   if (project.type === 'process') {
     company.processLevel = Math.min(R.maxLevel, company.processLevel + 1);
@@ -89,7 +93,7 @@ function complete(ctx: TurnContext, company: Company, project: RndProject): void
  * validation quoted them), the R&D levels fade (obsolescence), then the
  * quarter's budgets (an operating expense) move the projects forward with
  * some uncertainty. A completed project adds one level, effective from the
- * next quarter (productivity and reachable quality, sectors/industry/rnd.ts).
+ * next quarter (productivity and reachable quality, sectors/plant/rnd.ts).
  */
 export const rndSystem: System = {
   id: 'rnd',

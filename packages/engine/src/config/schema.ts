@@ -27,6 +27,7 @@ export const MODIFIER_KEYS = [
   'commodity.price', // mul, world price used for clearing (commodity)
   'commodity.supply', // mul, share of contracts and spot orders delivered (commodity)
   'market.demand', // mul, total demand of a product market (market)
+  'agri.yield', // mul, crop yield of the farms (region)
 ] as const;
 
 const sectorId = z.enum(SECTOR_IDS);
@@ -183,6 +184,13 @@ const commodityMarketSchema = z.strictObject({
   storable: z.boolean(),
   /** Storage cost per unit and per quarter. */
   storageCostPerUnit: nonNeg,
+  /** Share of the stored units lost each quarter (perishable goods). */
+  perishRate: share,
+  /**
+   * Crops: the clearing price is multiplied by (national yield index)^(−weatherSensitivity),
+   * so that a bad harvest raises the price for everyone.
+   */
+  weatherSensitivity: nonNeg,
 });
 
 const commoditiesSchema = z.strictObject({
@@ -213,6 +221,8 @@ const segmentSchema = z.strictObject({
   betaQuality: nonNeg,
   betaBrand: nonNeg,
   betaMarketing: nonNeg,
+  /** βd: weight of the shelf presence (distribution 0..1) of the product. */
+  betaDistribution: nonNeg,
   /** U_0: utility of the outside option (imports, not buying). */
   outsideUtility: z.number(),
 });
@@ -254,7 +264,8 @@ const rndTypeSchema = z.strictObject({
   productivityPerLevel: nonNeg,
 });
 
-const industrySchema = z.strictObject({
+/** Sectors that make goods in factories with production lines (industry, agri). */
+const plantSectorSchema = z.strictObject({
   productMarketId: id,
   /** Commodity units consumed per unit produced. */
   recipe: z.record(id, pos),
@@ -337,6 +348,8 @@ const industrySchema = z.strictObject({
   logisticsCostPerUnit: nonNeg,
   /** Storage cost of a finished unit per quarter. */
   finishedGoodsStorageCost: nonNeg,
+  /** Share of the finished goods in stock lost at the end of each quarter (perishables). */
+  finishedGoodsPerishRate: share,
   /** Resale discount on specific assets (on their book value). */
   assetResaleDiscount: share,
   startingCompany: z.strictObject({
@@ -350,6 +363,76 @@ const industrySchema = z.strictObject({
     brand: z.number().min(0).max(100),
     employerBrand: z.number().min(0).max(100),
   }),
+});
+
+const industrySchema = plantSectorSchema;
+
+/** Agrifood: a plant sector with farms, regional weather and retail listing. */
+const agriSchema = plantSectorSchema.extend({
+  /**
+   * Own farms (upstream integration). Farmland is limited by region; a farm
+   * harvests its crop once a year: hectares × yieldPerHectare × regional
+   * yield index (weather, drought) × staffing factor × (1 + agronomist bonus).
+   */
+  farm: z.strictObject({
+    /** Storable commodity harvested (it feeds the plants like a bought one). */
+    cropId: id,
+    /** Season (0..3) of the harvest. */
+    harvestSeason: z.number().int().min(0).max(3),
+    /** Hectares of a farm. */
+    hectares: pos,
+    /** Crop units per hectare and per harvest, at a yield index of 1. */
+    yieldPerHectare: pos,
+    /** Price of a hectare, before the regional land cost index. */
+    landCostPerHectare: pos,
+    /** Equipment and buildings of a farm (depreciated; the land is not). */
+    equipmentCost: nonNeg,
+    depreciationQuarters: posInt,
+    /** A bought farm is set up during this many quarters. */
+    setupQuarters: posInt,
+    /** Resale discount on the book value of a farm (land keeps its value). */
+    resaleDiscount: share,
+    /** Hectares of farmland the simulated firms can own, by region. */
+    landByRegion: z.record(id, nonNeg),
+    maxFarms: posInt,
+    /** Crop storage of a farm (units). */
+    warehouseCapacity: nonNeg,
+    /** Occupation working the fields; the harvest scales with min(1, staff / (hectares × ratio)). */
+    farmhandOccupationId: id,
+    farmhandsPerHectare: pos,
+    /** Experts raising the yield by up to agronomistYieldBonus at their target ratio. */
+    agronomistOccupationId: id,
+    agronomistsPerHectare: pos,
+    agronomistYieldBonus: nonNeg,
+    /** Non-storable input bought at the harvest, per hectare. */
+    fertilizerId: id,
+    fertilizerPerHectare: nonNeg,
+    /** Fixed upkeep of a farm per quarter. */
+    maintenanceCost: nonNeg,
+  }),
+  /**
+   * Regional weather: ln w_r,t = persistence·ln w_r,t−1 + volatility·(√c·ε_common + √(1−c)·ε_r),
+   * bounded; w is the yield index of the region's farms (1 = normal).
+   */
+  weather: z.strictObject({
+    persistence: share,
+    volatility: nonNeg,
+    commonShare: share,
+    min: pos,
+    max: pos,
+  }),
+  /**
+   * Retail listing: distribution_t = d·(1 − decay) + (1 − d·(1 − decay))·(1 − exp(−fees / (feeUnit × price level))).
+   * Listing fees are a commercial expense (booked with marketing).
+   */
+  listing: z.strictObject({
+    feeUnit: pos,
+    decay: share,
+    /** Distribution of a starting company. */
+    initial: share,
+  }),
+  /** Starting farms of a company, in its HQ region. */
+  startingFarms: nonNegInt,
 });
 
 const ratingSchema = z.strictObject({
@@ -461,6 +544,11 @@ const aiProfileSchema = z.strictObject({
 
 const aiSchema = z.strictObject({
   profiles: z.partialRecord(aiProfileId, aiProfileSchema),
+  /** Per-sector adjustments of the profiles (e.g. thinner markups in agrifood). */
+  sectorProfiles: z.partialRecord(
+    sectorId,
+    z.partialRecord(aiProfileId, aiProfileSchema.partial().strict()),
+  ),
   /** Finished-goods coverage aimed at, in quarters of expected sales. */
   targetCoverage: nonNeg,
   /** Weight of the newest observation in the smoothed forecasts (demand, prices). */
@@ -530,6 +618,8 @@ const aiSchema = z.strictObject({
     /** No investment above this net debt / EBITDA. */
     maxLeverage: nonNeg,
   }),
+  /** Retail listing fees: enough to reach targetDistribution next quarter, within a share of revenue. */
+  listing: z.strictObject({ targetDistribution: share, maxShareOfRevenue: share }),
   finance: z.strictObject({
     /** Cash buffer aimed at, in quarters of cash costs. */
     cashBufferQuarters: nonNeg,
@@ -585,11 +675,15 @@ const eventsSchema = z.strictObject({
 const scenarioSchema = z.strictObject({
   playerSector: sectorId,
   playerHqRegionId: id,
-  /** One entry per AI competitor; their HQs rotate over the other regions. */
+  /**
+   * One entry per AI competitor (3 to 6 per sector); the HQs of a sector's
+   * competitors rotate over the regions (those of the player's sector skip
+   * the player's HQ region).
+   */
   aiCompetitors: z
-    .array(z.strictObject({ profileId: aiProfileId }))
+    .array(z.strictObject({ profileId: aiProfileId, sector: sectorId }))
     .min(3)
-    .max(6),
+    .max(18),
   /** Relative jitter applied to starting values so that seeds differ. */
   initialJitter: share,
   playerStart: z.strictObject({
@@ -614,7 +708,7 @@ export const gameConfigSchema = z
     labor: laborSchema,
     commodities: commoditiesSchema,
     products: productsSchema,
-    sectors: z.strictObject({ industry: industrySchema }),
+    sectors: z.strictObject({ industry: industrySchema, agri: agriSchema.optional() }),
     finance: financeSchema,
     stockMarket: stockMarketSchema,
     ai: aiSchema,
@@ -636,38 +730,86 @@ export const gameConfigSchema = z
       }
     });
 
-    const industry = cfg.sectors.industry;
-    if (!(industry.productMarketId in cfg.products.markets)) {
-      issue(['sectors', 'industry', 'productMarketId'], 'unknown product market');
-    }
-    for (const commodityId of Object.keys(industry.recipe)) {
-      if (!(commodityId in cfg.commodities.markets)) {
-        issue(['sectors', 'industry', 'recipe', commodityId], 'unknown commodity');
+    const plants: [SectorId, PlantSectorConfig][] = [['industry', cfg.sectors.industry]];
+    if (cfg.sectors.agri) plants.push(['agri', cfg.sectors.agri]);
+    const occupationRefs: [(string | number)[], string][] = [];
+    for (const [sector, plant] of plants) {
+      const at = (...path: (string | number)[]) => ['sectors', sector, ...path];
+      const market = cfg.products.markets[plant.productMarketId];
+      if (!market) issue(at('productMarketId'), 'unknown product market');
+      else if (market.sectorId !== sector) issue(at('productMarketId'), 'market of another sector');
+      for (const commodityId of Object.keys(plant.recipe)) {
+        if (!(commodityId in cfg.commodities.markets)) {
+          issue(at('recipe', commodityId), 'unknown commodity');
+        }
+      }
+      occupationRefs.push(
+        [at('operatorOccupationId'), plant.operatorOccupationId],
+        [at('quality', 'engineerOccupationId'), plant.quality.engineerOccupationId],
+        ...Object.keys(plant.supportRatios).map((o): [(string | number)[], string] => [
+          at('supportRatios', o),
+          o,
+        ]),
+        ...Object.keys(plant.startingCompany.staff).map((o): [(string | number)[], string] => [
+          at('startingCompany', 'staff', o),
+          o,
+        ]),
+      );
+      if (!plant.supportRatios[plant.quality.engineerOccupationId]) {
+        issue(at('supportRatios'), 'needs a ratio for the engineer occupation');
+      }
+      if (plant.startingCompany.lines > plant.factory.maxLines) {
+        issue(at('startingCompany', 'lines'), 'exceeds factory.maxLines');
+      }
+      if (plant.line.initialTechLevel > plant.line.maxTechLevel) {
+        issue(at('line', 'maxTechLevel'), 'below initialTechLevel');
       }
     }
-    const occupationRefs: [(string | number)[], string][] = [
-      [['sectors', 'industry', 'operatorOccupationId'], industry.operatorOccupationId],
-      [
-        ['sectors', 'industry', 'quality', 'engineerOccupationId'],
-        industry.quality.engineerOccupationId,
-      ],
-      ...Object.keys(industry.supportRatios).map((o): [string[], string] => [
-        ['sectors', 'industry', 'supportRatios', o],
-        o,
-      ]),
-      ...Object.keys(industry.startingCompany.staff).map((o): [string[], string] => [
-        ['sectors', 'industry', 'startingCompany', 'staff', o],
-        o,
-      ]),
-    ];
+    const agri = cfg.sectors.agri;
+    if (agri) {
+      const farm = agri.farm;
+      const crop = cfg.commodities.markets[farm.cropId];
+      if (!crop?.storable)
+        issue(['sectors', 'agri', 'farm', 'cropId'], 'needs a storable commodity');
+      const fertilizer = cfg.commodities.markets[farm.fertilizerId];
+      if (!fertilizer || fertilizer.storable) {
+        issue(['sectors', 'agri', 'farm', 'fertilizerId'], 'needs a non-storable commodity');
+      }
+      occupationRefs.push(
+        [['sectors', 'agri', 'farm', 'farmhandOccupationId'], farm.farmhandOccupationId],
+        [['sectors', 'agri', 'farm', 'agronomistOccupationId'], farm.agronomistOccupationId],
+      );
+      for (const regionId of Object.keys(farm.landByRegion)) {
+        if (!(regionId in cfg.regions)) {
+          issue(['sectors', 'agri', 'farm', 'landByRegion', regionId], 'unknown region');
+        }
+      }
+      if (agri.weather.min > agri.weather.max) issue(['sectors', 'agri', 'weather'], 'min > max');
+    }
     for (const [path, occupationId] of occupationRefs) {
       if (!(occupationId in cfg.labor.occupations)) issue(path, 'unknown occupation');
     }
-    if (!industry.supportRatios[industry.quality.engineerOccupationId]) {
-      issue(['sectors', 'industry', 'supportRatios'], 'needs a ratio for the engineer occupation');
-    }
-    if (industry.startingCompany.lines > industry.factory.maxLines) {
-      issue(['sectors', 'industry', 'startingCompany', 'lines'], 'exceeds factory.maxLines');
+
+    // Every sector in play needs its configuration and its stock market multiples.
+    const inPlay = new Set<SectorId>([
+      cfg.scenario.playerSector,
+      ...cfg.scenario.aiCompetitors.map((c) => c.sector),
+    ]);
+    for (const sector of inPlay) {
+      if (!plants.some(([s]) => s === sector)) {
+        issue(['sectors', sector], 'sector in play without configuration');
+      }
+      if (!cfg.stockMarket.sectorMultiples[sector]) {
+        issue(['stockMarket', 'sectorMultiples', sector], 'missing multiple for a sector in play');
+      }
+      if (!cfg.stockMarket.fundamental.salesMultiples[sector]) {
+        issue(
+          ['stockMarket', 'fundamental', 'salesMultiples', sector],
+          'missing multiple for a sector in play',
+        );
+      }
+      const rivals = cfg.scenario.aiCompetitors.filter((c) => c.sector === sector).length;
+      if (rivals > 6) issue(['scenario', 'aiCompetitors'], `more than 6 competitors in ${sector}`);
     }
 
     for (const [marketId, market] of Object.entries(cfg.products.markets)) {
@@ -709,18 +851,6 @@ export const gameConfigSchema = z
       }
     });
 
-    if (!cfg.stockMarket.sectorMultiples[cfg.scenario.playerSector]) {
-      issue(['stockMarket', 'sectorMultiples'], 'missing multiple for the player sector');
-    }
-    if (!cfg.stockMarket.fundamental.salesMultiples[cfg.scenario.playerSector]) {
-      issue(
-        ['stockMarket', 'fundamental', 'salesMultiples'],
-        'missing multiple for the player sector',
-      );
-    }
-    if (industry.line.initialTechLevel > industry.line.maxTechLevel) {
-      issue(['sectors', 'industry', 'line', 'maxTechLevel'], 'below initialTechLevel');
-    }
     if (cfg.ai.hr.fireTo > cfg.ai.hr.fireAbove) issue(['ai', 'hr'], 'fireTo > fireAbove');
   });
 
@@ -731,6 +861,8 @@ export type AiProfileId = (typeof AI_PROFILE_IDS)[number];
 export type MacroRegime = (typeof MACRO_REGIMES)[number];
 export type CreditRating = (typeof CREDIT_RATINGS)[number];
 export type AiProfileConfig = z.infer<typeof aiProfileSchema>;
+export type PlantSectorConfig = z.infer<typeof plantSectorSchema>;
+export type AgriConfig = z.infer<typeof agriSchema>;
 export type EventDefinition = z.infer<typeof eventDefinitionSchema>;
 export type ModifierKey = (typeof MODIFIER_KEYS)[number];
 

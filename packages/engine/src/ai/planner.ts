@@ -1,4 +1,5 @@
 import { emptyDecisions } from '../core/decisions';
+import { plantConfigOf } from '../sectors/config';
 import type { Rng } from '../core/rng';
 import type { AiMemory, Observation } from '../model/ai';
 import type { ProductLine } from '../model/company';
@@ -7,6 +8,7 @@ import { capex } from './modules/capex';
 import { marketingAndFinance } from './modules/finance';
 import { forecast } from './modules/forecast';
 import { hiring } from './modules/hiring';
+import { listing } from './modules/listing';
 import type { Plan, PlanSignal } from './modules/plan';
 import { pricing } from './modules/pricing';
 import { production } from './modules/production';
@@ -17,7 +19,7 @@ export type { PlanSignal } from './modules/plan';
 
 /**
  * Plans the decisions of one company from its Observation only (never the
- * GameState) and the actor's memory: forecast → production → HR → price →
+ * GameState) and the actor's memory: forecast → production → HR → listing → price →
  * purchasing → capex → marketing, R&D and finance. Heuristics with a little
  * randomness (price war ripostes), no optimizer. The decisions then go
  * through the same validation as the player's. Pure: returns a new memory.
@@ -30,7 +32,7 @@ export function planDecisions(
   const decisions = emptyDecisions(obs.companyId);
   const nextMemory = structuredClone(memory);
   const company = obs.self.company;
-  const marketId = obs.config.sectors.industry.productMarketId;
+  const marketId = plantConfigOf(obs.config, company.sector)?.productMarketId ?? '';
   const line = Object.keys(company.productLines)
     .sort()
     .map((id) => company.productLines[id] as ProductLine)
@@ -41,7 +43,7 @@ export function planDecisions(
   const plan: Plan = {
     obs,
     config: obs.config,
-    profile: profileOf(obs.config, obs.profileId),
+    profile: profileOf(obs.config, obs.profileId, company.sector),
     memory: nextMemory,
     rng,
     company,
@@ -58,11 +60,13 @@ export function planDecisions(
     quarterlyCashCosts: 0,
     price: line.price,
     expectedSales: 0,
+    listingFees: 0,
     spend: { discretionary: 0, capex: 0, other: 0 },
   };
   forecast(plan);
   production(plan);
   hiring(plan);
+  listing(plan);
   pricing(plan);
   purchasing(plan);
   capex(plan);

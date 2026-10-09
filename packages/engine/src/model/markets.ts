@@ -22,6 +22,8 @@ export interface Region {
   wageIndex: number;
   landCostIndex: number;
   logisticsCostIndex: number;
+  /** Weather of the quarter: crop yield index of the region's farms (1 = normal). */
+  weather: number;
 }
 
 export interface LaborPool {
@@ -60,6 +62,7 @@ export interface ConsumerSegment {
   betaQuality: number;
   betaBrand: number;
   betaMarketing: number;
+  betaDistribution: number;
   outsideUtility: number;
 }
 

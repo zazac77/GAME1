@@ -11,7 +11,8 @@ import type { Company } from '../model/company';
 import type { Id, LaborPoolKey } from '../model/ids';
 import type { ProductMarket } from '../model/markets';
 import type { GameState } from '../model/state';
-import { operatorProductivity, siteCapacity, siteCeilings } from '../sectors/industry';
+import { plantConfigOf } from '../sectors/config';
+import { operatorProductivity, siteCapacity, siteCeilings } from '../sectors/plant';
 import { borrowingCapacity } from '../systems/finance/credit';
 import { unemployed } from '../systems/labor/pools';
 import { publishedStatements } from '../systems/stockmarket/fundamental';
@@ -91,7 +92,7 @@ export function observe(state: GameState, actorId: Id): Observation {
 }
 
 function selfView(state: GameState, company: Company): SelfView {
-  const cfg = state.config.sectors.industry;
+  const cfg = plantConfigOf(state.config, company.sector);
   const ceilings = new Map(siteCeilings(state, company).map((c) => [c.site.id, c.ceiling]));
   const sites: SiteView[] = Object.keys(company.sites)
     .sort()
@@ -104,13 +105,13 @@ function selfView(state: GameState, company: Company): SelfView {
         status: site.status,
         operationalLines: producingLines(site).length,
         pendingLines: lines.filter((l) => l.status !== 'operational').length,
-        capacity: siteCapacity(cfg, site),
+        capacity: cfg ? siteCapacity(cfg, site) : 0,
         ceiling: Math.floor(ceilings.get(id) ?? 0),
       };
     });
   const productivity: Record<Id, number> = {};
   for (const regionId of new Set(sites.map((s) => s.regionId))) {
-    productivity[regionId] = operatorProductivity(state, company, regionId);
+    if (cfg) productivity[regionId] = operatorProductivity(state, company, regionId);
   }
   return {
     company,

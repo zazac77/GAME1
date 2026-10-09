@@ -2,6 +2,7 @@ import { SCHEMA_VERSION } from '../../core/version';
 import { migrateV1ToV2 } from './v1-to-v2';
 import { migrateV2ToV3 } from './v2-to-v3';
 import { migrateV3ToV4 } from './v3-to-v4';
+import { migrateV4ToV5 } from './v4-to-v5';
 
 export type RawState = Record<string, unknown>;
 /** Upgrades a raw state by exactly one schema version. */
@@ -12,6 +13,7 @@ export const MIGRATIONS: Readonly<Record<number, Migration>> = {
   1: migrateV1ToV2,
   2: migrateV2ToV3,
   3: migrateV3ToV4,
+  4: migrateV4ToV5,
 };
 
 export function migrateState(

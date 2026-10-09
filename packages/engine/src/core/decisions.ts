@@ -10,6 +10,7 @@ export const emptyDecisions = (companyId: Id): CompanyDecisions => ({
   purchasing: { spot: [], newContracts: [] },
   capex: [],
   marketing: {},
+  listing: {},
   rnd: [],
   finance: {},
   stockOrders: [],

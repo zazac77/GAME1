@@ -2,6 +2,7 @@ import { laborPoolKey } from '../../core/keys';
 import { clamp } from '../../core/math';
 import type { HrDecision } from '../../model/decisions';
 import type { Id } from '../../model/ids';
+import { agriConfigOf, plantConfig } from '../../sectors/config';
 import type { Plan } from './plan';
 
 /**
@@ -30,13 +31,15 @@ function updateWageBoosts(plan: Plan): void {
 /**
  * 4. Human resources: headcounts derived from the production plan (operators
  * from the productivity, support staff from the sector ratios, engineers
- * from the quality aimed at, overhead from the starting structure), hires
+ * from the quality aimed at, overhead from the starting structure, farm
+ * staff from the hectares), hires
  * covering the expected attrition, dismissals beyond a tolerance. Wage offer
  * = market wage × (1 + profile premium + outbidding boost).
  */
 export function hiring(plan: Plan): void {
   const { obs, config, profile, company, memory } = plan;
-  const cfg = config.sectors.industry;
+  const cfg = plantConfig(config, company.sector);
+  const farm = agriConfigOf(config, company.sector)?.farm;
   const L = config.labor;
   updateWageBoosts(plan);
 
@@ -57,6 +60,18 @@ export function hiring(plan: Plan): void {
       (regions[site.regionId] ?? 0) + site.capacity + site.pendingLines * cfg.line.capacity;
   }
   const regionTotal = Object.values(regions).reduce((s, x) => s + x, 0);
+  // Farm staff per hectare (farms in service or set up by next quarter).
+  const hectares: Record<Id, number> = {};
+  const farmRatios: Record<Id, number> = {};
+  if (farm) {
+    farmRatios[farm.farmhandOccupationId] = farm.farmhandsPerHectare;
+    farmRatios[farm.agronomistOccupationId] = farm.agronomistsPerHectare;
+    for (const site of Object.values(company.sites)) {
+      if (site.kind !== 'farm') continue;
+      if (site.status !== 'operational' && (site.completesAt ?? Infinity) > obs.turn + 1) continue;
+      hectares[site.regionId] = (hectares[site.regionId] ?? 0) + (site.hectares ?? 0);
+    }
+  }
   const startOperators = cfg.startingCompany.staff[cfg.operatorOccupationId] ?? 0;
   const q = cfg.quality;
   const producing = Object.values(company.sites)
@@ -84,7 +99,9 @@ export function hiring(plan: Plan): void {
     for (const [occupationId, occupation] of Object.entries(L.occupations)) {
       if (sector === 'holding' || !occupation.sectors.includes(sector)) continue;
       let need: number;
-      if (occupationId === cfg.operatorOccupationId) need = operators;
+      if (farmRatios[occupationId] !== undefined) {
+        need = Math.ceil((hectares[regionId] ?? 0) * farmRatios[occupationId] - 1e-9);
+      } else if (occupationId === cfg.operatorOccupationId) need = operators;
       else if (occupationId === q.engineerOccupationId) {
         need = Math.ceil(operators * (cfg.supportRatios[occupationId] ?? 0) * engineerRatio);
       } else if (cfg.supportRatios[occupationId] !== undefined) {

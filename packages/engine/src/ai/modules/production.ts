@@ -1,4 +1,5 @@
-import { materialFactor } from '../../sectors/industry';
+import { plantConfig } from '../../sectors/config';
+import { materialFactor } from '../../sectors/plant';
 import type { Plan } from './plan';
 
 /** Rivals of the main market that ran out of stock last quarter. */
@@ -14,7 +15,7 @@ export const rivalsOutOfStock = (plan: Plan): boolean =>
  */
 export function production(plan: Plan): void {
   const { obs, config, profile, company, line } = plan;
-  const cfg = config.sectors.industry;
+  const cfg = plantConfig(config, company.sector);
   if (profile.stockoutPremium > 0 && rivalsOutOfStock(plan)) {
     plan.forecast *= 1 + profile.stockoutPremium;
     plan.nextForecast *= 1 + profile.stockoutPremium;

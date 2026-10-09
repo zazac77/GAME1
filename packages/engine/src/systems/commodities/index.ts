@@ -8,9 +8,16 @@ import type { Company } from '../../model/company';
 import type { Id } from '../../model/ids';
 import type { CommodityMarket } from '../../model/markets';
 import { sectorModule } from '../../sectors';
-import { mainProductLine } from '../../sectors/industry';
+import { nationalYield } from '../../sectors/agri/weather';
 
-/** P = P^w · priceModifier · max(minShare, D / D_ref)^η */
+/** Crops: (national yield index)^(−weatherSensitivity); 1 for the other commodities. */
+export function harvestFactor(ctx: TurnContext, commodityId: string): number {
+  const sensitivity = ctx.config.commodities.markets[commodityId]?.weatherSensitivity ?? 0;
+  if (sensitivity === 0) return 1;
+  return Math.max(1e-3, nationalYield(ctx.draft)) ** -sensitivity;
+}
+
+/** P = P^w · priceModifier · harvestFactor · max(minShare, D / D_ref)^η */
 export function clearingPrice(ctx: TurnContext, market: CommodityMarket, demand: number): number {
   const cfg = ctx.config.commodities;
   const eta = cfg.markets[market.id]?.priceImpact ?? 0;
@@ -18,7 +25,12 @@ export function clearingPrice(ctx: TurnContext, market: CommodityMarket, demand:
   const modifier = applyModifiers(ctx.draft.modifiers, 'commodity.price', 1, [
     { kind: 'commodity', id: market.id },
   ]);
-  return market.worldPrice * Math.max(0, modifier) * Math.max(cfg.minDemandShare, ratio) ** eta;
+  return (
+    market.worldPrice *
+    Math.max(0, modifier) *
+    harvestFactor(ctx, market.id) *
+    Math.max(cfg.minDemandShare, ratio) ** eta
+  );
 }
 
 /** Contract price: expected spot + forward premium − volume discount. */
@@ -30,7 +42,13 @@ function contractPrice(ctx: TurnContext, market: CommodityMarket, qtyPerQuarter:
   const modifier = applyModifiers(ctx.draft.modifiers, 'commodity.price', 1, [
     { kind: 'commodity', id: market.id },
   ]);
-  return market.worldPrice * Math.max(0, modifier) * (1 + cfg.forwardPremium) * (1 - discount);
+  return (
+    market.worldPrice *
+    Math.max(0, modifier) *
+    harvestFactor(ctx, market.id) *
+    (1 + cfg.forwardPremium) *
+    (1 - discount)
+  );
 }
 
 const isActive = (turn: number) => (c: Company['contracts'][number]) =>
@@ -47,10 +65,8 @@ function receive(company: Company, commodityId: Id, qty: number, unitPrice: numb
 /** Expected consumption of a non-storable input (bought at consumption, step 7). */
 function plannedNeed(ctx: TurnContext, company: Company, commodityId: Id): number {
   const module = sectorModule(company.sector);
-  const line = mainProductLine(ctx.draft, company);
-  if (!module || !line) return 0;
-  const output = module.plannedOutput(ctx.draft, company, ctx.decisions[company.id]);
-  return output * (module.materialsPerUnit(ctx.draft, company, line)[commodityId] ?? 0);
+  if (!module) return 0;
+  return module.plannedInputs(ctx.draft, company, ctx.decisions[company.id])[commodityId] ?? 0;
 }
 
 /**
@@ -58,6 +74,7 @@ function plannedNeed(ctx: TurnContext, company: Company, commodityId: Id): numbe
  * the price meets their limit) → deliveries into stock. Non-storable inputs
  * clear on the expected consumption and are settled in production. Then the
  * world price moves to next quarter (Ornstein-Uhlenbeck on ln, seasonality).
+ * Crop prices also follow the national harvest (weather, agri.yield).
  * Reads commodity.price and commodity.supply.
  */
 export const commoditiesSystem: System = {

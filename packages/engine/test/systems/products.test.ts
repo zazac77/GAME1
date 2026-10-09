@@ -136,7 +136,7 @@ describe('products: market', () => {
     const out = run(empty);
     const others = (r: typeof base) =>
       Object.keys(state.companies)
-        .filter((c) => c !== id)
+        .filter((c) => c !== id && state.companies[c]?.sector === 'industry')
         .reduce((s, c) => s + r.ctx.ledger(c).unitsSold, 0);
     expect(out.ctx.ledger(id).unitsSold).toBe(0);
     expect(others(out)).toBeGreaterThan(others(base));

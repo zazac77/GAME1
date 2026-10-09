@@ -13,6 +13,11 @@ export function formatSummary(s: Summary, turns: number): string {
     `Volatilité trimestrielle des cours (médiane) : ${pct(s.medianShareVolatility)} (cible 8–20 %)`,
     `Part de marché max : ${pct(s.maxMarketShare)} (médiane des parties ${pct(s.medianMaxMarketShare)} ; cible < 60 %)`,
     `Joueur : 1er (gain de fonds propres) dans ${s.playerFirst}/${s.games} parties, rang médian ${s.medianPlayerRank} ; prend la tête dans ${s.playerLeads}/${s.games} parties, au tour ${Number.isNaN(s.medianPlayerLeadTurn) ? '—' : s.medianPlayerLeadTurn} en médiane (cible : passif jamais 1er, attentif en tête en 12–20 tours)`,
+    'Par secteur :',
+    ...Object.entries(s.bySector).map(
+      ([sector, v]) =>
+        `  ${sector.padEnd(18)} ${String(v.companies).padStart(4)} sociétés, faillite des IA ${pct(v.aiBankruptcyRate).padStart(7)}, marge médiane ${pct(v.medianNetMargin)}`,
+    ),
     'Par profil :',
     ...Object.entries(s.byProfile).map(
       ([p, v]) =>
@@ -28,6 +33,7 @@ export function toCsv(games: readonly GameMetrics[]): string {
     'seed',
     'company',
     'kind',
+    'sector',
     'profile',
     'status',
     'revenue',
@@ -46,6 +52,7 @@ export function toCsv(games: readonly GameMetrics[]): string {
         g.seed,
         c.companyId,
         c.kind,
+        c.sector,
         c.profileId,
         c.status,
         c.revenue.toFixed(0),

@@ -22,6 +22,7 @@ export interface CompanyMetrics {
   companyId: string;
   name: string;
   kind: 'player' | 'ai';
+  sector: string;
   profileId: string;
   status: string;
   revenue: number;
@@ -51,11 +52,11 @@ export interface GameMetrics {
   maxMarketShare: number;
   finalIndex: number;
   playerScore: number;
-  /** Rank of the player by equity gain (final − initial equity) among all companies, 1 = best. */
+  /** Rank of the player by equity gain (final − initial equity) in its sector, 1 = best. */
   playerRank: number;
   /**
-   * First quarter from which the player's equity gain is the highest of all
-   * companies for LEAD_HOLD_QUARTERS quarters in a row (or until the end); null if never.
+   * First quarter from which the player's equity gain is the highest of its
+   * sector for LEAD_HOLD_QUARTERS quarters in a row (or until the end); null if never.
    */
   playerLeadTurn: number | null;
 }
@@ -164,6 +165,7 @@ export function gameMetrics(record: GameRecord): GameMetrics {
       companyId: c.id,
       name: c.name,
       kind: c.id === record.playerCompanyId ? 'player' : 'ai',
+      sector: c.sector,
       profileId: actor?.profileId ?? 'passive',
       status: c.status,
       revenue,
@@ -186,9 +188,11 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     std(logReturns(record.states.slice(1).map((s) => s.commodities[id]?.spotPrice ?? 0))),
   );
   const equity = (s: GameState, id: string) => s.companies[id]?.books.current.balance.equity ?? 0;
-  const ids = Object.keys(first.companies);
-  const gain = (s: GameState, id: string) => equity(s, id) - equity(first, id);
+  // The player is ranked against the companies of its own sector.
   const pid = record.playerCompanyId;
+  const sector = first.companies[pid]?.sector;
+  const ids = Object.keys(first.companies).filter((id) => first.companies[id]?.sector === sector);
+  const gain = (s: GameState, id: string) => equity(s, id) - equity(first, id);
   const ahead = record.states
     .slice(1)
     .map((s) => ids.every((id) => id === pid || gain(s, pid) > gain(s, id)));
@@ -231,6 +235,11 @@ export interface Summary {
   medianShareVolatility: number;
   maxMarketShare: number;
   medianMaxMarketShare: number;
+  /** By sector: bankruptcies of the AI, median net margin of every company. */
+  bySector: Record<
+    string,
+    { companies: number; aiBankruptcyRate: number; medianNetMargin: number }
+  >;
   /** Games the player ends first by equity gain. */
   playerFirst: number;
   medianPlayerRank: number;
@@ -244,11 +253,23 @@ export function summarize(games: readonly GameMetrics[]): Summary {
   const all = games.flatMap((g) => g.companies);
   const aiCount = games.reduce((s, g) => s + g.aiCount, 0);
   const byProfile: Summary['byProfile'] = {};
-  for (const profile of [...new Set(all.map((c) => `${c.kind}:${c.profileId}`))].sort()) {
-    const cs = all.filter((c) => `${c.kind}:${c.profileId}` === profile);
+  const key = (c: CompanyMetrics) => `${c.kind}:${c.sector}:${c.profileId}`;
+  for (const profile of [...new Set(all.map(key))].sort()) {
+    const cs = all.filter((c) => key(c) === profile);
     byProfile[profile] = {
       companies: cs.length,
       bankruptcyRate: cs.filter((c) => c.status === 'bankrupt').length / cs.length,
+      medianNetMargin: median(cs.map((c) => c.netMargin)),
+    };
+  }
+  const bySector: Summary['bySector'] = {};
+  for (const sector of [...new Set(all.map((c) => c.sector))].sort()) {
+    const cs = all.filter((c) => c.sector === sector);
+    const ai = cs.filter((c) => c.kind === 'ai');
+    bySector[sector] = {
+      companies: cs.length,
+      aiBankruptcyRate:
+        ai.length > 0 ? ai.filter((c) => c.status === 'bankrupt').length / ai.length : 0,
       medianNetMargin: median(cs.map((c) => c.netMargin)),
     };
   }
@@ -272,6 +293,7 @@ export function summarize(games: readonly GameMetrics[]): Summary {
     medianPlayerLeadTurn: median(
       games.flatMap((g) => (g.playerLeadTurn === null ? [] : [g.playerLeadTurn])),
     ),
+    bySector,
     byProfile,
   };
 }

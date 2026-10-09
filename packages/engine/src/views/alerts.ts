@@ -4,7 +4,8 @@ import type { Id } from '../model/ids';
 import type { GameState } from '../model/state';
 import type { Alert } from '../model/views';
 import { sectorModule } from '../sectors';
-import { mainProductLine, siteCapacity } from '../sectors/industry';
+import { plantConfig } from '../sectors/config';
+import { mainProductLine, siteCapacity } from '../sectors/plant';
 import { leverage, trailingAnnual } from '../systems/finance/credit';
 
 /**
@@ -28,11 +29,10 @@ export function companyAlerts(state: GameState, companyId: Id): Alert[] {
   const line = mainProductLine(state, company);
 
   if (module && line) {
-    const need = module.plannedOutput(state, company, undefined);
-    const perUnit = module.materialsPerUnit(state, company, line);
-    for (const commodityId of Object.keys(perUnit).sort()) {
+    const needs = module.plannedInputs(state, company, undefined);
+    for (const commodityId of Object.keys(needs).sort()) {
       if (!config.commodities.markets[commodityId]?.storable) continue;
-      const quarterNeed = need * (perUnit[commodityId] ?? 0);
+      const quarterNeed = needs[commodityId] ?? 0;
       if (quarterNeed <= 0) continue;
       const contracted = sum(
         company.contracts
@@ -50,7 +50,7 @@ export function companyAlerts(state: GameState, companyId: Id): Alert[] {
     const sold = (result?.shares[line.id] ?? 0) * (result?.volume ?? 0);
     if (allocated - sold > 0.5) add('stockout', 'warning', { lostUnits: allocated - sold });
     const capacity = sum(
-      operationalSites(company).map((s) => siteCapacity(config.sectors.industry, s)),
+      operationalSites(company).map((s) => siteCapacity(plantConfig(config, company.sector), s)),
     );
     if (capacity > 0 && sold >= A.capacityUtilization * capacity) {
       add('capacity_saturated', 'info', { utilization: sold / capacity });

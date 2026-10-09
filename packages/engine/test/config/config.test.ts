@@ -36,9 +36,9 @@ describe('config', () => {
       resolveConfig({
         scenario: {
           aiCompetitors: [
-            { profileId: 'innovator' },
-            { profileId: 'premium' },
-            { profileId: 'premium' },
+            { profileId: 'innovator', sector: 'industry' },
+            { profileId: 'premium', sector: 'industry' },
+            { profileId: 'premium', sector: 'industry' },
           ],
         },
       }),
@@ -58,5 +58,30 @@ describe('config', () => {
     const parsed = parseConfig(defaultConfig);
     expect(parsed).toEqual(defaultConfig);
     expect(parsed).not.toBe(defaultConfig);
+  });
+
+  it('checks the agrifood references and the sectors in play', () => {
+    expect(() => resolveConfig({ sectors: { agri: { farm: { cropId: 'com_energy' } } } })).toThrow(
+      /storable commodity/,
+    );
+    expect(() =>
+      resolveConfig({ sectors: { agri: { farm: { fertilizerId: 'com_cereals' } } } }),
+    ).toThrow(/non-storable/);
+    expect(() =>
+      resolveConfig({ sectors: { agri: { farm: { landByRegion: { reg_atlantide: 10 } } } } }),
+    ).toThrow(/unknown region/);
+    expect(() =>
+      resolveConfig({ sectors: { agri: { productMarketId: 'mkt_appliances' } } }),
+    ).toThrow(/market of another sector/);
+    const seven = Array.from({ length: 7 }, () => ({
+      profileId: 'premium' as const,
+      sector: 'agri' as const,
+    }));
+    expect(() => resolveConfig({ scenario: { aiCompetitors: seven } })).toThrow(
+      /more than 6 competitors/,
+    );
+    expect(() => resolveConfig({ scenario: { playerSector: 'tech' } })).toThrow(
+      /without configuration/,
+    );
   });
 });

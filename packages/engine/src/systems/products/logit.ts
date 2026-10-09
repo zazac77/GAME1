@@ -5,9 +5,11 @@ export interface Offer {
   quality: number;
   brand: number;
   marketing: number;
+  /** Shelf presence (0..1), in markets where it matters. */
+  distribution?: number;
 }
 
-/** U_ik = −βp·ln(p/ref) + βq·quality + βb·brand + βm·ln(1 + marketing/unit). */
+/** U_ik = −βp·ln(p/ref) + βq·quality + βb·brand + βm·ln(1 + marketing/unit) + βd·distribution. */
 export function utility(
   segment: ConsumerSegment,
   offer: Offer,
@@ -18,7 +20,8 @@ export function utility(
     -segment.betaPrice * Math.log(offer.price / refPrice) +
     segment.betaQuality * offer.quality +
     segment.betaBrand * offer.brand +
-    segment.betaMarketing * Math.log(1 + offer.marketing / marketingUnit)
+    segment.betaMarketing * Math.log(1 + offer.marketing / marketingUnit) +
+    segment.betaDistribution * (offer.distribution ?? 0)
   );
 }
 

@@ -12,8 +12,10 @@ import type {
 } from '../../model/decisions';
 import type { Id } from '../../model/ids';
 import type { GameState } from '../../model/state';
-import { mainProductLine } from '../../sectors/industry';
-import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/industry/rnd';
+import { farmlandLeft, isFarm } from '../../sectors/agri/farm';
+import { agriConfigOf, plantConfigOf } from '../../sectors/config';
+import { mainProductLine } from '../../sectors/plant';
+import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/plant/rnd';
 import { capexOrderCost } from '../capex';
 import { borrowingCapacity } from '../finance/credit';
 
@@ -193,8 +195,18 @@ export function normalizeDecisions(
     else if (budget > 0) out.marketing[lineId] = budget;
   }
 
+  // ---- retail listing (agri) ----------------------------------------------
+  const agri = agriConfigOf(config, company.sector);
+  for (const [lineId, fees] of Object.entries(input.listing ?? {})) {
+    const line = company.productLines[lineId];
+    if (!line) flag(`listing.${lineId}`, 'unknown_id');
+    else if (!agri || line.distribution === undefined) flag(`listing.${lineId}`, 'invalid_value');
+    else if (!isNum(fees) || fees < 0) flag(`listing.${lineId}`, 'invalid_value', fees);
+    else if (fees > 0) out.listing[lineId] = fees;
+  }
+
   // ---- R&D: one project per type at a time, spending capped per quarter ---
-  const ind = config.sectors.industry;
+  const ind = plantConfigOf(config, company.sector);
   const mainLine = mainProductLine(state, company);
   const seenRnd = new Set<RndType>();
   (input.rnd ?? []).forEach((r, i) => {
@@ -209,6 +221,7 @@ export function normalizeDecisions(
       return flag(`${path}.projectId`, 'unknown_id');
     }
     if (seenRnd.has(r.type)) return flag(path, 'duplicate');
+    if (!ind) return flag(path, 'not_available');
     seenRnd.add(r.type);
     if (r.type === 'product' && !mainLine) return flag(path, 'unknown_id');
     if (r.budget === 0) return;
@@ -263,7 +276,9 @@ export function normalizeDecisions(
   // ---- capex: investments paid when ordered, from cash and new debt -----
   const capexBudget = Math.max(0, cash + (out.finance.borrow ?? 0) - (out.finance.repay ?? 0));
   let capexSpent = 0;
-  let siteCount = Object.keys(company.sites).length;
+  let siteCount = Object.values(company.sites).filter((s) => s.kind === 'factory').length;
+  let farmCount = Object.values(company.sites).filter(isFarm).length;
+  const landOrdered: Record<Id, number> = {};
   const lineCount: Record<Id, number> = {};
   for (const [siteId, site] of Object.entries(company.sites)) {
     lineCount[siteId] = Object.keys(site.lines).length;
@@ -277,13 +292,26 @@ export function normalizeDecisions(
     switch (o?.kind) {
       case 'build_site': {
         if (!state.regions[o.regionId]) return flag(path, 'unknown_id');
+        if (!ind) return flag(path, 'not_available');
         if (siteCount >= ind.factory.maxSites) return flag(path, 'limit');
         order = { kind: 'build_site', regionId: o.regionId };
         break;
       }
+      case 'buy_farm': {
+        if (!state.regions[o.regionId]) return flag(path, 'unknown_id');
+        if (!agri) return flag(path, 'not_available');
+        const F = agri.farm;
+        if (farmCount >= F.maxFarms) return flag(path, 'limit');
+        const left = farmlandLeft(state, o.regionId) - (landOrdered[o.regionId] ?? 0);
+        if (left < F.hectares) return flag(path, 'limit');
+        order = { kind: 'buy_farm', regionId: o.regionId };
+        break;
+      }
       case 'add_line': {
-        if (!company.sites[o.siteId]) return flag(path, 'unknown_id');
+        const site = company.sites[o.siteId];
+        if (!site || !ind) return flag(path, 'unknown_id');
         if (soldSites.has(o.siteId)) return flag(path, 'duplicate');
+        if (site.kind !== 'factory') return flag(path, 'invalid_state');
         if ((lineCount[o.siteId] ?? 0) >= ind.factory.maxLines) return flag(path, 'limit');
         order = { kind: 'add_line', siteId: o.siteId };
         break;
@@ -294,7 +322,7 @@ export function normalizeDecisions(
         if (!line) return flag(path, 'unknown_id');
         if (touchedLines.has(o.lineId) || soldSites.has(o.siteId)) return flag(path, 'duplicate');
         if (line.status !== 'operational') return flag(path, 'invalid_state');
-        if (o.kind === 'modernize_line' && line.techLevel >= ind.line.maxTechLevel) {
+        if (o.kind === 'modernize_line' && line.techLevel >= (ind?.line.maxTechLevel ?? 0)) {
           return flag(path, 'limit');
         }
         order = { kind: o.kind, siteId: o.siteId, lineId: o.lineId };
@@ -315,10 +343,14 @@ export function normalizeDecisions(
       default:
         return flag(path, 'invalid_value');
     }
-    const cost = capexOrderCost(state, order);
+    const cost = capexOrderCost(state, company, order);
     if (capexSpent + cost > capexBudget) return flag(path, 'budget', cost, 0);
     capexSpent += cost;
     if (order.kind === 'build_site') siteCount += 1;
+    if (order.kind === 'buy_farm') {
+      farmCount += 1;
+      landOrdered[order.regionId] = (landOrdered[order.regionId] ?? 0) + (agri?.farm.hectares ?? 0);
+    }
     if (order.kind === 'add_line') {
       lineCount[order.siteId] = (lineCount[order.siteId] ?? 0) + 1;
       extendedSites.add(order.siteId);
@@ -380,6 +412,7 @@ export function normalizeDecisions(
   const spending =
     sum(out.purchasing.spot.map(spotCost)) +
     sum(Object.values(out.marketing)) +
+    sum(Object.values(out.listing)) +
     sum(out.rnd.map((r) => r.budget)) +
     sum(out.hr.map((h) => h.hire * wageOf(h) * config.labor.hiringCost)) +
     sum(out.hr.map((h) => (h.train?.count ?? 0) * config.labor.training.costPerPerson));
@@ -398,6 +431,9 @@ export function normalizeDecisions(
     out.purchasing.spot = out.purchasing.spot.filter((o) => o.qty > 0);
     for (const lineId of Object.keys(out.marketing)) {
       out.marketing[lineId] = (out.marketing[lineId] ?? 0) * f;
+    }
+    for (const lineId of Object.keys(out.listing)) {
+      out.listing[lineId] = (out.listing[lineId] ?? 0) * f;
     }
     for (const r of out.rnd) r.budget *= f;
     out.rnd = out.rnd.filter((r) => r.budget > 0);

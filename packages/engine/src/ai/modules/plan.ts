@@ -40,6 +40,8 @@ export interface Plan {
   quarterlyCashCosts: Money;
   price: Money;
   expectedSales: number;
+  /** Retail listing fees of the quarter (agri). */
+  listingFees: Money;
   /** Cash committed by the plan this quarter, by kind (for the finance module). */
   spend: { discretionary: Money; capex: Money; other: Money };
 }

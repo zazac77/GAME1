@@ -8,39 +8,54 @@ describe('world generation', () => {
   const companies = Object.values(state.companies);
   const actors = Object.values(state.actors);
 
-  it('creates the MVP world', () => {
+  it('creates the world: 4 regions, 2 sectors', () => {
     expect(Object.keys(state.regions).sort()).toEqual([
       'reg_capitale',
       'reg_nord',
       'reg_ouest',
       'reg_sud',
     ]);
-    // 4 regions × 5 occupations
-    expect(Object.keys(state.labor)).toHaveLength(20);
+    // 4 regions × 9 occupations (5 in industry, 6 in agri, 2 shared)
+    expect(Object.keys(state.labor)).toHaveLength(36);
     expect(Object.keys(state.commodities).sort()).toEqual([
+      'com_cereals',
       'com_electronics',
       'com_energy',
+      'com_fertilizer',
+      'com_milk',
+      'com_oilseeds',
+      'com_packaging',
       'com_polymers',
       'com_steel',
     ]);
-    expect(Object.keys(state.productMarkets)).toEqual(['mkt_appliances']);
+    expect(Object.keys(state.productMarkets)).toEqual(['mkt_appliances', 'mkt_food']);
+    for (const region of Object.values(state.regions)) expect(region.weather).toBe(1);
     expect(state.meta).toMatchObject({ turn: 0, status: 'running', mode: 'standard', seed: 42 });
   });
 
-  it('creates the player and 3 AI competitors with distinct profiles', () => {
-    expect(actors).toHaveLength(4);
-    expect(companies).toHaveLength(4);
+  it('creates the player and 3 AI competitors with distinct profiles in each sector', () => {
+    expect(actors).toHaveLength(7);
+    expect(companies).toHaveLength(7);
     const player = state.actors[state.meta.playerActorId];
     expect(player).toMatchObject({ kind: 'player', name: 'Alice Martin' });
     expect(state.companies[player?.rootCompanyId ?? '']?.name).toBe('Martin SA');
     const ai = actors.filter((a) => a.kind === 'ai');
-    expect(ai.map((a) => a.profileId).sort()).toEqual(['low_cost', 'opportunist', 'premium']);
+    for (const sector of ['industry', 'agri'] as const) {
+      const profiles = ai
+        .filter((a) => state.companies[a.rootCompanyId]?.sector === sector)
+        .map((a) => a.profileId);
+      expect(profiles.sort()).toEqual(['low_cost', 'opportunist', 'premium']);
+    }
+    expect(player && state.companies[player.rootCompanyId]?.sector).toBe('industry');
     expect(Object.keys(state.aiMemory).sort()).toEqual(ai.map((a) => a.id).sort());
-    expect(new Set(companies.map((c) => c.name)).size).toBe(4);
+    expect(new Set(companies.map((c) => c.name)).size).toBe(7);
   });
 
-  it('spreads headquarters over the 4 regions', () => {
-    expect(new Set(companies.map((c) => c.hqRegionId)).size).toBe(4);
+  it('spreads the headquarters of each sector over the 4 regions', () => {
+    const industry = companies.filter((c) => c.sector === 'industry');
+    expect(new Set(industry.map((c) => c.hqRegionId)).size).toBe(4);
+    const agri = companies.filter((c) => c.sector === 'agri');
+    expect(new Set(agri.map((c) => c.hqRegionId)).size).toBe(3);
     expect(
       state.companies[state.actors[state.meta.playerActorId]?.rootCompanyId ?? '']?.hqRegionId,
     ).toBe('reg_capitale');
@@ -48,9 +63,9 @@ describe('world generation', () => {
 
   it('gives every company a factory, staff, stock and a product line', () => {
     for (const c of companies) {
-      const sites = Object.values(c.sites);
-      expect(sites).toHaveLength(1);
-      expect(Object.keys(sites[0]?.lines ?? {})).toHaveLength(5);
+      const factories = Object.values(c.sites).filter((s) => s.kind === 'factory');
+      expect(factories).toHaveLength(1);
+      expect(Object.keys(factories[0]?.lines ?? {})).toHaveLength(c.sector === 'agri' ? 7 : 5);
       expect(Object.values(c.workforce).every((s) => s.regionId === c.hqRegionId)).toBe(true);
       expect(Object.keys(c.productLines)).toHaveLength(1);
       for (const lot of Object.values(c.inventory)) {
@@ -145,16 +160,16 @@ describe('world generation', () => {
     expect(() => newGame(-3)).toThrow(/Seed/);
   });
 
-  it('supports up to 6 AI competitors', () => {
+  it('supports up to 6 AI competitors per sector', () => {
     const big = newGame(5, {
       scenario: {
         aiCompetitors: [
-          { profileId: 'low_cost' },
-          { profileId: 'premium' },
-          { profileId: 'opportunist' },
-          { profileId: 'low_cost' },
-          { profileId: 'premium' },
-          { profileId: 'opportunist' },
+          { profileId: 'low_cost', sector: 'industry' },
+          { profileId: 'premium', sector: 'industry' },
+          { profileId: 'opportunist', sector: 'industry' },
+          { profileId: 'low_cost', sector: 'industry' },
+          { profileId: 'premium', sector: 'industry' },
+          { profileId: 'opportunist', sector: 'industry' },
         ],
       },
       labor: {

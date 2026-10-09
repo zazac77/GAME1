@@ -1,5 +1,6 @@
 import { sum } from '../../core/math';
-import { addLineCost, buildSiteCost, modernizeLineCost } from '../../sectors/industry/capex';
+import { plantConfig } from '../../sectors/config';
+import { addLineCost, buildSiteCost, modernizeLineCost } from '../../sectors/plant/capex';
 import type { Plan } from './plan';
 
 /** Net debt / trailing annual EBITDA from the own books (Infinity if not covered). */
@@ -21,7 +22,7 @@ export function ownLeverage(plan: Plan): number {
  */
 export function capex(plan: Plan): void {
   const { obs, config, profile, company, memory } = plan;
-  const cfg = config.sectors.industry;
+  const cfg = plantConfig(config, company.sector);
   const A = config.ai.capex;
   const { priceLevel } = obs.macro;
   const lines = Object.values(company.sites).flatMap((s) =>
@@ -46,7 +47,8 @@ export function capex(plan: Plan): void {
   };
 
   if (!pending && utilization > A.expandUtilization && ownLeverage(plan) <= A.maxLeverage) {
-    const site = Object.values(company.sites)
+    const factories = Object.values(company.sites).filter((s) => s.kind === 'factory');
+    const site = factories
       .filter(
         (s) => s.status === 'operational' && Object.keys(s.lines).length < cfg.factory.maxLines,
       )
@@ -57,7 +59,7 @@ export function capex(plan: Plan): void {
     if (site) {
       const cost = addLineCost(cfg, priceLevel);
       if (affordable(cost)) return order({ kind: 'add_line', siteId: site.id }, cost);
-    } else if (Object.keys(company.sites).length < cfg.factory.maxSites) {
+    } else if (factories.length < cfg.factory.maxSites) {
       const land = obs.regions[company.hqRegionId]?.landCostIndex ?? 1;
       const cost = buildSiteCost(cfg, land, priceLevel);
       if (affordable(cost))

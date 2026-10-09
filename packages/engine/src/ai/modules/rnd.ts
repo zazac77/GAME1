@@ -1,5 +1,6 @@
 import type { RndType } from '../../model/company';
-import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/industry/rnd';
+import { plantConfig } from '../../sectors/config';
+import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/plant/rnd';
 import type { Plan } from './plan';
 
 /**
@@ -9,7 +10,7 @@ import type { Plan } from './plan';
  */
 export function rnd(plan: Plan, revenue: number): void {
   const { obs, config, profile, company, line } = plan;
-  const cfg = config.sectors.industry;
+  const cfg = plantConfig(config, company.sector);
   const total = profile.rndShareOfRevenue * revenue;
   if (total <= 0) return;
   const split: Record<RndType, number> = {

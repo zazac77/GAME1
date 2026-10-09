@@ -32,6 +32,8 @@ export interface TurnLedger {
   repaid: Money;
   unitsProduced: number;
   unitsSold: number;
+  /** Finished units thrown away (perishables). */
+  unitsSpoiled: number;
 }
 
 export const emptyLedger = (): TurnLedger => ({
@@ -50,6 +52,7 @@ export const emptyLedger = (): TurnLedger => ({
   repaid: 0,
   unitsProduced: 0,
   unitsSold: 0,
+  unitsSpoiled: 0,
 });
 
 /** Everything a system receives. Systems mutate `draft` in place. */

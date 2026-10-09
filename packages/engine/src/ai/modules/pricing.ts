@@ -1,4 +1,5 @@
 import { clamp } from '../../core/math';
+import { plantConfig } from '../../sectors/config';
 import { rivalsOutOfStock } from './production';
 import type { Plan } from './plan';
 
@@ -62,7 +63,7 @@ function priceWar(plan: Plan): void {
  */
 export function pricing(plan: Plan): void {
   const { obs, config, profile, company, market, line } = plan;
-  const cfg = config.sectors.industry;
+  const cfg = plantConfig(config, company.sector);
   priceWar(plan);
 
   const { priceLevel } = obs.macro;
@@ -87,11 +88,13 @@ export function pricing(plan: Plan): void {
   const lines = obs.self.sites.reduce((s, x) => s + x.operationalLines, 0);
   const maintenance = lines * cfg.line.maintenanceCost * priceLevel;
   const { depreciation, interest } = company.books.current.pnl;
-  const fullCost = plan.variableCost + (wages + maintenance + depreciation + interest) / volume;
+  const fixed = wages + maintenance + depreciation + interest + plan.listingFees;
+  const fullCost = plan.variableCost + fixed / volume;
   const costPrice =
     (fullCost * (1 + profile.priceMarkup)) /
     Math.max(0.5, 1 - profile.marketingShareOfRevenue - profile.rndShareOfRevenue);
-  plan.quarterlyCashCosts = wages + maintenance + interest + plan.variableCost * volume;
+  plan.quarterlyCashCosts =
+    wages + maintenance + interest + plan.listingFees + plan.variableCost * volume;
 
   const rivals = obs.competitors
     .filter((c) => c.status === 'active' || c.status === 'distressed')

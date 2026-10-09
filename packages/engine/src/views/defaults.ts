@@ -5,11 +5,11 @@ import type { CompanyDecisions } from '../model/decisions';
 import type { Id } from '../model/ids';
 import type { GameState } from '../model/state';
 import { sectorModule } from '../sectors';
-import { mainProductLine } from '../sectors/industry';
+import { mainProductLine } from '../sectors/plant';
 
 /**
  * "Same as last quarter": prices, quality aimed at, wages, production
- * targets, marketing and R&D budgets carry over (an R&D budget whose project
+ * targets, marketing, listing and R&D budgets carry over (an R&D budget whose project
  * completed starts the next project of its type); one-shot parts (investments, new
  * contracts, loans, repayments, stock orders, hires, dismissals, trainings)
  * do not. Spot purchases are recomputed to cover the planned output with the
@@ -28,6 +28,7 @@ export function defaultDecisions(state: GameState, companyId: Id): CompanyDecisi
     d.pricing = structuredClone(last.pricing);
     d.production = structuredClone(last.production);
     d.marketing = structuredClone(last.marketing);
+    d.listing = structuredClone(last.listing ?? {});
     d.rnd = last.rnd.map((r) => ({ type: r.type, budget: r.budget }));
     d.hr = last.hr.map((h) => ({
       regionId: h.regionId,
@@ -51,10 +52,9 @@ export function defaultDecisions(state: GameState, companyId: Id): CompanyDecisi
 
   const module = sectorModule(company.sector);
   if (!module || !line) return d;
-  const output = module.plannedOutput(state, company, d);
-  const perUnit = module.materialsPerUnit(state, company, line);
+  const needs = module.plannedInputs(state, company, d);
   const turn = state.meta.turn;
-  for (const commodityId of Object.keys(perUnit).sort()) {
+  for (const commodityId of Object.keys(needs).sort()) {
     if (!state.config.commodities.markets[commodityId]?.storable) continue;
     const contracted = sum(
       company.contracts
@@ -62,7 +62,7 @@ export function defaultDecisions(state: GameState, companyId: Id): CompanyDecisi
         .map((k) => k.qtyPerQuarter),
     );
     const stock = company.inventory[commodityId]?.qty ?? 0;
-    const need = output * (perUnit[commodityId] ?? 0) - stock - contracted;
+    const need = (needs[commodityId] ?? 0) - stock - contracted;
     if (need > 0) d.purchasing.spot.push({ commodityId, qty: need });
   }
   return d;

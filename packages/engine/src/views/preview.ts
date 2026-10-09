@@ -12,11 +12,14 @@ import type { Company, ProductLine } from '../model/company';
 import type { CompanyDecisions } from '../model/decisions';
 import type { GameState } from '../model/state';
 import type { CompanyPreview, DecisionPreview } from '../model/views';
-import { industryModule, mainProductLine, siteCeilings } from '../sectors/industry';
+import { sectorModule } from '../sectors';
+import { plantConfig } from '../sectors/config';
+import { mainProductLine, siteCeilings } from '../sectors/plant';
 import { interestCharge, storageCost } from '../systems/accounting';
 import { capexSystem } from '../systems/capex';
 import { financePreSystem } from '../systems/finance';
 import { unemployed } from '../systems/labor/pools';
+import { nextDistribution } from '../systems/products';
 import { marketShares } from '../systems/products/logit';
 import { filterControlled, normalizeDecisions } from '../systems/validation';
 
@@ -26,8 +29,9 @@ const season = (state: GameState, marketId: string, turn: number): number =>
 /**
  * Demand addressed to a line this quarter, from what the player knows. After
  * the first quarter: last quarter's demand, seasonally adjusted, moved by the
- * local logit response to the own price and marketing changes (rivals held
- * constant). Before: full logit on the current public offers (no marketing).
+ * local logit response to the own price, marketing and shelf presence
+ * changes (rivals held constant). Before: full logit on the current public
+ * offers (no marketing).
  */
 export function estimateDemand(
   state: GameState,
@@ -35,6 +39,7 @@ export function estimateDemand(
   line: ProductLine,
   price: number,
   marketing: number,
+  listing = 0,
 ): number {
   const market = state.productMarkets[line.marketId];
   const marketCfg = state.config.products.markets[line.marketId];
@@ -42,6 +47,9 @@ export function estimateDemand(
   const P = state.config.products;
   const turn = state.meta.turn;
   const allocated = market.lastResult.allocated[line.id];
+  const shelf = line.distribution ?? 0;
+  const nextShelf =
+    line.distribution === undefined ? 0 : nextDistribution(state, company, shelf, listing);
   if (turn > 0 && allocated !== undefined && market.lastResult.demand > 0) {
     const s = clamp(allocated / market.lastResult.demand, 0, 1);
     const before = company.lastDecisions?.marketing[line.id] ?? company.books.current.pnl.marketing;
@@ -51,7 +59,13 @@ export function estimateDemand(
     const factor = sum(
       market.segments.map(
         (k) =>
-          k.weight * Math.exp((1 - s) * (-k.betaPrice * dPrice + k.betaMarketing * dMarketing)),
+          k.weight *
+          Math.exp(
+            (1 - s) *
+              (-k.betaPrice * dPrice +
+                k.betaMarketing * dMarketing +
+                k.betaDistribution * (nextShelf - shelf)),
+          ),
       ),
     );
     return (
@@ -70,6 +84,7 @@ export function estimateDemand(
           quality: l.quality,
           brand: c.brand,
           marketing: l.id === line.id ? marketing : 0,
+          distribution: l.id === line.id ? nextShelf : (l.distribution ?? 0),
         })),
     );
   const shares = marketShares(market.segments, offers, ref, P.marketingUnit);
@@ -133,7 +148,8 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   // Production within the crew, the lines and the materials at hand.
   const line = mainProductLine(draft, company);
   const outputCeiling = Math.floor(sum(siteCeilings(draft, company).map((c) => c.ceiling)));
-  let plannedOutput = industryModule.plannedOutput(draft, company, d);
+  const module = sectorModule(company.sector);
+  let plannedOutput = module?.plannedOutput(draft, company, d) ?? 0;
   const targetOutput = plannedOutput;
   const materialNeeds: Record<string, number> = {};
   let materials = 0;
@@ -141,7 +157,16 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   if (line) {
     const qualityTarget = d.pricing[line.id]?.qualityTarget;
     if (qualityTarget !== undefined) line.qualityTarget = qualityTarget;
-    const perUnit = industryModule.materialsPerUnit(draft, company, line);
+    const perUnit = module?.materialsPerUnit(draft, company, line) ?? {};
+    // Inputs the sector consumes on its own (fertilizer at the harvest): bought at consumption.
+    for (const [commodityId, qty] of Object.entries(
+      module?.plannedInputs(draft, company, d) ?? {},
+    )) {
+      const market = draft.commodities[commodityId];
+      if (!market || commodityId in perUnit || qty <= 0) continue;
+      materialNeeds[commodityId] = qty;
+      materials += qty * market.spotPrice * (1 + commodities.spotPremium);
+    }
     for (const [commodityId, q] of Object.entries(perUnit)) {
       const market = draft.commodities[commodityId];
       const spec = commodities.markets[commodityId];
@@ -173,7 +198,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
 
   // Sales.
   const price = line ? (d.pricing[line.id]?.price ?? line.price) : 0;
-  const marketing = sum(Object.values(d.marketing));
+  const marketing = sum(Object.values(d.marketing)) + sum(Object.values(d.listing));
   const rnd = sum(d.rnd.map((r) => r.budget));
   const expectedDemand = line
     ? estimateDemand(
@@ -182,6 +207,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
         line,
         price,
         d.marketing[line.id] ?? 0,
+        d.listing[line.id] ?? 0,
       )
     : 0;
   const lot = line ? company.inventory[line.id] : undefined;
@@ -189,7 +215,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   const expectedRevenue = expectedUnitsSold * price;
   const cogs = expectedUnitsSold * (lot?.avgCost ?? 0);
 
-  const cfg = config.sectors.industry;
+  const cfg = plantConfig(config, company.sector);
   const producing = operationalSites(company).flatMap(producingLines).length;
   const maintenance = producing * cfg.line.maintenanceCost * priceLevel;
   const logistics =

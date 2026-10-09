@@ -7,7 +7,8 @@ import type { GameState } from '../model/state';
 import type { PlayerTurnSummary, ReportedEvent } from '../model/views';
 import type { TurnReport } from '../model/events';
 import { sectorModule } from '../sectors';
-import { mainProductLine } from '../sectors/industry';
+import { agriConfigOf, plantConfigOf } from '../sectors/config';
+import { mainProductLine } from '../sectors/plant';
 import { companyAlerts } from './alerts';
 import { isVisible } from './visibility';
 
@@ -24,7 +25,10 @@ function concerns(state: GameState, companyId: Id, target: ReportedEvent['target
     case 'laborPool':
       return id in company.workforce;
     case 'commodity':
-      return id in state.config.sectors.industry.recipe;
+      return (
+        id in (plantConfigOf(state.config, company.sector)?.recipe ?? {}) ||
+        id === agriConfigOf(state.config, company.sector)?.farm.fertilizerId
+      );
     case 'market':
       return Object.values(company.productLines).some((l) => l.marketId === id);
   }

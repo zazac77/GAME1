@@ -19,6 +19,15 @@ export interface SectorModule {
     decisions: CompanyDecisions | undefined,
   ): number;
   /**
+   * Commodity units the company expects to consume this quarter (planned
+   * output × recipe, plus what the sector consumes on its own, e.g. fertilizer).
+   */
+  plannedInputs(
+    state: GameState,
+    company: Company,
+    decisions: CompanyDecisions | undefined,
+  ): Record<Id, number>;
+  /**
    * Step 7: quality, output, consumption of materials (and of non-storable
    * inputs bought at consumption), finished goods, line aging.
    */

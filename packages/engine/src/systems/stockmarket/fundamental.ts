@@ -3,6 +3,7 @@ import type { Company } from '../../model/company';
 import type { Statements } from '../../model/finance';
 import type { Quarter } from '../../model/ids';
 import type { GameState } from '../../model/state';
+import { plantConfigOf } from '../../sectors/config';
 
 /**
  * Statements the market knows: the closed quarters up to `lastClosed − lag`
@@ -57,7 +58,7 @@ export function fundamentalValue(
   const liquidation =
     b.cash +
     b.inventory * f.inventoryLiquidationShare +
-    b.fixedAssets * (1 - config.sectors.industry.assetResaleDiscount) +
+    b.fixedAssets * (1 - (plantConfigOf(config, company.sector)?.assetResaleDiscount ?? 1)) +
     b.financialAssets -
     b.debt;
   return Math.max(SM.minPrice, Math.max(equity, liquidation) / company.sharesOutstanding);

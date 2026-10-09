@@ -3,6 +3,8 @@ import type { RndType } from './company';
 
 export type CapexOrder =
   | { kind: 'build_site'; regionId: Id }
+  /** Agri: buys a farm (limited farmland per region). */
+  | { kind: 'buy_farm'; regionId: Id }
   | { kind: 'add_line'; siteId: Id }
   | { kind: 'modernize_line'; siteId: Id; lineId: Id }
   | { kind: 'sell_line'; siteId: Id; lineId: Id }
@@ -48,6 +50,8 @@ export interface CompanyDecisions {
   capex: CapexOrder[];
   /** Marketing budget by product line. */
   marketing: Record<Id, Money>;
+  /** Retail listing fees by product line (sectors with listing). */
+  listing: Record<Id, Money>;
   /**
    * Budget of the quarter by R&D project. Without projectId, funds the
    * project of that type in progress, or starts one.

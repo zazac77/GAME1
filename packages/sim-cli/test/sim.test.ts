@@ -34,7 +34,7 @@ describe('sim-cli', () => {
       expect(profile.bankruptcyRate).toBeLessThan(0.5);
     }
     expect(formatSummary(summary, 40)).toContain('50 × 40');
-    expect(toCsv(games).trim().split('\n')).toHaveLength(1 + 50 * 4);
+    expect(toCsv(games).trim().split('\n')).toHaveLength(1 + 50 * 7);
   }, 120_000);
 
   it('a passive player (same decisions every quarter) does not win', () => {

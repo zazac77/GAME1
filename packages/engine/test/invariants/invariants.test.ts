@@ -5,7 +5,10 @@ import { defaultConfig } from '../../src/config/default';
 import { fixedAssetValue, isOperating, trainees } from '../../src/core/companies';
 import { laborPoolKey } from '../../src/core/keys';
 import { sum } from '../../src/core/math';
-import { industryModule, mainProductLine } from '../../src/sectors/industry';
+import { sectorModule } from '../../src/sectors';
+import { farmlandLeft } from '../../src/sectors/agri/farm';
+import { plantConfig } from '../../src/sectors/config';
+import { mainProductLine } from '../../src/sectors/plant';
 import { unemployed } from '../../src/systems/labor/pools';
 import { emptyDecisions } from '../../src/systems/validation';
 import { resolveTurn } from '../../src';
@@ -20,8 +23,8 @@ const specArb = fc.record({
   priceFactor: fc.double({ min: 0.05, max: 8, noNaN: true }),
   qualityTarget: fc.double({ min: -20, max: 130, noNaN: true }),
   production: fc.option(fc.double({ min: 0, max: 60000, noNaN: true })),
-  hires: fc.array(fc.nat(300), { minLength: 5, maxLength: 5 }),
-  fires: fc.array(fc.nat(120), { minLength: 5, maxLength: 5 }),
+  hires: fc.array(fc.nat(300), { minLength: occupations.length, maxLength: occupations.length }),
+  fires: fc.array(fc.nat(120), { minLength: occupations.length, maxLength: occupations.length }),
   wageFactor: fc.double({ min: 0.2, max: 4, noNaN: true }),
   train: fc.nat(40),
   spotFactor: fc.double({ min: 0, max: 3, noNaN: true }),
@@ -34,11 +37,19 @@ const specArb = fc.record({
     }),
   ),
   marketing: fc.double({ min: 0, max: 3e6, noNaN: true }),
+  listing: fc.double({ min: 0, max: 2e6, noNaN: true }),
   borrow: fc.double({ min: 0, max: 3e7, noNaN: true }),
   repay: fc.double({ min: 0, max: 2e7, noNaN: true }),
   capex: fc.array(
     fc.record({
-      kind: fc.constantFrom('build_site', 'add_line', 'modernize_line', 'sell_line', 'sell_site'),
+      kind: fc.constantFrom(
+        'build_site',
+        'buy_farm',
+        'add_line',
+        'modernize_line',
+        'sell_line',
+        'sell_site',
+      ),
       pick: fc.nat(20),
     }),
     { maxLength: 3 },
@@ -87,8 +98,9 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
         : {}),
     });
   });
-  const planned = industryModule.plannedOutput(state, company, undefined);
-  const perUnit = industryModule.materialsPerUnit(state, company, line);
+  const module = sectorModule(company.sector);
+  const planned = module?.plannedOutput(state, company, undefined) ?? 0;
+  const perUnit = module?.materialsPerUnit(state, company, line) ?? {};
   for (const commodityId of commodities) {
     const market = state.commodities[commodityId];
     const qty = planned * (perUnit[commodityId] ?? 0) * spec.spotFactor;
@@ -105,6 +117,7 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
     });
   }
   d.marketing[line.id] = spec.marketing;
+  d.listing[line.id] = spec.listing; // refused outside agrifood
   d.finance = { borrow: spec.borrow, repay: spec.repay };
   const regions = Object.keys(state.regions).sort();
   const sites = Object.keys(company.sites).sort();
@@ -112,8 +125,8 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
     const siteId = sites[o.pick % Math.max(1, sites.length)] ?? 'site_x';
     const lineIds = Object.keys(company.sites[siteId]?.lines ?? {}).sort();
     const lineId = lineIds[o.pick % Math.max(1, lineIds.length)] ?? 'line_x';
-    if (o.kind === 'build_site') {
-      d.capex.push({ kind: 'build_site', regionId: regions[o.pick % regions.length] ?? '' });
+    if (o.kind === 'build_site' || o.kind === 'buy_farm') {
+      d.capex.push({ kind: o.kind, regionId: regions[o.pick % regions.length] ?? '' });
     } else if (o.kind === 'add_line' || o.kind === 'sell_site')
       d.capex.push({ kind: o.kind, siteId });
     else d.capex.push({ kind: o.kind, siteId, lineId });
@@ -194,8 +207,14 @@ function checkInvariants(before: GameState, after: GameState): void {
       expect(line.quality).toBeLessThanOrEqual(100);
       expect(line.price).toBeGreaterThan(0);
     }
+    for (const line of Object.values(c.productLines)) {
+      if (line.distribution === undefined) continue;
+      expect(line.distribution).toBeGreaterThanOrEqual(0);
+      expect(line.distribution).toBeLessThanOrEqual(1);
+    }
     // R&D: levels within bounds, at most one project per type, progress below completion.
-    const maxLevel = after.config.sectors.industry.rnd.maxLevel;
+    const plant = plantConfig(after.config, c.sector);
+    const maxLevel = plant.rnd.maxLevel;
     expect(c.processLevel).toBeGreaterThanOrEqual(0);
     expect(c.processLevel).toBeLessThanOrEqual(maxLevel);
     for (const line of Object.values(c.productLines)) {
@@ -207,7 +226,7 @@ function checkInvariants(before: GameState, after: GameState): void {
       expect(p.progress).toBeGreaterThanOrEqual(0);
       expect(p.progress).toBeLessThan(1);
       // Uncertain progress: a project overruns at most to cost / (1 − noise).
-      const noise = after.config.sectors.industry.rnd.progressNoise;
+      const noise = plant.rnd.progressNoise;
       expect(p.spent).toBeLessThanOrEqual((p.cost / (1 - noise)) * (1 + 1e-9));
     }
     if (quarter === turn) {
@@ -250,6 +269,25 @@ function checkInvariants(before: GameState, after: GameState): void {
     }
   }
 
+  // Farmland: owned hectares within the land of each region.
+  const farm = after.config.sectors.agri?.farm;
+  if (farm) {
+    for (const regionId of Object.keys(after.regions)) {
+      const owned = sum(
+        Object.values(after.companies)
+          .filter(isOperating)
+          .flatMap((c) => Object.values(c.sites))
+          .filter((s) => s.kind === 'farm' && s.regionId === regionId)
+          .map((s) => s.hectares ?? 0),
+      );
+      expect(owned).toBeLessThanOrEqual(farm.landByRegion[regionId] ?? 0);
+      expect(farmlandLeft(after, regionId)).toBeGreaterThanOrEqual(0);
+    }
+  }
+  for (const region of Object.values(after.regions)) {
+    expect(region.weather).toBeGreaterThan(0);
+  }
+
   // Shares outstanding = Σ registry; no negative holding.
   for (const [companyId, register] of Object.entries(after.stock.registry)) {
     for (const n of Object.values(register)) {
@@ -286,7 +324,7 @@ describe('invariants (property-based)', () => {
       fc.property(
         fc.integer({ min: 0, max: 0xffffffff }),
         fc.boolean(),
-        fc.array(fc.array(specArb, { minLength: 4, maxLength: 4 }), { minLength: 6, maxLength: 6 }),
+        fc.array(fc.array(specArb, { minLength: 7, maxLength: 7 }), { minLength: 6, maxLength: 6 }),
         (seed, eventful, turns) => {
           const overrides = eventful
             ? {

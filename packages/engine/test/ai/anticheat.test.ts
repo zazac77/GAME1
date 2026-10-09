@@ -72,14 +72,11 @@ describe('anti-cheat', () => {
         for (const s of c.published)
           expect(s.quarter).toBeLessThanOrEqual(state.meta.turn - 1 - lag);
         for (const p of c.products) {
-          expect(Object.keys(p).sort()).toEqual([
-            'lineId',
-            'marketId',
-            'marketShare',
-            'price',
-            'quality',
-            'stockout',
-          ]);
+          // Subscription products also announce their users and show their tech level.
+          const tech = c.sector === 'tech' ? ['techLevel', 'users'] : [];
+          expect(Object.keys(p).sort()).toEqual(
+            ['lineId', 'marketId', 'marketShare', 'price', 'quality', 'stockout', ...tech].sort(),
+          );
         }
       }
       // Demand addressed to each rival line stays private.

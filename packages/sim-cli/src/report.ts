@@ -16,7 +16,7 @@ export function formatSummary(s: Summary, turns: number): string {
     'Par secteur :',
     ...Object.entries(s.bySector).map(
       ([sector, v]) =>
-        `  ${sector.padEnd(18)} ${String(v.companies).padStart(4)} sociétés, faillite des IA ${pct(v.aiBankruptcyRate).padStart(7)}, marge médiane ${pct(v.medianNetMargin)}`,
+        `  ${sector.padEnd(18)} ${String(v.companies).padStart(4)} sociétés, faillite des IA ${pct(v.aiBankruptcyRate).padStart(7)}, marge médiane ${pct(v.medianNetMargin)}, part de marché max ${pct(v.maxMarketShare)}`,
     ),
     'Par profil :',
     ...Object.entries(s.byProfile).map(

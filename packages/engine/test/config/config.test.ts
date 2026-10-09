@@ -80,8 +80,31 @@ describe('config', () => {
     expect(() => resolveConfig({ scenario: { aiCompetitors: seven } })).toThrow(
       /more than 6 competitors/,
     );
-    expect(() => resolveConfig({ scenario: { playerSector: 'tech' } })).toThrow(
+    const plants = { industry: defaultConfig.sectors.industry, agri: defaultConfig.sectors.agri };
+    expect(() => parseConfig({ ...defaultConfig, sectors: plants })).toThrow(
       /without configuration/,
+    );
+  });
+
+  it('checks the tech references', () => {
+    expect(() => resolveConfig({ sectors: { tech: { cloudId: 'com_steel' } } })).toThrow(
+      /non-storable/,
+    );
+    expect(() => resolveConfig({ sectors: { tech: { productMarketId: 'mkt_food' } } })).toThrow(
+      /market of another sector/,
+    );
+    expect(() =>
+      resolveConfig({ sectors: { tech: { seniorOccupationId: 'occ_wizard' } } }),
+    ).toThrow(/unknown occupation/);
+    expect(() =>
+      resolveConfig({ sectors: { tech: { startingCompany: { staff: { occ_developer: 400 } } } } }),
+    ).toThrow(/more staff than seats/);
+    expect(() => resolveConfig({ sectors: { tech: { subscription: { minChurn: 0.5 } } } })).toThrow(
+      /minChurn > maxChurn/,
+    );
+    // The player can start in tech.
+    expect(resolveConfig({ scenario: { playerSector: 'tech' } }).scenario.playerSector).toBe(
+      'tech',
     );
   });
 });

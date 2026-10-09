@@ -1,7 +1,8 @@
 import type { RndType } from '../../model/company';
-import { plantConfig } from '../../sectors/config';
+import { plantConfig, techConfigOf } from '../../sectors/config';
 import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/plant/rnd';
 import type { Plan } from './plan';
+import { techRnd } from './tech';
 
 /**
  * 7b. R&D: rndShareOfRevenue of the expected revenue, split between process
@@ -10,6 +11,7 @@ import type { Plan } from './plan';
  */
 export function rnd(plan: Plan, revenue: number): void {
   const { obs, config, profile, company, line } = plan;
+  if (techConfigOf(config, company.sector)) return techRnd(plan);
   const cfg = plantConfig(config, company.sector);
   const total = profile.rndShareOfRevenue * revenue;
   if (total <= 0) return;

@@ -32,8 +32,8 @@ export interface ProductionLine {
 
 export interface Site {
   id: Id;
-  /** A factory holds production lines; a farm (agri) holds land and no line. */
-  kind: 'factory' | 'farm';
+  /** A factory holds production lines; a farm (agri) holds land; an office (tech) seats staff. */
+  kind: 'factory' | 'farm' | 'office';
   regionId: Id;
   status: AssetStatus;
   /** Quarter at which construction completes (under_construction only). */
@@ -49,6 +49,8 @@ export interface Site {
   hectares?: number;
   /** Part of the building book value that is land (never depreciated). */
   landValue?: Money;
+  /** Staff an office can seat. */
+  seats?: number;
 }
 
 export interface TrainingBatch {
@@ -102,11 +104,20 @@ export interface ProductLine {
   /** Quality aimed at (0..100); higher quality consumes more material. */
   qualityTarget: number;
   price: Money;
-  /** Product R&D level (0..rnd.maxLevel, fractional with obsolescence): raises the reachable quality. */
+  /**
+   * Plant sectors: product R&D level (0..rnd.maxLevel, fractional with
+   * obsolescence), raising the reachable quality. Tech: technology level of the
+   * product, compared with the market's techFrontier.
+   */
   techLevel?: number;
   /** Shelf presence won by retail listing fees (0..1), in sectors with listing. */
   distribution?: number;
+  /** Tech: subscribers at the end of the last quarter. */
   users?: number;
+  /** Tech: new subscribers won last quarter. */
+  acquired?: number;
+  /** Tech: share of the subscribers lost last quarter. */
+  churn?: number;
 }
 
 export type RndType = 'process' | 'product';
@@ -119,11 +130,14 @@ export interface RndProject {
   productLineId?: Id;
   /** 0..1; the project completes at 1. */
   progress: number;
-  /** Cash spent so far. */
+  /** Cash spent so far (tech: wages of the developers assigned). */
   spent: Money;
+  /** Tech: developer-quarters the project needs (progress = done / effort). */
+  effort?: number;
   /**
    * Nominal budget, fixed at its start (price level included). Progress is
    * uncertain: the actual spending may differ (up to cost / (1 − progressNoise)).
+   * Tech: wages of the effort at the developer wage of its start (an estimate).
    */
   cost: Money;
   startedAt: Quarter;

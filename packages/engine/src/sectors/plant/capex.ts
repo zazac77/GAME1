@@ -10,7 +10,3 @@ export const addLineCost = (cfg: PlantSectorConfig, priceLevel: number) =>
 
 export const modernizeLineCost = (cfg: PlantSectorConfig, priceLevel: number) =>
   cfg.line.modernizeCost * priceLevel;
-
-/** Specific assets are resold at a discount on their book value. */
-export const resaleValue = (cfg: PlantSectorConfig, bookValue: number) =>
-  bookValue * (1 - cfg.assetResaleDiscount);

@@ -235,10 +235,15 @@ export interface Summary {
   medianShareVolatility: number;
   maxMarketShare: number;
   medianMaxMarketShare: number;
-  /** By sector: bankruptcies of the AI, median net margin of every company. */
+  /** By sector: bankruptcies of the AI, median net margin of every company, largest market share. */
   bySector: Record<
     string,
-    { companies: number; aiBankruptcyRate: number; medianNetMargin: number }
+    {
+      companies: number;
+      aiBankruptcyRate: number;
+      medianNetMargin: number;
+      maxMarketShare: number;
+    }
   >;
   /** Games the player ends first by equity gain. */
   playerFirst: number;
@@ -271,6 +276,7 @@ export function summarize(games: readonly GameMetrics[]): Summary {
       aiBankruptcyRate:
         ai.length > 0 ? ai.filter((c) => c.status === 'bankrupt').length / ai.length : 0,
       medianNetMargin: median(cs.map((c) => c.netMargin)),
+      maxMarketShare: Math.max(0, ...cs.map((c) => c.maxMarketShare)),
     };
   }
   return {

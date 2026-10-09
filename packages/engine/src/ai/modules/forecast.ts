@@ -25,7 +25,13 @@ export function forecast(plan: Plan): void {
   }
   plan.forecast = memory.demandForecast * season(obs.turn);
   plan.nextForecast = memory.demandForecast * season(obs.turn + 1);
+  forecastCommodityPrices(plan);
+}
 
+/** Smoothed world price of every commodity (memory.priceForecast). */
+export function forecastCommodityPrices(plan: Plan): void {
+  const { obs, config, memory } = plan;
+  const a = config.ai.forecastSmoothing;
   for (const [id, market] of Object.entries(obs.commodities)) {
     const previous = memory.priceForecast[id];
     memory.priceForecast[id] =

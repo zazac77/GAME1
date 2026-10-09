@@ -34,7 +34,8 @@ describe('sim-cli', () => {
       expect(profile.bankruptcyRate).toBeLessThan(0.5);
     }
     expect(formatSummary(summary, 40)).toContain('50 × 40');
-    expect(toCsv(games).trim().split('\n')).toHaveLength(1 + 50 * 7);
+    expect(toCsv(games).trim().split('\n')).toHaveLength(1 + 50 * 10);
+    expect(Object.keys(summary.bySector).sort()).toEqual(['agri', 'industry', 'tech']);
   }, 120_000);
 
   it('a passive player (same decisions every quarter) does not win', () => {
@@ -48,6 +49,19 @@ describe('sim-cli', () => {
       );
       expect(player?.finalEquity ?? 0).toBeLessThan(best);
       expect(g.playerRank).toBeGreaterThan(1);
+    }
+  }, 60_000);
+
+  it('runs a player in tech: on autopilot it lives, passive it does not win', () => {
+    const overrides = { scenario: { playerSector: 'tech' as const } };
+    for (const seed of [11, 12]) {
+      const auto = gameMetrics(runGame({ seed, turns: 40, player: 'premium', overrides }));
+      expect(auto.error).toBeUndefined();
+      expect(auto.sanityViolations).toEqual([]);
+      expect(auto.companies.find((c) => c.kind === 'player')?.status).not.toBe('bankrupt');
+      const passive = gameMetrics(runGame({ seed, turns: 40, player: 'passive', overrides }));
+      expect(passive.error).toBeUndefined();
+      expect(passive.playerRank).toBeGreaterThan(1);
     }
   }, 60_000);
 });

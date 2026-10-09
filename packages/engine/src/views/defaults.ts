@@ -5,12 +5,12 @@ import type { CompanyDecisions } from '../model/decisions';
 import type { Id } from '../model/ids';
 import type { GameState } from '../model/state';
 import { sectorModule } from '../sectors';
-import { mainProductLine } from '../sectors/plant';
+import { sectorProductLine } from '../sectors/config';
 
 /**
  * "Same as last quarter": prices, quality aimed at, wages, production
- * targets, marketing, listing and R&D budgets carry over (an R&D budget whose project
- * completed starts the next project of its type); one-shot parts (investments, new
+ * targets, marketing, listing and R&D budgets (tech: developers) carry over (an R&D
+ * budget whose project completed starts the next project of its type); one-shot parts (investments, new
  * contracts, loans, repayments, stock orders, hires, dismissals, trainings)
  * do not. Spot purchases are recomputed to cover the planned output with the
  * stock and contracts at hand (a copied quantity would not match the stock).
@@ -23,13 +23,17 @@ export function defaultDecisions(state: GameState, companyId: Id): CompanyDecisi
 
   const d = emptyDecisions(companyId);
   const last = company.lastDecisions;
-  const line = mainProductLine(state, company);
+  const line = sectorProductLine(state.config, company);
   if (last) {
     d.pricing = structuredClone(last.pricing);
     d.production = structuredClone(last.production);
     d.marketing = structuredClone(last.marketing);
     d.listing = structuredClone(last.listing ?? {});
-    d.rnd = last.rnd.map((r) => ({ type: r.type, budget: r.budget }));
+    d.rnd = last.rnd.map((r) => ({
+      type: r.type,
+      budget: r.budget,
+      ...(r.developers !== undefined ? { developers: r.developers } : {}),
+    }));
     d.hr = last.hr.map((h) => ({
       regionId: h.regionId,
       occupationId: h.occupationId,

@@ -93,7 +93,9 @@ export function observe(state: GameState, actorId: Id): Observation {
 
 function selfView(state: GameState, company: Company): SelfView {
   const cfg = plantConfigOf(state.config, company.sector);
-  const ceilings = new Map(siteCeilings(state, company).map((c) => [c.site.id, c.ceiling]));
+  const ceilings = new Map(
+    cfg ? siteCeilings(state, company).map((c) => [c.site.id, c.ceiling]) : [],
+  );
   const sites: SiteView[] = Object.keys(company.sites)
     .sort()
     .map((id) => {
@@ -143,7 +145,7 @@ function competitorView(state: GameState, company: Company, lastClosed: number):
         const allocated = result?.allocated[id] ?? 0;
         const share = result?.shares[id] ?? 0;
         const sold = share * (result?.volume ?? 0);
-        return {
+        const view: CompetitorView['products'][number] = {
           lineId: id,
           marketId: line.marketId,
           price: line.price,
@@ -151,6 +153,12 @@ function competitorView(state: GameState, company: Company, lastClosed: number):
           stockout: allocated > 0 && sold < allocated * (1 - 1e-6),
           marketShare: share,
         };
+        // Subscription products: the installed base is announced, the tech level shows.
+        if (line.users !== undefined) {
+          view.users = line.users;
+          view.techLevel = line.techLevel ?? 0;
+        }
+        return view;
       }),
     sites: Object.keys(company.sites)
       .sort()

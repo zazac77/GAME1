@@ -4,14 +4,16 @@ import type { Id } from '../model/ids';
 import type { GameState } from '../model/state';
 import type { Alert } from '../model/views';
 import { sectorModule } from '../sectors';
-import { plantConfig } from '../sectors/config';
+import { plantConfig, sectorProductLine, techConfigOf } from '../sectors/config';
 import { mainProductLine, siteCapacity } from '../sectors/plant';
+import { maintenanceCoverage, techTeam } from '../sectors/tech/team';
 import { leverage, trailingAnnual } from '../systems/finance/credit';
 
 /**
  * Alerts on a company at the start of the quarter, so that the player does
  * not have to scan tables: material cover, lost sales, wages under the
- * market, covenant, overdraft, distress, saturated capacity.
+ * market, covenant, overdraft, distress, saturated capacity; in tech, a
+ * product lagging the frontier and too few developers kept on maintenance.
  */
 export function companyAlerts(state: GameState, companyId: Id): Alert[] {
   const company = state.companies[companyId];
@@ -55,6 +57,22 @@ export function companyAlerts(state: GameState, companyId: Id): Alert[] {
     if (capacity > 0 && sold >= A.capacityUtilization * capacity) {
       add('capacity_saturated', 'info', { utilization: sold / capacity });
     }
+  }
+
+  const tech = techConfigOf(config, company.sector);
+  const product = sectorProductLine(config, company);
+  if (tech && product) {
+    const frontier = state.productMarkets[product.marketId]?.techFrontier ?? 0;
+    const gap = frontier - (product.techLevel ?? 0);
+    if (gap > A.techGap) add('tech_behind', 'warning', { gap });
+    // Developers on R&D last quarter are assumed to stay on it.
+    const rnd = sum((company.lastDecisions?.rnd ?? []).map((r) => r.developers ?? 0));
+    const coverage = maintenanceCoverage(
+      tech,
+      techTeam(config, tech, company, rnd),
+      product.users ?? 0,
+    );
+    if (coverage < A.maintenanceCoverage) add('maintenance_short', 'warning', { coverage });
   }
 
   for (const key of Object.keys(company.workforce).sort()) {

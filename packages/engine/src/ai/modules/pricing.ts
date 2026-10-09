@@ -9,7 +9,7 @@ import type { Plan } from './plan';
  * with probability = aggressiveness (one draw per planning, used or not).
  * The riposte discount fades linearly; grudges fade too.
  */
-function priceWar(plan: Plan): void {
+export function priceWar(plan: Plan): void {
   const { obs, config, profile, memory, market, line, rng } = plan;
   const W = config.ai.priceWar;
   const roll = rng.next();

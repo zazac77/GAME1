@@ -1,7 +1,7 @@
 import type { AiProfileConfig, GameConfig } from '../../config/schema';
 import type { Rng } from '../../core/rng';
 import type { AiMemory, Observation } from '../../model/ai';
-import type { Company, ProductLine } from '../../model/company';
+import type { Company, ProductLine, RndType } from '../../model/company';
 import type { CompanyDecisions } from '../../model/decisions';
 import type { Id, Money } from '../../model/ids';
 import type { ProductMarket } from '../../model/markets';
@@ -44,4 +44,6 @@ export interface Plan {
   listingFees: Money;
   /** Cash committed by the plan this quarter, by kind (for the finance module). */
   spend: { discretionary: Money; capex: Money; other: Money };
+  /** Tech: developers put on each kind of R&D project, and the headcount the plan needs. */
+  tech?: { rndDevelopers: Record<RndType, number>; headcount: number };
 }

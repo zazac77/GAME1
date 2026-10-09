@@ -5,13 +5,15 @@ import { formatSummary, toCsv } from './report';
 import { runGame, type PlayerMode } from './run';
 
 // npm run sim -- --games 50 --turns 40 [--seed 1] [--player opportunist|passive]
-//                [--overrides file.json] [--out stats.json] [--csv stats.csv]
+//                [--sector industry|agri|tech] [--overrides file.json] [--out stats.json]
+//                [--csv stats.csv]
 const { values } = parseArgs({
   options: {
     games: { type: 'string', default: '50' },
     turns: { type: 'string', default: '40' },
     seed: { type: 'string', default: '1' },
     player: { type: 'string', default: 'opportunist' },
+    sector: { type: 'string' },
     overrides: { type: 'string' },
     out: { type: 'string' },
     csv: { type: 'string' },
@@ -21,9 +23,22 @@ const { values } = parseArgs({
 const games = Number(values.games);
 const turns = Number(values.turns);
 const seed = Number(values.seed);
-const overrides = values.overrides
-  ? (JSON.parse((await import('node:fs')).readFileSync(values.overrides, 'utf8')) as object)
+const fromFile = values.overrides
+  ? (JSON.parse((await import('node:fs')).readFileSync(values.overrides, 'utf8')) as Record<
+      string,
+      unknown
+    >)
   : undefined;
+// --sector: the player's starting sector (on top of the overrides file).
+const overrides = values.sector
+  ? {
+      ...fromFile,
+      scenario: {
+        ...(fromFile?.scenario as object | undefined),
+        playerSector: values.sector,
+      },
+    }
+  : fromFile;
 
 const metrics = [];
 for (let i = 0; i < games; i++) {

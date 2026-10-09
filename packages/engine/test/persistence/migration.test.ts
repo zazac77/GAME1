@@ -6,6 +6,7 @@ import saveV1 from '../fixtures/save-v1.json';
 import saveV2 from '../fixtures/save-v2.json';
 import saveV3 from '../fixtures/save-v3.json';
 import saveV4 from '../fixtures/save-v4.json';
+import saveV5 from '../fixtures/save-v5.json';
 
 // A v1 save written by the lot 1.1 engine (seed 1234, after 2 quarters).
 const v1 = JSON.stringify(saveV1);
@@ -15,6 +16,8 @@ const v2 = JSON.stringify(saveV2);
 const v3 = JSON.stringify(saveV3);
 // A v4 save written by the lot 1.5 engine (seed 1234, after 2 quarters).
 const v4 = JSON.stringify(saveV4);
+// A v5 save written by the lot 2.1 engine (seed 1234, after 2 quarters).
+const v5 = JSON.stringify(saveV5);
 
 describe('migrations', () => {
   it('loads a v1 save into the current schema', () => {
@@ -120,6 +123,29 @@ describe('migrations', () => {
     expect(state.meta.turn).toBe(5);
     expect(Object.values(state.regions).every((r) => r.weather === 1)).toBe(true); // no weather
     expect(Object.values(state.companies).every((c) => c.sector === 'industry')).toBe(true);
+    assertJsonSafe(state);
+  });
+
+  it('loads a v5 save: an industry and agrifood game goes on without tech', () => {
+    expect(JSON.parse(v5).schemaVersion).toBe(5);
+    let state = deserializeGame(v5);
+    expect(state.meta.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(state.config.sectors.tech).toBeUndefined();
+    expect(state.config.products.networkUnit).toBe(1000);
+    expect(state.config.ai.tech.staffingCover).toBeGreaterThan(1);
+    for (const market of Object.values(state.productMarkets)) {
+      expect(market.techFrontier).toBeUndefined();
+      for (const segment of market.segments) {
+        expect(segment.betaNetwork).toBe(0);
+        expect(segment.betaTech).toBe(0);
+      }
+    }
+    for (let i = 0; i < 3; i++) {
+      state = resolveTurn(state, [steadyDecisions(state, playerCompanyId(state))]).state;
+    }
+    expect(state.meta.turn).toBe(5);
+    expect(Object.values(state.companies).some((c) => c.sector === 'agri')).toBe(true);
+    expect(Object.values(state.companies).every((c) => c.sector !== 'tech')).toBe(true);
     assertJsonSafe(state);
   });
 });

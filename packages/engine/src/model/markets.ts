@@ -63,6 +63,10 @@ export interface ConsumerSegment {
   betaBrand: number;
   betaMarketing: number;
   betaDistribution: number;
+  /** βn: network effect, on ln(1 + users / products.networkUnit). */
+  betaNetwork: number;
+  /** βt: on the product's tech level minus the market's technology frontier. */
+  betaTech: number;
   outsideUtility: number;
 }
 
@@ -85,4 +89,6 @@ export interface ProductMarket {
   refPrice: Money;
   segments: ConsumerSegment[];
   lastResult: ProductMarketResult;
+  /** Tech markets: technology frontier the products are measured against (advances each quarter). */
+  techFrontier?: number;
 }

@@ -10,7 +10,7 @@ import type { Plan } from './plan';
  * get the hires it asked for, raises its boost by `step` (up to `max`);
  * otherwise the boost fades by `decay`.
  */
-function updateWageBoosts(plan: Plan): void {
+export function updateWageBoosts(plan: Plan): void {
   const { config, company, memory } = plan;
   const W = config.ai.wageOutbid;
   const base = config.labor.attrition.baseRate;
@@ -37,7 +37,7 @@ function updateWageBoosts(plan: Plan): void {
  * = market wage × (1 + profile premium + outbidding boost).
  */
 export function hiring(plan: Plan): void {
-  const { obs, config, profile, company, memory } = plan;
+  const { obs, config, profile, company } = plan;
   const cfg = plantConfig(config, company.sector);
   const farm = agriConfigOf(config, company.sector)?.farm;
   const L = config.labor;
@@ -113,7 +113,18 @@ export function hiring(plan: Plan): void {
       needs[laborPoolKey(regionId, occupationId)] = need;
     }
   }
-  // Staff left in a region without a factory is let go.
+  staffTo(plan, needs);
+}
+
+/**
+ * Hires and dismissals towards the headcount needed by labor pool: hires
+ * cover the expected attrition, dismissals beyond a tolerance; staff left
+ * in a pool without need (a region without site) is let go. Wage offer =
+ * market wage × (1 + profile premium + outbidding boost).
+ */
+export function staffTo(plan: Plan, needs: Record<string, number>): void {
+  const { obs, config, profile, company, memory } = plan;
+  const L = config.labor;
   for (const key of Object.keys(company.workforce)) needs[key] ??= 0;
 
   for (const key of Object.keys(needs).sort()) {

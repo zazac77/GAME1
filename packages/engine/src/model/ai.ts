@@ -79,6 +79,9 @@ export interface CompetitorProductView {
   stockout: boolean;
   /** Share of the volume sold last quarter. */
   marketShare: number;
+  /** Tech: subscribers (announced) and technology level (visible in the product). */
+  users?: number;
+  techLevel?: number;
 }
 
 /** Partial view of another company: public facts and published accounts only. */

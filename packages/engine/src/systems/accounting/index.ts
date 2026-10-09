@@ -120,9 +120,12 @@ function settleOverdraft(ctx: TurnContext, company: Company, cash: number): numb
 function goBankrupt(ctx: TurnContext, company: Company): void {
   const { draft, config } = ctx;
   company.status = 'bankrupt';
-  // Liquidation: staff go back to their pools, contracts lapse.
+  // Liquidation: staff go back to their pools, contracts lapse, subscribers leave.
   company.workforce = {};
   company.contracts = [];
+  for (const line of Object.values(company.productLines)) {
+    if (line.users !== undefined) line.users = 0;
+  }
   ctx.log({ kind: 'company_bankrupt', severity: 'critical', companyId: company.id });
   const player = draft.actors[draft.meta.playerActorId];
   if (

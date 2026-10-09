@@ -54,9 +54,10 @@ export interface CompanyDecisions {
   listing: Record<Id, Money>;
   /**
    * Budget of the quarter by R&D project. Without projectId, funds the
-   * project of that type in progress, or starts one.
+   * project of that type in progress, or starts one. Tech: the project is
+   * staffed with `developers` (their wages are its cost) and the budget is 0.
    */
-  rnd: { projectId?: Id; type: RndType; budget: Money }[];
+  rnd: { projectId?: Id; type: RndType; budget: Money; developers?: number }[];
   finance: {
     borrow?: Money;
     repay?: Money;

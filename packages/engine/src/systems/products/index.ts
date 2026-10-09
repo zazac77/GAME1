@@ -5,7 +5,8 @@ import type { System } from '../../core/system';
 import type { Company, ProductLine } from '../../model/company';
 import type { Id } from '../../model/ids';
 import type { GameState } from '../../model/state';
-import { agriConfigOf, plantConfigOf } from '../../sectors/config';
+import { agriConfigOf, plantConfigOf, techConfigOf } from '../../sectors/config';
+import { sellSubscriptions } from '../../sectors/tech/market';
 import { marketShares } from './logit';
 
 /**
@@ -37,7 +38,8 @@ interface Seller {
 /**
  * Step 8: listing fees → shelf presence; total demand → logit shares by
  * segment → sales limited by stock → reallocation of unserved demand (with a
- * loss) → revenue, cost of goods sold, logistics, marketing → brand. Reads
+ * loss) → revenue, cost of goods sold, logistics, marketing → brand. Tech
+ * markets sell subscriptions instead (sectors/tech/market.ts). Reads
  * market.demand.
  */
 export const productsSystem: System = {
@@ -74,6 +76,26 @@ export const productsSystem: System = {
       const marketCfg = P.markets[marketId];
       if (!market || !marketCfg) continue;
       const ref = indexedRefPrice(draft, marketId);
+      if (techConfigOf(config, market.sectorId)?.productMarketId === marketId) {
+        const subscribers = companies.flatMap((company) =>
+          Object.keys(company.productLines)
+            .sort()
+            .map((lineId) => company.productLines[lineId] as ProductLine)
+            .filter((line) => line.marketId === marketId)
+            .map((line) => ({
+              company,
+              line,
+              marketing: ctx.decisions[company.id]?.marketing[line.id] ?? 0,
+            })),
+        );
+        sellSubscriptions(ctx, market, subscribers);
+        const q = (qualitySum[marketId] ??= { sum: 0, n: 0 });
+        for (const s of subscribers) {
+          q.sum += s.line.quality;
+          q.n += 1;
+        }
+        continue;
+      }
       const sellers: Seller[] = [];
       for (const company of companies) {
         for (const lineId of Object.keys(company.productLines).sort()) {

@@ -13,7 +13,8 @@ import type { AiProfileId, GameMode, Id, LaborPoolKey, SectorId } from '../model
 import type { CommodityMarket, LaborPool, ProductMarket, Region } from '../model/markets';
 import type { GameState } from '../model/state';
 import { buyFarmCost, farmLandValue, farmlandLeft } from '../sectors/agri/farm';
-import { agriConfigOf, plantConfig } from '../sectors/config';
+import { agriConfigOf, plantConfig, techConfigOf } from '../sectors/config';
+import { cloudPerUser, reachableQuality, techTeam } from '../sectors/tech/team';
 import { recordHistory } from '../systems/reporting/history';
 import { COMPANY_NAMES, EXECUTIVE_NAMES } from './names';
 
@@ -156,6 +157,9 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
       segments: m.segments.map((s) => ({ ...s })),
       lastResult: { shares: {}, demand: 0, allocated: {}, volume: 0, avgPrice: m.refPrice },
     } satisfies ProductMarket;
+    const tech = config.sectors.tech;
+    const market = state.productMarkets[marketId];
+    if (market && tech?.productMarketId === marketId) market.techFrontier = tech.frontier.initial;
   }
 
   // ---- participants: player first, then the AI of each sector rotating over
@@ -190,7 +194,8 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
   ];
 
   for (const p of participants) {
-    const company = createCompany(state, p, jitter);
+    const company =
+      p.sector === 'tech' ? createTechCompany(state, p, jitter) : createCompany(state, p, jitter);
     const actorId = newId(state.meta, 'act');
     const actor: Actor = {
       id: actorId,
@@ -226,6 +231,13 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
   // (fertilizer: what the farms spread at a harvest)
   const refDemand: Record<Id, number> = {};
   for (const company of Object.values(state.companies)) {
+    const tech = techConfigOf(config, company.sector);
+    if (tech) {
+      const users = sum(Object.values(company.productLines).map((l) => l.users ?? 0));
+      refDemand[tech.cloudId] =
+        (refDemand[tech.cloudId] ?? 0) + users * cloudPerUser(tech, company.processLevel);
+      continue;
+    }
     const output = nominalOutput(config, company);
     for (const [commodityId, perUnit] of Object.entries(
       plantConfig(config, company.sector).recipe,
@@ -439,6 +451,116 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
   return company;
 }
 
+/**
+ * A SaaS company: offices in its HQ region, staff at the market wage, a
+ * subscriber base and a product a little behind the technology frontier.
+ * No stock; its own (asset-light) financing.
+ */
+function createTechCompany(
+  state: GameState,
+  p: Participant,
+  jitter: (x: number) => number,
+): Company {
+  const { config } = state;
+  const tech = techConfigOf(config, p.sector);
+  if (!tech) throw new Error(`Sector ${p.sector} has no tech configuration`);
+  const start = tech.startingCompany;
+  const region = state.regions[p.regionId];
+  if (!region) throw new Error(`Unknown region ${p.regionId}`);
+  const profile = p.profileId ? profileOf(config, p.profileId, p.sector) : undefined;
+  const market = state.productMarkets[tech.productMarketId];
+  if (!market) throw new Error(`Unknown product market ${tech.productMarketId}`);
+
+  const companyId = newId(state.meta, 'co');
+  const sites: Record<Id, Site> = {};
+  const fitOut = tech.office.buildCost * region.landCostIndex;
+  for (let i = 0; i < start.offices; i++) {
+    const siteId = newId(state.meta, 'site');
+    sites[siteId] = {
+      id: siteId,
+      kind: 'office',
+      regionId: region.id,
+      status: 'operational',
+      lines: {},
+      buildingBookValue:
+        fitOut * Math.max(0, 1 - start.officeAgeQuarters / tech.office.depreciationQuarters),
+      buildingDepreciationPerQuarter: fitOut / tech.office.depreciationQuarters,
+      warehouseCapacity: 0,
+      seats: tech.office.seats,
+    };
+  }
+
+  const workforce: Record<string, Staff> = {};
+  for (const [occupationId, headcount] of Object.entries(start.staff)) {
+    if (headcount === 0) continue;
+    const key = laborPoolKey(region.id, occupationId);
+    const pool = state.labor[key];
+    if (!pool) throw new Error(`Unknown labor pool ${key}`);
+    workforce[key] = {
+      ...newStaff(region.id, occupationId, pool.marketWage * (1 + (profile?.wagePremium ?? 0))),
+      headcount,
+    };
+  }
+
+  const priceIndex = profile?.startPriceIndex ?? config.scenario.playerStart.priceIndex;
+  const users = Math.max(0, jitter(start.users));
+  const frontier = market.techFrontier ?? tech.frontier.initial;
+  const productLineId = newId(state.meta, 'pl');
+  const company: Company = {
+    id: companyId,
+    name: p.companyName,
+    sector: p.sector,
+    hqRegionId: region.id,
+    status: 'active',
+    listed: true,
+    sharesOutstanding: config.stockMarket.sharesOutstanding,
+    sites,
+    workforce,
+    inventory: {},
+    contracts: [],
+    productLines: {
+      [productLineId]: {
+        id: productLineId,
+        marketId: market.id,
+        quality: 0, // set below from the team (tech has no quality target)
+        qualityTarget: 0,
+        price: jitter(market.refPrice * priceIndex),
+        techLevel: Math.max(0, frontier - jitter(start.techGap)),
+        users,
+        acquired: users * tech.subscription.baseChurn,
+        churn: tech.subscription.baseChurn,
+      },
+    },
+    brand: clamp(jitter(start.brand), 0, 100),
+    employerBrand: clamp(jitter(start.employerBrand), 0, 100),
+    cumulativeOutput: 0,
+    processLevel: 0,
+    rnd: [],
+    loans: [],
+    credit: { rating: config.finance.initialRating, covenantBreached: false, distressQuarters: 0 },
+    books: { current: zeroStatements(emptyBalance()), history: [], taxLossCarryforward: 0 },
+  };
+  const line = company.productLines[productLineId];
+  if (line) {
+    const team = techTeam(config, tech, company, 0);
+    line.quality = clamp(jitter(reachableQuality(tech, team, users, 0)), 0, 100);
+    line.qualityTarget = line.quality;
+  }
+
+  const rating = config.finance.ratings.find((r) => r.rating === config.finance.initialRating);
+  if (start.debt > 0) {
+    company.loans.push({
+      id: newId(state.meta, 'loan'),
+      kind: 'term',
+      principal: start.debt,
+      spread: rating?.spread ?? 0,
+      maturity: config.finance.loanTermQuarters,
+    });
+  }
+  company.books.current = zeroStatements(openingBalance(company, start.cash));
+  return company;
+}
+
 function emptyBalance(): BalanceSheet {
   return {
     cash: 0,
@@ -476,7 +598,10 @@ function listCompany(state: GameState, company: Company, actorId: Id): void {
   const publicShares = Math.round(shares * stockMarket.initialFloat);
   state.stock.registry[company.id] = { [actorId]: shares - publicShares, public: publicShares };
   const bookPerShare = company.books.current.balance.equity / shares;
-  const price = Math.max(0.01, bookPerShare * stockMarket.initialPriceToBook);
+  const priceToBook =
+    (company.sector !== 'holding' && stockMarket.initialPriceToBookBySector[company.sector]) ||
+    stockMarket.initialPriceToBook;
+  const price = Math.max(0.01, bookPerShare * priceToBook);
   state.stock.quotes[company.id] = {
     price,
     referencePrice: price,

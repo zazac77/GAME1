@@ -28,6 +28,7 @@ export const MODIFIER_KEYS = [
   'commodity.supply', // mul, share of contracts and spot orders delivered (commodity)
   'market.demand', // mul, total demand of a product market (market)
   'agri.yield', // mul, crop yield of the farms (region)
+  'tech.frontier', // add, extra advance of the technology frontier in a quarter (market)
 ] as const;
 
 const sectorId = z.enum(SECTOR_IDS);
@@ -223,6 +224,10 @@ const segmentSchema = z.strictObject({
   betaMarketing: nonNeg,
   /** βd: weight of the shelf presence (distribution 0..1) of the product. */
   betaDistribution: nonNeg,
+  /** βn: network effect, weight of ln(1 + users / products.networkUnit) (subscriptions). */
+  betaNetwork: nonNeg,
+  /** βt: weight of the product's technology level relative to the frontier (tech). */
+  betaTech: nonNeg,
   /** U_0: utility of the outside option (imports, not buying). */
   outsideUtility: z.number(),
 });
@@ -246,6 +251,8 @@ const productsSchema = z.strictObject({
   spilloverRounds: nonNegInt,
   /** Marketing enters utilities and brand as ln(1 + budget / unit). */
   marketingUnit: pos,
+  /** Subscribers enter utilities as ln(1 + users / unit) (network effect). */
+  networkUnit: pos,
   /** Allowed prices, relative to the inflation-indexed reference price. */
   priceBounds: z.strictObject({ min: pos, max: pos }),
   brand: z.strictObject({
@@ -435,6 +442,118 @@ const agriSchema = plantSectorSchema.extend({
   startingFarms: nonNegInt,
 });
 
+/**
+ * Technology (SaaS): no plant. Offices seat the staff; subscribers are
+ * served from rented cloud capacity; developers either maintain the product
+ * (quality) or work on R&D projects measured in developer-quarters.
+ */
+const techSchema = z.strictObject({
+  productMarketId: id,
+  /** Non-storable compute capacity, bought at consumption. */
+  cloudId: id,
+  /** Cloud units per billed subscriber and per quarter, before platform R&D. */
+  cloudPerUser: pos,
+  developerOccupationId: id,
+  seniorOccupationId: id,
+  supportOccupationId: id,
+  productManagerOccupationId: id,
+  /** Subscribers that one developer kept off R&D maintains (bugs, operations). */
+  usersPerDeveloper: pos,
+  /** Subscribers one support agent serves. */
+  usersPerSupport: pos,
+  /** Target seniors per developer. */
+  seniorRatio: pos,
+  /** Target product managers per developer. */
+  productManagerRatio: pos,
+  /**
+   * Reachable quality (bugs) = base + seniorWeight·min(maxSeniorRatio, seniors / target)
+   * − maintenanceWeight·(1 − maintenance coverage) + platform R&D; quality moves
+   * towards it by adjustSpeed of the gap each quarter.
+   */
+  quality: z.strictObject({
+    base: nonNeg,
+    seniorWeight: nonNeg,
+    maxSeniorRatio: pos,
+    maintenanceWeight: nonNeg,
+    adjustSpeed: share,
+  }),
+  /**
+   * Technology frontier of the market: starts at `initial`, advances each
+   * quarter (plus tech.frontier modifiers). A product release cannot take the
+   * product more than maxLead ahead of it.
+   */
+  frontier: z.strictObject({ initial: pos, advancePerQuarter: nonNeg, maxLead: nonNeg }),
+  /**
+   * Quarterly churn = baseChurn·(price / average offer price)^priceSensitivity
+   * ·(1 + techGapSensitivity·gap)·(1 + qualitySensitivity·(50 − quality)/50)
+   * ·(1 + supportSensitivity·(1 − support coverage)), within [minChurn, maxChurn].
+   */
+  subscription: z.strictObject({
+    baseChurn: share,
+    priceSensitivity: nonNeg,
+    techGapSensitivity: nonNeg,
+    qualitySensitivity: nonNeg,
+    supportSensitivity: nonNeg,
+    minChurn: share,
+    maxChurn: share,
+  }),
+  /**
+   * R&D projects (step 9), measured in developer-quarters. A developer
+   * assigned to a project brings (1 + seniorBonus·min(1, senior coverage))
+   * developer-quarters, × U[1 − progressNoise, 1 + progressNoise]; at most
+   * maxEffortShare of the effort per quarter. Their wages are booked as R&D.
+   * Product release: tech level + releaseGain·U[1 − outcomeNoise, 1 + outcomeNoise]
+   * ·(1 + productManagerBonus·min(1, PM coverage)) + imitation·(gap to the frontier):
+   * catching up costs less than innovating. Platform (process) level:
+   * cloud per user × (1 − cloudSavingPerLevel·level), reachable quality +
+   * qualityPerLevel·level; it fades by obsolescencePerQuarter.
+   */
+  rnd: z.strictObject({
+    product: z.strictObject({ effort: pos, releaseGain: pos, imitation: share }),
+    process: z.strictObject({
+      effort: pos,
+      cloudSavingPerLevel: z.number().min(0).max(0.15),
+      qualityPerLevel: nonNeg,
+    }),
+    /** Platform projects cost (1 + effortGrowthPerLevel·level) × their effort. */
+    effortGrowthPerLevel: nonNeg,
+    /** Max platform level. */
+    maxLevel: pos,
+    maxEffortShare: z.number().gt(0).max(1),
+    progressNoise: z.number().min(0).lt(1),
+    outcomeNoise: z.number().min(0).lt(1),
+    seniorBonus: nonNeg,
+    productManagerBonus: nonNeg,
+    obsolescencePerQuarter: nonNeg,
+  }),
+  /** Offices seat the staff of a region; hiring needs a free seat. */
+  office: z.strictObject({
+    /** Fit-out, before the regional land cost index. */
+    buildCost: pos,
+    setupQuarters: posInt,
+    depreciationQuarters: posInt,
+    seats: posInt,
+    /** Rent and running costs per office and per quarter. */
+    upkeep: nonNeg,
+    maxOffices: posInt,
+  }),
+  /** Resale discount on the book value of an office. */
+  assetResaleDiscount: share,
+  startingCompany: z.strictObject({
+    offices: posInt,
+    officeAgeQuarters: nonNegInt,
+    users: nonNeg,
+    /** Starting tech level below the frontier. */
+    techGap: nonNeg,
+    staff: z.record(id, nonNegInt),
+    brand: z.number().min(0).max(100),
+    employerBrand: z.number().min(0).max(100),
+    /** Asset-light firms start with their own financing (instead of finance.starting*). */
+    cash: nonNeg,
+    debt: nonNeg,
+  }),
+});
+
 const ratingSchema = z.strictObject({
   rating: z.enum(CREDIT_RATINGS),
   maxNetDebtToEbitda: nonNeg,
@@ -471,6 +590,8 @@ const stockMarketSchema = z.strictObject({
   /** Share of a listed company held by the public at start. */
   initialFloat: share,
   initialPriceToBook: pos,
+  /** Price / book of a sector at listing, where book value says little (asset-light tech). */
+  initialPriceToBookBySector: z.partialRecord(sectorId, pos),
   /** Max share of a float one holder can trade per quarter. */
   maxFloatPerQuarter: share,
   /** Phase 1: a company holds at most this share of another one (no control). */
@@ -620,6 +741,20 @@ const aiSchema = z.strictObject({
   }),
   /** Retail listing fees: enough to reach targetDistribution next quarter, within a share of revenue. */
   listing: z.strictObject({ targetDistribution: share, maxShareOfRevenue: share }),
+  tech: z.strictObject({
+    /** Staff sized for the expected subscribers × this (maintenance, support). */
+    staffingCover: z.number().min(1),
+    /**
+     * Catching up: beyond gapTolerance behind the frontier, the R&D share of
+     * revenue rises by catchUpPerGap per unit of gap (all on product
+     * releases), up to maxRndShare.
+     */
+    gapTolerance: nonNeg,
+    catchUpPerGap: nonNeg,
+    maxRndShare: share,
+    /** Price × (base churn / own churn)^churnPriceResponse when the churn is above its base. */
+    churnPriceResponse: nonNeg,
+  }),
   finance: z.strictObject({
     /** Cash buffer aimed at, in quarters of cash costs. */
     cashBufferQuarters: nonNeg,
@@ -640,6 +775,10 @@ const viewsSchema = z.strictObject({
     covenantNearShare: share,
     /** Units sold above this share of the line capacity. */
     capacityUtilization: share,
+    /** Tech: the product lags the technology frontier by more than this. */
+    techGap: nonNeg,
+    /** Tech: developers off R&D maintain less than this share of the subscribers. */
+    maintenanceCoverage: share,
   }),
 });
 
@@ -708,7 +847,11 @@ export const gameConfigSchema = z
     labor: laborSchema,
     commodities: commoditiesSchema,
     products: productsSchema,
-    sectors: z.strictObject({ industry: industrySchema, agri: agriSchema.optional() }),
+    sectors: z.strictObject({
+      industry: industrySchema,
+      agri: agriSchema.optional(),
+      tech: techSchema.optional(),
+    }),
     finance: financeSchema,
     stockMarket: stockMarketSchema,
     ai: aiSchema,
@@ -786,17 +929,47 @@ export const gameConfigSchema = z
       }
       if (agri.weather.min > agri.weather.max) issue(['sectors', 'agri', 'weather'], 'min > max');
     }
-    for (const [path, occupationId] of occupationRefs) {
-      if (!(occupationId in cfg.labor.occupations)) issue(path, 'unknown occupation');
-    }
-
     // Every sector in play needs its configuration and its stock market multiples.
     const inPlay = new Set<SectorId>([
       cfg.scenario.playerSector,
       ...cfg.scenario.aiCompetitors.map((c) => c.sector),
     ]);
+    const tech = cfg.sectors.tech;
+    if (tech) {
+      const at = (...path: (string | number)[]) => ['sectors', 'tech', ...path];
+      const market = cfg.products.markets[tech.productMarketId];
+      if (!market) issue(at('productMarketId'), 'unknown product market');
+      else if (market.sectorId !== 'tech') issue(at('productMarketId'), 'market of another sector');
+      const cloud = cfg.commodities.markets[tech.cloudId];
+      if (!cloud || cloud.storable) issue(at('cloudId'), 'needs a non-storable commodity');
+      occupationRefs.push(
+        [at('developerOccupationId'), tech.developerOccupationId],
+        [at('seniorOccupationId'), tech.seniorOccupationId],
+        [at('supportOccupationId'), tech.supportOccupationId],
+        [at('productManagerOccupationId'), tech.productManagerOccupationId],
+        ...Object.keys(tech.startingCompany.staff).map((o): [(string | number)[], string] => [
+          at('startingCompany', 'staff', o),
+          o,
+        ]),
+      );
+      const s = tech.subscription;
+      if (s.minChurn > s.maxChurn) issue(at('subscription'), 'minChurn > maxChurn');
+      const start = tech.startingCompany;
+      if (start.offices > tech.office.maxOffices) {
+        issue(at('startingCompany', 'offices'), 'exceeds office.maxOffices');
+      }
+      const staff = Object.values(start.staff).reduce((sum, n) => sum + n, 0);
+      if (staff > start.offices * tech.office.seats) {
+        issue(at('startingCompany', 'staff'), 'more staff than seats');
+      }
+    }
+    for (const [path, occupationId] of occupationRefs) {
+      if (!(occupationId in cfg.labor.occupations)) issue(path, 'unknown occupation');
+    }
+
     for (const sector of inPlay) {
-      if (!plants.some(([s]) => s === sector)) {
+      const configured = plants.some(([s]) => s === sector) || (sector === 'tech' && !!tech);
+      if (!configured) {
         issue(['sectors', sector], 'sector in play without configuration');
       }
       if (!cfg.stockMarket.sectorMultiples[sector]) {
@@ -863,6 +1036,7 @@ export type CreditRating = (typeof CREDIT_RATINGS)[number];
 export type AiProfileConfig = z.infer<typeof aiProfileSchema>;
 export type PlantSectorConfig = z.infer<typeof plantSectorSchema>;
 export type AgriConfig = z.infer<typeof agriSchema>;
+export type TechConfig = z.infer<typeof techSchema>;
 export type EventDefinition = z.infer<typeof eventDefinitionSchema>;
 export type ModifierKey = (typeof MODIFIER_KEYS)[number];
 

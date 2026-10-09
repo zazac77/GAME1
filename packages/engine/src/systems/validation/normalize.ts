@@ -13,9 +13,16 @@ import type {
 import type { Id } from '../../model/ids';
 import type { GameState } from '../../model/state';
 import { farmlandLeft, isFarm } from '../../sectors/agri/farm';
-import { agriConfigOf, plantConfigOf } from '../../sectors/config';
+import { agriConfigOf, plantConfigOf, sectorProductLine, techConfigOf } from '../../sectors/config';
 import { mainProductLine } from '../../sectors/plant';
 import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/plant/rnd';
+import { canStartTechProject, maxDevelopersFor, techProjectEffort } from '../../sectors/tech/rnd';
+import {
+  developerEfficiency,
+  headcountByRegion,
+  isOffice,
+  techTeam,
+} from '../../sectors/tech/team';
 import { capexOrderCost } from '../capex';
 import { borrowingCapacity } from '../finance/credit';
 
@@ -81,15 +88,34 @@ export function normalizeDecisions(
   // ---- production ---------------------------------------------------------
   for (const [siteId, p] of Object.entries(input.production ?? {})) {
     const path = `production.${siteId}`;
-    if (company.sites[siteId]?.status !== 'operational') flag(path, 'unknown_id');
+    const site = company.sites[siteId];
+    if (site?.status !== 'operational' || isOffice(site)) flag(path, 'unknown_id');
     else if (!isNum(p?.targetOutput) || p.targetOutput < 0) {
       flag(`${path}.targetOutput`, 'invalid_value', p?.targetOutput);
     } else out.production[siteId] = { targetOutput: p.targetOutput };
   }
 
   // ---- human resources ----------------------------------------------------
-  // Hiring needs a factory in the region (in service or being built).
+  // Hiring needs a site in the region (in service or being built); in tech, a
+  // free office seat (dismissals listed earlier free theirs).
+  const tech = techConfigOf(config, company.sector);
   const siteRegions = new Set(Object.values(company.sites).map((s) => s.regionId));
+  const seatsLeft: Record<Id, number> = {};
+  if (tech) {
+    // An office put up for sale this quarter seats nobody new.
+    const selling = new Set(
+      (input.capex ?? []).flatMap((o) => (o?.kind === 'sell_site' ? [o.siteId] : [])),
+    );
+    const headcounts = headcountByRegion(company);
+    for (const site of Object.values(company.sites)) {
+      if (isOffice(site) && !selling.has(site.id)) {
+        seatsLeft[site.regionId] = (seatsLeft[site.regionId] ?? 0) + (site.seats ?? 0);
+      }
+    }
+    for (const [regionId, headcount] of Object.entries(headcounts)) {
+      seatsLeft[regionId] = (seatsLeft[regionId] ?? 0) - headcount;
+    }
+  }
   const seenPools = new Set<string>();
   (input.hr ?? []).forEach((h, i) => {
     const path = `hr[${i}]`;
@@ -127,14 +153,14 @@ export function normalizeDecisions(
       if (h.hire > 0 && !siteRegions.has(h.regionId)) flag(`${path}.hire`, 'unknown_id');
       else {
         const share = config.labor.maxHiringShareByLevel[occupation.level - 1] ?? 1;
-        entry.hire = bound(
-          `${path}.hire`,
-          Math.floor(h.hire),
-          0,
-          Math.floor(share * pool.laborForce),
-        );
+        let max = Math.floor(share * pool.laborForce);
+        if (tech) max = Math.min(max, Math.max(0, (seatsLeft[h.regionId] ?? 0) + entry.fire));
+        entry.hire = bound(`${path}.hire`, Math.floor(h.hire), 0, max);
       }
     } else flag(`${path}.hire`, 'invalid_value', h.hire);
+    if (tech) {
+      seatsLeft[h.regionId] = (seatsLeft[h.regionId] ?? 0) + entry.fire - entry.hire;
+    }
 
     if (h.train) {
       const target = config.labor.occupations[h.train.toOccupationId];
@@ -209,7 +235,9 @@ export function normalizeDecisions(
   const ind = plantConfigOf(config, company.sector);
   const mainLine = mainProductLine(state, company);
   const seenRnd = new Set<RndType>();
-  (input.rnd ?? []).forEach((r, i) => {
+  if (tech) normalizeTechRnd(state, company, input, out, flag, bound);
+  // Plant sectors: a cash budget per project.
+  (tech ? [] : (input.rnd ?? [])).forEach((r, i) => {
     const path = `rnd[${i}]`;
     if (r?.type !== 'process' && r?.type !== 'product')
       return flag(`${path}.type`, 'invalid_value');
@@ -276,7 +304,9 @@ export function normalizeDecisions(
   // ---- capex: investments paid when ordered, from cash and new debt -----
   const capexBudget = Math.max(0, cash + (out.finance.borrow ?? 0) - (out.finance.repay ?? 0));
   let capexSpent = 0;
-  let siteCount = Object.values(company.sites).filter((s) => s.kind === 'factory').length;
+  let siteCount = Object.values(company.sites).filter((s) =>
+    tech ? isOffice(s) : s.kind === 'factory',
+  ).length;
   let farmCount = Object.values(company.sites).filter(isFarm).length;
   const landOrdered: Record<Id, number> = {};
   const lineCount: Record<Id, number> = {};
@@ -292,8 +322,9 @@ export function normalizeDecisions(
     switch (o?.kind) {
       case 'build_site': {
         if (!state.regions[o.regionId]) return flag(path, 'unknown_id');
-        if (!ind) return flag(path, 'not_available');
-        if (siteCount >= ind.factory.maxSites) return flag(path, 'limit');
+        if (!ind && !tech) return flag(path, 'not_available');
+        const max = tech ? tech.office.maxOffices : (ind?.factory.maxSites ?? 0);
+        if (siteCount >= max) return flag(path, 'limit');
         order = { kind: 'build_site', regionId: o.regionId };
         break;
       }
@@ -309,9 +340,9 @@ export function normalizeDecisions(
       }
       case 'add_line': {
         const site = company.sites[o.siteId];
-        if (!site || !ind) return flag(path, 'unknown_id');
+        if (!site) return flag(path, 'unknown_id');
         if (soldSites.has(o.siteId)) return flag(path, 'duplicate');
-        if (site.kind !== 'factory') return flag(path, 'invalid_state');
+        if (!ind || site.kind !== 'factory') return flag(path, 'invalid_state');
         if ((lineCount[o.siteId] ?? 0) >= ind.factory.maxLines) return flag(path, 'limit');
         order = { kind: 'add_line', siteId: o.siteId };
         break;
@@ -436,7 +467,7 @@ export function normalizeDecisions(
       out.listing[lineId] = (out.listing[lineId] ?? 0) * f;
     }
     for (const r of out.rnd) r.budget *= f;
-    out.rnd = out.rnd.filter((r) => r.budget > 0);
+    out.rnd = out.rnd.filter((r) => r.budget > 0 || (r.developers ?? 0) > 0);
     for (const h of out.hr) {
       h.hire = Math.floor(h.hire * f);
       if (h.train) {
@@ -448,4 +479,67 @@ export function normalizeDecisions(
   }
 
   return { decisions: out, issues };
+}
+
+type Flag = (path: string, code: ValidationIssueCode, submitted?: number, applied?: number) => void;
+type Bound = (path: string, x: number, min: number, max: number) => number;
+
+/**
+ * Tech R&D: projects are staffed with developers (whole people, among those
+ * not in training nor dismissed this quarter), each project within what it
+ * can absorb this quarter; no cash budget (the wages are the cost).
+ */
+function normalizeTechRnd(
+  state: GameState,
+  company: Company,
+  input: CompanyDecisions,
+  out: CompanyDecisions,
+  flag: Flag,
+  bound: Bound,
+): void {
+  const { config } = state;
+  const tech = techConfigOf(config, company.sector);
+  if (!tech) return;
+  const line = sectorProductLine(config, company);
+  const team = techTeam(config, tech, company, 0);
+  const efficiency = developerEfficiency(tech, team);
+  const dismissed = sum(
+    out.hr.filter((h) => h.occupationId === tech.developerOccupationId).map((h) => h.fire),
+  );
+  let available = Math.max(0, Math.floor(team.developers + 1e-9) - dismissed);
+  const seen = new Set<RndType>();
+  (input.rnd ?? []).forEach((r, i) => {
+    const path = `rnd[${i}]`;
+    if (r?.type !== 'process' && r?.type !== 'product')
+      return flag(`${path}.type`, 'invalid_value');
+    if (!isNum(r.budget) || r.budget < 0) return flag(`${path}.budget`, 'invalid_value', r.budget);
+    // Developers' wages are the cost: no cash budget.
+    if (r.budget > 0) flag(`${path}.budget`, 'invalid_value', r.budget, 0);
+    const current = company.rnd.find((p) => p.type === r.type);
+    if (r.projectId !== undefined && r.projectId !== current?.id) {
+      return flag(`${path}.projectId`, 'unknown_id');
+    }
+    if (seen.has(r.type)) return flag(path, 'duplicate');
+    seen.add(r.type);
+    if (r.type === 'product' && !line) return flag(path, 'unknown_id');
+    const requested = r.developers ?? 0;
+    if (!isNum(requested) || requested < 0) {
+      return flag(`${path}.developers`, 'invalid_value', requested);
+    }
+    if (requested === 0) return;
+    if (!current && !canStartTechProject(tech, r.type, company.processLevel)) {
+      return flag(path, 'limit');
+    }
+    const effort = current?.effort ?? techProjectEffort(tech, r.type, company.processLevel);
+    const max = Math.min(
+      available,
+      maxDevelopersFor(tech, effort, current?.progress ?? 0, efficiency),
+    );
+    const developers = bound(`${path}.developers`, Math.floor(requested), 0, max);
+    if (developers <= 0) return;
+    available -= developers;
+    const entry: CompanyDecisions['rnd'][number] = { type: r.type, budget: 0, developers };
+    if (current) entry.projectId = current.id;
+    out.rnd.push(entry);
+  });
 }

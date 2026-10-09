@@ -13,7 +13,16 @@ import type { CompanyDecisions } from '../model/decisions';
 import type { GameState } from '../model/state';
 import type { CompanyPreview, DecisionPreview } from '../model/views';
 import { sectorModule } from '../sectors';
-import { plantConfig } from '../sectors/config';
+import { plantConfig, sectorProductLine, techConfigOf } from '../sectors/config';
+import { estimateSubscriptions } from '../sectors/tech/market';
+import {
+  assignedDevelopers,
+  averageWage,
+  cloudPerUser,
+  isOffice,
+  supportCoverage,
+  techTeam,
+} from '../sectors/tech/team';
 import { mainProductLine, siteCeilings } from '../sectors/plant';
 import { interestCharge, storageCost } from '../systems/accounting';
 import { capexSystem } from '../systems/capex';
@@ -103,8 +112,8 @@ export function estimateDemand(
  * Deterministic estimate of the quarter for one company: financing and
  * investments go through the real systems on a copy; then expected values
  * (hires all matched within the unemployed, average attrition, materials
- * as ordered, demand from estimateDemand). Nothing about the rivals' coming
- * decisions is used.
+ * as ordered, demand from estimateDemand; tech: subscribers from
+ * estimateSubscriptions). Nothing about the rivals' coming decisions is used.
  */
 function previewCompany(state: GameState, companyId: string, d: CompanyDecisions): CompanyPreview {
   const draft = structuredClone(state);
@@ -143,86 +152,26 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     staff.rampingUp = hired;
     staff.wage = h.wageOffer;
   }
-  const wages = sum(Object.values(company.workforce).map((s) => s.headcount * s.wage));
+  const staffWages = sum(Object.values(company.workforce).map((s) => s.headcount * s.wage));
 
-  // Production within the crew, the lines and the materials at hand.
-  const line = mainProductLine(draft, company);
-  const outputCeiling = Math.floor(sum(siteCeilings(draft, company).map((c) => c.ceiling)));
-  const module = sectorModule(company.sector);
-  let plannedOutput = module?.plannedOutput(draft, company, d) ?? 0;
-  const targetOutput = plannedOutput;
-  const materialNeeds: Record<string, number> = {};
-  let materials = 0;
-  const commodities = config.commodities;
-  if (line) {
-    const qualityTarget = d.pricing[line.id]?.qualityTarget;
-    if (qualityTarget !== undefined) line.qualityTarget = qualityTarget;
-    const perUnit = module?.materialsPerUnit(draft, company, line) ?? {};
-    // Inputs the sector consumes on its own (fertilizer at the harvest): bought at consumption.
-    for (const [commodityId, qty] of Object.entries(
-      module?.plannedInputs(draft, company, d) ?? {},
-    )) {
-      const market = draft.commodities[commodityId];
-      if (!market || commodityId in perUnit || qty <= 0) continue;
-      materialNeeds[commodityId] = qty;
-      materials += qty * market.spotPrice * (1 + commodities.spotPremium);
-    }
-    for (const [commodityId, q] of Object.entries(perUnit)) {
-      const market = draft.commodities[commodityId];
-      const spec = commodities.markets[commodityId];
-      if (!market || !spec || q <= 0) continue;
-      materialNeeds[commodityId] = targetOutput * q;
-      const contracts = company.contracts.filter(
-        (k) => k.commodityId === commodityId && k.startsAt <= turn && turn < k.endsAt,
-      );
-      const fresh = d.purchasing.newContracts.filter((c) => c.commodityId === commodityId);
-      const forward = market.worldPrice * (1 + commodities.forwardPremium);
-      const contracted =
-        sum(contracts.map((k) => k.qtyPerQuarter)) + sum(fresh.map((c) => c.qtyPerQuarter));
-      const contractCost =
-        sum(contracts.map((k) => k.qtyPerQuarter * k.price)) +
-        sum(fresh.map((c) => c.qtyPerQuarter * forward));
-      const spotPrice = market.spotPrice * (1 + commodities.spotPremium);
-      if (!spec.storable) {
-        materials += contractCost + Math.max(0, plannedOutput * q - contracted) * spotPrice;
-        continue;
-      }
-      const spot = sum(
-        d.purchasing.spot.filter((o) => o.commodityId === commodityId).map((o) => o.qty),
-      );
-      materials += contractCost + spot * spotPrice;
-      const available = (company.inventory[commodityId]?.qty ?? 0) + contracted + spot;
-      plannedOutput = Math.min(plannedOutput, Math.floor(available / q));
-    }
-  }
-
-  // Sales.
-  const price = line ? (d.pricing[line.id]?.price ?? line.price) : 0;
+  const input: SalesInput = { state, draft, company, d };
+  const sales = techConfigOf(config, company.sector) ? techSales(input) : plantSales(input);
+  const {
+    outputCeiling,
+    plannedOutput,
+    materialNeeds,
+    materials,
+    expectedDemand,
+    expectedUnitsSold,
+    expectedRevenue,
+    cogs,
+    maintenance,
+    logistics,
+  } = sales;
   const marketing = sum(Object.values(d.marketing)) + sum(Object.values(d.listing));
-  const rnd = sum(d.rnd.map((r) => r.budget));
-  const expectedDemand = line
-    ? estimateDemand(
-        state,
-        state.companies[companyId] as Company,
-        line,
-        price,
-        d.marketing[line.id] ?? 0,
-        d.listing[line.id] ?? 0,
-      )
-    : 0;
-  const lot = line ? company.inventory[line.id] : undefined;
-  const expectedUnitsSold = Math.min(expectedDemand, (lot?.qty ?? 0) + plannedOutput);
-  const expectedRevenue = expectedUnitsSold * price;
-  const cogs = expectedUnitsSold * (lot?.avgCost ?? 0);
-
-  const cfg = plantConfig(config, company.sector);
-  const producing = operationalSites(company).flatMap(producingLines).length;
-  const maintenance = producing * cfg.line.maintenanceCost * priceLevel;
-  const logistics =
-    expectedUnitsSold *
-    cfg.logisticsCostPerUnit *
-    (draft.regions[company.hqRegionId]?.logisticsCostIndex ?? 1) *
-    priceLevel;
+  // Tech: the developers on R&D are booked as R&D, not wages.
+  const rnd = sum(d.rnd.map((r) => r.budget)) + sales.rndWages;
+  const wages = staffWages - sales.rndWages;
   const storage = storageCost(draft, company);
   const interest = interestCharge(draft, company);
   let installments = 0;
@@ -259,6 +208,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     plannedOutput: Math.max(0, plannedOutput),
     materialNeeds,
     expectedDemand,
+    ...(sales.expectedUsers !== undefined ? { expectedUsers: sales.expectedUsers } : {}),
     expectedUnitsSold,
     expectedRevenue,
     costs: {
@@ -282,6 +232,198 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     expectedEbitda,
     expectedCashEnd,
     overdraftRisk: expectedCashEnd < 0,
+  };
+}
+
+interface SalesInput {
+  /** State at the start of the quarter (what the player knows). */
+  state: GameState;
+  /** Copy after financing, investments and the expected labor flows. */
+  draft: GameState;
+  company: Company;
+  d: CompanyDecisions;
+}
+
+interface SalesEstimate {
+  outputCeiling: number;
+  plannedOutput: number;
+  materialNeeds: Record<string, number>;
+  materials: number;
+  expectedDemand: number;
+  expectedUsers?: number;
+  expectedUnitsSold: number;
+  expectedRevenue: number;
+  cogs: number;
+  maintenance: number;
+  logistics: number;
+  /** Wages of the developers on R&D (tech). */
+  rndWages: number;
+}
+
+/** Units and cost of the contracts delivering a commodity this quarter (in force and new). */
+function contractedSupply(
+  draft: GameState,
+  company: Company,
+  d: CompanyDecisions,
+  commodityId: string,
+): { qty: number; cost: number } {
+  const turn = draft.meta.turn;
+  const contracts = company.contracts.filter(
+    (k) => k.commodityId === commodityId && k.startsAt <= turn && turn < k.endsAt,
+  );
+  const fresh = d.purchasing.newContracts.filter((c) => c.commodityId === commodityId);
+  const forward =
+    (draft.commodities[commodityId]?.worldPrice ?? 0) *
+    (1 + draft.config.commodities.forwardPremium);
+  return {
+    qty: sum(contracts.map((k) => k.qtyPerQuarter)) + sum(fresh.map((c) => c.qtyPerQuarter)),
+    cost:
+      sum(contracts.map((k) => k.qtyPerQuarter * k.price)) +
+      sum(fresh.map((c) => c.qtyPerQuarter * forward)),
+  };
+}
+
+/** Cost of a non-storable need: contracts first, the rest at spot. */
+function nonStorableCost(
+  draft: GameState,
+  company: Company,
+  d: CompanyDecisions,
+  commodityId: string,
+  need: number,
+): number {
+  const spot =
+    (draft.commodities[commodityId]?.spotPrice ?? 0) * (1 + draft.config.commodities.spotPremium);
+  const contracted = contractedSupply(draft, company, d, commodityId);
+  return contracted.cost + Math.max(0, need - contracted.qty) * spot;
+}
+
+/** Plants: production within the crew, the lines and the materials at hand, then sales from stock. */
+function plantSales({ state, draft, company, d }: SalesInput): SalesEstimate {
+  const { config } = draft;
+  const { priceLevel } = draft.macro;
+  const line = mainProductLine(draft, company);
+  const outputCeiling = Math.floor(sum(siteCeilings(draft, company).map((c) => c.ceiling)));
+  const module = sectorModule(company.sector);
+  let plannedOutput = module?.plannedOutput(draft, company, d) ?? 0;
+  const targetOutput = plannedOutput;
+  const materialNeeds: Record<string, number> = {};
+  let materials = 0;
+  const commodities = config.commodities;
+  if (line) {
+    const qualityTarget = d.pricing[line.id]?.qualityTarget;
+    if (qualityTarget !== undefined) line.qualityTarget = qualityTarget;
+    const perUnit = module?.materialsPerUnit(draft, company, line) ?? {};
+    // Inputs the sector consumes on its own (fertilizer at the harvest): bought at consumption.
+    for (const [commodityId, qty] of Object.entries(
+      module?.plannedInputs(draft, company, d) ?? {},
+    )) {
+      const market = draft.commodities[commodityId];
+      if (!market || commodityId in perUnit || qty <= 0) continue;
+      materialNeeds[commodityId] = qty;
+      materials += qty * market.spotPrice * (1 + commodities.spotPremium);
+    }
+    for (const [commodityId, q] of Object.entries(perUnit)) {
+      const market = draft.commodities[commodityId];
+      const spec = commodities.markets[commodityId];
+      if (!market || !spec || q <= 0) continue;
+      materialNeeds[commodityId] = targetOutput * q;
+      if (!spec.storable) {
+        materials += nonStorableCost(draft, company, d, commodityId, plannedOutput * q);
+        continue;
+      }
+      const contracted = contractedSupply(draft, company, d, commodityId);
+      const spot = sum(
+        d.purchasing.spot.filter((o) => o.commodityId === commodityId).map((o) => o.qty),
+      );
+      materials += contracted.cost + spot * market.spotPrice * (1 + commodities.spotPremium);
+      const available = (company.inventory[commodityId]?.qty ?? 0) + contracted.qty + spot;
+      plannedOutput = Math.min(plannedOutput, Math.floor(available / q));
+    }
+  }
+
+  const price = line ? (d.pricing[line.id]?.price ?? line.price) : 0;
+  const expectedDemand = line
+    ? estimateDemand(
+        state,
+        state.companies[company.id] as Company,
+        line,
+        price,
+        d.marketing[line.id] ?? 0,
+        d.listing[line.id] ?? 0,
+      )
+    : 0;
+  const lot = line ? company.inventory[line.id] : undefined;
+  const expectedUnitsSold = Math.min(expectedDemand, (lot?.qty ?? 0) + plannedOutput);
+  const cfg = plantConfig(config, company.sector);
+  const producing = operationalSites(company).flatMap(producingLines).length;
+  return {
+    outputCeiling,
+    plannedOutput: Math.max(0, plannedOutput),
+    materialNeeds,
+    materials,
+    expectedDemand,
+    expectedUnitsSold,
+    expectedRevenue: expectedUnitsSold * price,
+    cogs: expectedUnitsSold * (lot?.avgCost ?? 0),
+    maintenance: producing * cfg.line.maintenanceCost * priceLevel,
+    logistics:
+      expectedUnitsSold *
+      cfg.logisticsCostPerUnit *
+      (draft.regions[company.hqRegionId]?.logisticsCostIndex ?? 1) *
+      priceLevel,
+    rndWages: 0,
+  };
+}
+
+/**
+ * Tech: subscribers from estimateSubscriptions (support coverage of the
+ * expected team), cloud for the billed subscribers (a cost of sales), office
+ * upkeep; the developers put on R&D are expensed as R&D.
+ */
+function techSales({ state, draft, company, d }: SalesInput): SalesEstimate {
+  const { config } = draft;
+  const tech = techConfigOf(config, company.sector);
+  const line = sectorProductLine(config, company);
+  const empty: SalesEstimate = {
+    outputCeiling: 0,
+    plannedOutput: 0,
+    materialNeeds: {},
+    materials: 0,
+    expectedDemand: 0,
+    expectedUnitsSold: 0,
+    expectedRevenue: 0,
+    cogs: 0,
+    maintenance: 0,
+    logistics: 0,
+    rndWages: 0,
+  };
+  if (!tech || !line) return empty;
+  const team = techTeam(config, tech, company, assignedDevelopers(d));
+  const price = d.pricing[line.id]?.price ?? line.price;
+  const estimate = estimateSubscriptions(
+    state,
+    state.companies[company.id] as Company,
+    line,
+    price,
+    d.marketing[line.id] ?? 0,
+    supportCoverage(tech, team, line.users ?? 0),
+  );
+  const need = estimate.billed * cloudPerUser(tech, company.processLevel);
+  const materials = nonStorableCost(draft, company, d, tech.cloudId, need);
+  const offices = operationalSites(company).filter(isOffice).length;
+  return {
+    outputCeiling: estimate.billed,
+    plannedOutput: estimate.billed,
+    materialNeeds: { [tech.cloudId]: need },
+    materials,
+    expectedDemand: estimate.billed,
+    expectedUsers: estimate.users,
+    expectedUnitsSold: estimate.billed,
+    expectedRevenue: estimate.billed * price,
+    cogs: materials,
+    maintenance: offices * tech.office.upkeep * draft.macro.priceLevel,
+    logistics: 0,
+    rndWages: team.rndDevelopers * averageWage(company, tech.developerOccupationId),
   };
 }
 

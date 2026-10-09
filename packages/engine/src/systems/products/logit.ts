@@ -7,21 +7,31 @@ export interface Offer {
   marketing: number;
   /** Shelf presence (0..1), in markets where it matters. */
   distribution?: number;
+  /** Subscribers (network effect), in tech markets. */
+  users?: number;
+  /** Tech level minus the technology frontier (< 0 when lagging), in tech markets. */
+  techGap?: number;
 }
 
-/** U_ik = −βp·ln(p/ref) + βq·quality + βb·brand + βm·ln(1 + marketing/unit) + βd·distribution. */
+/**
+ * U_ik = −βp·ln(p/ref) + βq·quality + βb·brand + βm·ln(1 + marketing/unit)
+ *        + βd·distribution + βn·ln(1 + users/networkUnit) + βt·(tech level − frontier).
+ */
 export function utility(
   segment: ConsumerSegment,
   offer: Offer,
   refPrice: number,
   marketingUnit: number,
+  networkUnit = 1,
 ): number {
   return (
     -segment.betaPrice * Math.log(offer.price / refPrice) +
     segment.betaQuality * offer.quality +
     segment.betaBrand * offer.brand +
     segment.betaMarketing * Math.log(1 + offer.marketing / marketingUnit) +
-    segment.betaDistribution * (offer.distribution ?? 0)
+    segment.betaDistribution * (offer.distribution ?? 0) +
+    segment.betaNetwork * Math.log(1 + Math.max(0, offer.users ?? 0) / networkUnit) +
+    segment.betaTech * (offer.techGap ?? 0)
   );
 }
 
@@ -34,8 +44,9 @@ export function segmentShares(
   offers: readonly Offer[],
   refPrice: number,
   marketingUnit: number,
+  networkUnit = 1,
 ): number[] {
-  const u = offers.map((o) => utility(segment, o, refPrice, marketingUnit));
+  const u = offers.map((o) => utility(segment, o, refPrice, marketingUnit, networkUnit));
   const max = Math.max(segment.outsideUtility, ...u);
   const e = u.map((x) => Math.exp(x - max));
   const denominator = Math.exp(segment.outsideUtility - max) + e.reduce((s, x) => s + x, 0);
@@ -48,10 +59,11 @@ export function marketShares(
   offers: readonly Offer[],
   refPrice: number,
   marketingUnit: number,
+  networkUnit = 1,
 ): number[] {
   const out = offers.map(() => 0);
   for (const segment of segments) {
-    segmentShares(segment, offers, refPrice, marketingUnit).forEach((s, i) => {
+    segmentShares(segment, offers, refPrice, marketingUnit, networkUnit).forEach((s, i) => {
       out[i] = (out[i] ?? 0) + segment.weight * s;
     });
   }

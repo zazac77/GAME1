@@ -7,7 +7,7 @@ import { laborPoolKey } from '../src/core/keys';
 import { PIPELINE, runPipeline } from '../src/core/pipeline';
 import type { System, SystemId } from '../src/core/system';
 import { sectorModule } from '../src/sectors';
-import { plantConfig } from '../src/sectors/config';
+import { plantConfig, sectorProductLine, techConfigOf } from '../src/sectors/config';
 import { mainProductLine } from '../src/sectors/plant';
 import { emptyDecisions } from '../src/systems/validation';
 
@@ -65,16 +65,20 @@ export function resolveAll(
 /**
  * A plausible manager: keeps the starting staff, buys the materials of the
  * planned output, produces what it expects to sell, spends on marketing and
- * indexes its price. Good enough to keep a company alive in tests.
+ * indexes its price (tech: keeps developers on R&D instead of producing).
+ * Good enough to keep a company alive in tests.
  */
 export function steadyDecisions(state: GameState, companyId: string): CompanyDecisions {
   const d = emptyDecisions(companyId);
   const company = state.companies[companyId];
   if (!company || !isOperating(company)) return d;
   const { config } = state;
-  const plant = plantConfig(config, company.sector);
+  const tech = techConfigOf(config, company.sector);
+  const staffTargets = tech
+    ? tech.startingCompany.staff
+    : plantConfig(config, company.sector).startingCompany.staff;
   const module = sectorModule(company.sector);
-  for (const [occupationId, target] of Object.entries(plant.startingCompany.staff)) {
+  for (const [occupationId, target] of Object.entries(staffTargets)) {
     const key = laborPoolKey(company.hqRegionId, occupationId);
     const pool = state.labor[key];
     if (!pool) continue;
@@ -87,6 +91,17 @@ export function steadyDecisions(state: GameState, companyId: string): CompanyDec
       fire: 0,
       wageOffer: Math.max(staff?.wage ?? 0, pool.marketWage),
     });
+  }
+  if (tech) {
+    const product = sectorProductLine(config, company);
+    if (!product) return d;
+    d.pricing[product.id] = { price: product.price * (1 + state.macro.inflation / 4) };
+    d.marketing[product.id] = 100_000;
+    d.rnd = [
+      { type: 'product', budget: 0, developers: 30 },
+      { type: 'process', budget: 0, developers: 10 },
+    ];
+    return d;
   }
   const line = mainProductLine(state, company);
   if (!line || !module) return d;

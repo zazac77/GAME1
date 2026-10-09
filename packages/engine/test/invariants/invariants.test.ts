@@ -7,8 +7,7 @@ import { laborPoolKey } from '../../src/core/keys';
 import { sum } from '../../src/core/math';
 import { sectorModule } from '../../src/sectors';
 import { farmlandLeft } from '../../src/sectors/agri/farm';
-import { plantConfig } from '../../src/sectors/config';
-import { mainProductLine } from '../../src/sectors/plant';
+import { plantConfig, sectorProductLine, techConfigOf } from '../../src/sectors/config';
 import { unemployed } from '../../src/systems/labor/pools';
 import { emptyDecisions } from '../../src/systems/validation';
 import { resolveTurn } from '../../src';
@@ -66,6 +65,7 @@ const specArb = fc.record({
     fc.record({
       type: fc.constantFrom<'process' | 'product'>('process', 'product'),
       budget: fc.double({ min: 0, max: 3e6, noNaN: true }),
+      developers: fc.option(fc.nat(200)),
       staleId: fc.boolean(),
     }),
     { maxLength: 3 },
@@ -79,7 +79,7 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
   const d = emptyDecisions(companyId);
   const company = state.companies[companyId];
   if (!company || !isOperating(company)) return d;
-  const line = mainProductLine(state, company);
+  const line = sectorProductLine(state.config, company);
   if (!line) return d;
   const ref = (state.productMarkets[line.marketId]?.refPrice ?? 1) * state.macro.priceLevel;
   d.pricing[line.id] = { price: ref * spec.priceFactor, qualityTarget: spec.qualityTarget };
@@ -134,6 +134,7 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
   for (const r of spec.rnd) {
     const project = company.rnd.find((p) => p.type === r.type);
     const entry: CompanyDecisions['rnd'][number] = { type: r.type, budget: r.budget };
+    if (r.developers !== null) entry.developers = r.developers; // refused outside tech
     if (r.staleId) entry.projectId = project?.id ?? 'rnd_999';
     d.rnd.push(entry);
   }
@@ -163,6 +164,7 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
     d.marketing[line.id] = Number.POSITIVE_INFINITY;
     d.finance.borrow = Number.NaN;
     d.rnd.push({ type: 'process', budget: Number.NaN });
+    d.rnd.push({ type: 'product', budget: 0, developers: -3 });
   }
   return d;
 }
@@ -213,21 +215,56 @@ function checkInvariants(before: GameState, after: GameState): void {
       expect(line.distribution).toBeLessThanOrEqual(1);
     }
     // R&D: levels within bounds, at most one project per type, progress below completion.
-    const plant = plantConfig(after.config, c.sector);
-    const maxLevel = plant.rnd.maxLevel;
+    const tech = techConfigOf(after.config, c.sector);
     expect(c.processLevel).toBeGreaterThanOrEqual(0);
-    expect(c.processLevel).toBeLessThanOrEqual(maxLevel);
-    for (const line of Object.values(c.productLines)) {
-      expect(line.techLevel ?? 0).toBeGreaterThanOrEqual(0);
-      expect(line.techLevel ?? 0).toBeLessThanOrEqual(maxLevel);
-    }
     expect(new Set(c.rnd.map((p) => p.type)).size).toBe(c.rnd.length);
     for (const p of c.rnd) {
       expect(p.progress).toBeGreaterThanOrEqual(0);
       expect(p.progress).toBeLessThan(1);
-      // Uncertain progress: a project overruns at most to cost / (1 − noise).
-      const noise = plant.rnd.progressNoise;
-      expect(p.spent).toBeLessThanOrEqual((p.cost / (1 - noise)) * (1 + 1e-9));
+    }
+    if (tech) {
+      // Tech: the platform level is capped; releases never go beyond frontier + maxLead.
+      expect(c.processLevel).toBeLessThanOrEqual(tech.rnd.maxLevel);
+      for (const line of Object.values(c.productLines)) {
+        const frontier = after.productMarkets[line.marketId]?.techFrontier ?? 0;
+        expect(line.techLevel ?? 0).toBeGreaterThanOrEqual(0);
+        expect(line.techLevel ?? 0).toBeLessThanOrEqual(frontier + tech.frontier.maxLead + 1e-9);
+        expect(line.users ?? 0).toBeGreaterThanOrEqual(0);
+        if (line.churn !== undefined) {
+          expect(line.churn).toBeGreaterThanOrEqual(tech.subscription.minChurn);
+          expect(line.churn).toBeLessThanOrEqual(tech.subscription.maxChurn);
+        }
+      }
+      for (const p of c.rnd) expect(p.effort).toBeGreaterThan(0);
+      expect(c.inventory).toEqual({});
+      // Hires never take a region beyond the seats of its offices.
+      const seats: Record<string, number> = {};
+      for (const site of Object.values(c.sites)) {
+        seats[site.regionId] = (seats[site.regionId] ?? 0) + (site.seats ?? 0);
+      }
+      for (const staff of Object.values(c.workforce)) {
+        if (staff.lastQuarter.hired > 0) {
+          const region = sum(
+            Object.values(c.workforce)
+              .filter((w) => w.regionId === staff.regionId)
+              .map((w) => w.headcount),
+          );
+          expect(region).toBeLessThanOrEqual(seats[staff.regionId] ?? 0);
+        }
+      }
+    } else {
+      const plant = plantConfig(after.config, c.sector);
+      const maxLevel = plant.rnd.maxLevel;
+      expect(c.processLevel).toBeLessThanOrEqual(maxLevel);
+      for (const line of Object.values(c.productLines)) {
+        expect(line.techLevel ?? 0).toBeGreaterThanOrEqual(0);
+        expect(line.techLevel ?? 0).toBeLessThanOrEqual(maxLevel);
+      }
+      for (const p of c.rnd) {
+        // Uncertain progress: a project overruns at most to cost / (1 − noise).
+        const noise = plant.rnd.progressNoise;
+        expect(p.spent).toBeLessThanOrEqual((p.cost / (1 - noise)) * (1 + 1e-9));
+      }
     }
     if (quarter === turn) {
       const spent = sum(c.rnd.map((p) => p.spent));
@@ -244,7 +281,10 @@ function checkInvariants(before: GameState, after: GameState): void {
     }
     expect(c.brand).toBeGreaterThanOrEqual(0);
     expect(c.brand).toBeLessThanOrEqual(100);
-    if (c.status === 'bankrupt') expect(c.workforce).toEqual({});
+    if (c.status === 'bankrupt') {
+      expect(c.workforce).toEqual({});
+      for (const line of Object.values(c.productLines)) expect(line.users ?? 0).toBe(0);
+    }
     if (quarter === turn) {
       // Fixed assets = Σ book values; financial assets at fair value.
       expect(b.fixedAssets).toBeCloseTo(fixedAssetValue(c), 3);
@@ -324,7 +364,10 @@ describe('invariants (property-based)', () => {
       fc.property(
         fc.integer({ min: 0, max: 0xffffffff }),
         fc.boolean(),
-        fc.array(fc.array(specArb, { minLength: 7, maxLength: 7 }), { minLength: 6, maxLength: 6 }),
+        fc.array(fc.array(specArb, { minLength: 10, maxLength: 10 }), {
+          minLength: 6,
+          maxLength: 6,
+        }),
         (seed, eventful, turns) => {
           const overrides = eventful
             ? {
@@ -373,7 +416,9 @@ describe('invariants (property-based)', () => {
       checkInvariants(state, next);
       state = next;
     }
-    // Nobody buys materials: everyone ends up bankrupt, and the books still balance.
-    expect(Object.values(state.companies).every((c) => c.status === 'bankrupt')).toBe(true);
+    // Nobody buys materials: every plant ends up bankrupt, and the books still balance.
+    // (Subscriptions keep billing without decisions: tech companies fade more slowly.)
+    const plants = Object.values(state.companies).filter((c) => c.sector !== 'tech');
+    expect(plants.every((c) => c.status === 'bankrupt')).toBe(true);
   });
 });

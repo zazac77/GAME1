@@ -7,8 +7,7 @@ import type { GameState } from '../model/state';
 import type { PlayerTurnSummary, ReportedEvent } from '../model/views';
 import type { TurnReport } from '../model/events';
 import { sectorModule } from '../sectors';
-import { agriConfigOf, plantConfigOf } from '../sectors/config';
-import { mainProductLine } from '../sectors/plant';
+import { agriConfigOf, plantConfigOf, sectorProductLine, techConfigOf } from '../sectors/config';
 import { companyAlerts } from './alerts';
 import { isVisible } from './visibility';
 
@@ -27,7 +26,8 @@ function concerns(state: GameState, companyId: Id, target: ReportedEvent['target
     case 'commodity':
       return (
         id in (plantConfigOf(state.config, company.sector)?.recipe ?? {}) ||
-        id === agriConfigOf(state.config, company.sector)?.farm.fertilizerId
+        id === agriConfigOf(state.config, company.sector)?.farm.fertilizerId ||
+        id === techConfigOf(state.config, company.sector)?.cloudId
       );
     case 'market':
       return Object.values(company.productLines).some((l) => l.marketId === id);
@@ -39,7 +39,7 @@ function summarize(before: GameState, after: GameState, ctx: TurnContext, compan
   const end = after.companies[companyId];
   if (!start || !end) return undefined;
   const ledger = ctx.ledger(companyId);
-  const line = mainProductLine(after, end);
+  const line = sectorProductLine(after.config, end);
   const result = line ? after.productMarkets[line.marketId]?.lastResult : undefined;
   const previous = line ? before.productMarkets[line.marketId]?.lastResult : undefined;
   const demand = line ? (result?.allocated[line.id] ?? 0) : 0;

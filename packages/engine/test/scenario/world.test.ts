@@ -8,17 +8,18 @@ describe('world generation', () => {
   const companies = Object.values(state.companies);
   const actors = Object.values(state.actors);
 
-  it('creates the world: 4 regions, 2 sectors', () => {
+  it('creates the world: 4 regions, 3 sectors', () => {
     expect(Object.keys(state.regions).sort()).toEqual([
       'reg_capitale',
       'reg_nord',
       'reg_ouest',
       'reg_sud',
     ]);
-    // 4 regions × 9 occupations (5 in industry, 6 in agri, 2 shared)
-    expect(Object.keys(state.labor)).toHaveLength(36);
+    // 4 regions × 13 occupations (5 in industry, 6 in agri, 5 in tech; sales and managers shared)
+    expect(Object.keys(state.labor)).toHaveLength(52);
     expect(Object.keys(state.commodities).sort()).toEqual([
       'com_cereals',
+      'com_cloud',
       'com_electronics',
       'com_energy',
       'com_fertilizer',
@@ -28,19 +29,25 @@ describe('world generation', () => {
       'com_polymers',
       'com_steel',
     ]);
-    expect(Object.keys(state.productMarkets)).toEqual(['mkt_appliances', 'mkt_food']);
+    expect(Object.keys(state.productMarkets)).toEqual([
+      'mkt_appliances',
+      'mkt_food',
+      'mkt_software',
+    ]);
+    expect(state.productMarkets.mkt_software?.techFrontier).toBe(1);
+    expect(state.productMarkets.mkt_food?.techFrontier).toBeUndefined();
     for (const region of Object.values(state.regions)) expect(region.weather).toBe(1);
     expect(state.meta).toMatchObject({ turn: 0, status: 'running', mode: 'standard', seed: 42 });
   });
 
   it('creates the player and 3 AI competitors with distinct profiles in each sector', () => {
-    expect(actors).toHaveLength(7);
-    expect(companies).toHaveLength(7);
+    expect(actors).toHaveLength(10);
+    expect(companies).toHaveLength(10);
     const player = state.actors[state.meta.playerActorId];
     expect(player).toMatchObject({ kind: 'player', name: 'Alice Martin' });
     expect(state.companies[player?.rootCompanyId ?? '']?.name).toBe('Martin SA');
     const ai = actors.filter((a) => a.kind === 'ai');
-    for (const sector of ['industry', 'agri'] as const) {
+    for (const sector of ['industry', 'agri', 'tech'] as const) {
       const profiles = ai
         .filter((a) => state.companies[a.rootCompanyId]?.sector === sector)
         .map((a) => a.profileId);
@@ -48,7 +55,7 @@ describe('world generation', () => {
     }
     expect(player && state.companies[player.rootCompanyId]?.sector).toBe('industry');
     expect(Object.keys(state.aiMemory).sort()).toEqual(ai.map((a) => a.id).sort());
-    expect(new Set(companies.map((c) => c.name)).size).toBe(7);
+    expect(new Set(companies.map((c) => c.name)).size).toBe(10);
   });
 
   it('spreads the headquarters of each sector over the 4 regions', () => {
@@ -56,13 +63,15 @@ describe('world generation', () => {
     expect(new Set(industry.map((c) => c.hqRegionId)).size).toBe(4);
     const agri = companies.filter((c) => c.sector === 'agri');
     expect(new Set(agri.map((c) => c.hqRegionId)).size).toBe(3);
+    const tech = companies.filter((c) => c.sector === 'tech');
+    expect(new Set(tech.map((c) => c.hqRegionId)).size).toBe(3);
     expect(
       state.companies[state.actors[state.meta.playerActorId]?.rootCompanyId ?? '']?.hqRegionId,
     ).toBe('reg_capitale');
   });
 
-  it('gives every company a factory, staff, stock and a product line', () => {
-    for (const c of companies) {
+  it('gives every plant company a factory, staff, stock and a product line', () => {
+    for (const c of companies.filter((x) => x.sector !== 'tech')) {
       const factories = Object.values(c.sites).filter((s) => s.kind === 'factory');
       expect(factories).toHaveLength(1);
       expect(Object.keys(factories[0]?.lines ?? {})).toHaveLength(c.sector === 'agri' ? 7 : 5);
@@ -73,6 +82,26 @@ describe('world generation', () => {
         expect(lot.avgCost).toBeGreaterThan(0);
       }
       expect(c.inventory['com_energy']).toBeUndefined(); // not storable
+    }
+  });
+
+  it('gives every tech company an office, staff, subscribers and no stock', () => {
+    const cfg = defaultConfig.sectors.tech;
+    for (const c of companies.filter((x) => x.sector === 'tech')) {
+      const sites = Object.values(c.sites);
+      expect(sites).toHaveLength(1);
+      expect(sites[0]).toMatchObject({ kind: 'office', seats: cfg?.office.seats, lines: {} });
+      expect(Object.values(c.workforce).every((s) => s.regionId === c.hqRegionId)).toBe(true);
+      const headcount = Object.values(c.workforce).reduce((s, w) => s + w.headcount, 0);
+      expect(headcount).toBeLessThanOrEqual(sites[0]?.seats ?? 0);
+      expect(c.inventory).toEqual({});
+      const line = Object.values(c.productLines)[0];
+      expect(line?.marketId).toBe('mkt_software');
+      expect(line?.users).toBeGreaterThan(0);
+      expect(line?.techLevel).toBeLessThan(1);
+      expect(line?.quality).toBeGreaterThan(40);
+      expect(c.books.current.balance.cash).toBe(cfg?.startingCompany.cash);
+      expect(c.books.current.balance.debt).toBe(cfg?.startingCompany.debt);
     }
   });
 

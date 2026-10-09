@@ -3,9 +3,10 @@ import { operatingCompanies } from '../../core/companies';
 import { newId } from '../../core/ids';
 import type { System } from '../../core/system';
 import type { Company, RndProject } from '../../model/company';
-import { plantConfigOf } from '../../sectors/config';
+import { plantConfigOf, techConfigOf } from '../../sectors/config';
 import { mainProductLine } from '../../sectors/plant';
 import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/plant/rnd';
+import { advanceFrontier, runTechRnd } from '../../sectors/tech/rnd';
 
 /** Levels fade as the rivals catch up. */
 function obsolescence(ctx: TurnContext, company: Company): void {
@@ -89,16 +90,26 @@ function complete(ctx: TurnContext, company: Company, project: RndProject): void
 }
 
 /**
- * Step 9: new projects start (costed at the start-of-quarter level, as
- * validation quoted them), the R&D levels fade (obsolescence), then the
- * quarter's budgets (an operating expense) move the projects forward with
- * some uncertainty. A completed project adds one level, effective from the
- * next quarter (productivity and reachable quality, sectors/plant/rnd.ts).
+ * Step 9: the technology frontier of the tech markets moves on; new projects
+ * start (costed at the start-of-quarter level, as validation quoted them),
+ * the R&D levels fade (obsolescence), then the quarter's budgets (an
+ * operating expense) move the projects forward with some uncertainty. A
+ * completed project adds one level, effective from the next quarter
+ * (productivity and reachable quality, sectors/plant/rnd.ts). Tech companies
+ * staff their projects with developers instead (sectors/tech/rnd.ts).
  */
 export const rndSystem: System = {
   id: 'rnd',
   run(ctx) {
+    for (const marketId of Object.keys(ctx.draft.productMarkets).sort()) {
+      const market = ctx.draft.productMarkets[marketId];
+      if (market) advanceFrontier(ctx, market);
+    }
     for (const company of operatingCompanies(ctx.draft)) {
+      if (techConfigOf(ctx.config, company.sector)) {
+        runTechRnd(ctx, company);
+        continue;
+      }
       start(ctx, company);
       obsolescence(ctx, company);
       advance(ctx, company);

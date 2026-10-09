@@ -361,6 +361,10 @@ export const fr = {
     occ_food_operator: 'Opérateur agroalimentaire',
     occ_quality_tech: 'Technicien qualité',
     occ_agronomist: 'Agronome',
+    occ_support: 'Support client',
+    occ_developer: 'Développeur',
+    occ_senior_engineer: 'Ingénieur senior / data',
+    occ_product_manager: 'Product manager',
   } as Record<string, string>,
   commodities: {
     com_steel: 'Acier',
@@ -372,10 +376,12 @@ export const fr = {
     com_milk: 'Lait',
     com_packaging: 'Emballages',
     com_fertilizer: 'Engrais',
+    com_cloud: 'Capacité cloud',
   } as Record<string, string>,
   productMarkets: {
     mkt_appliances: 'Électroménager',
     mkt_food: 'Produits alimentaires',
+    mkt_software: 'Logiciels (SaaS)',
   } as Record<string, string>,
   sectors: {
     industry: 'Industrie',
@@ -394,6 +400,7 @@ export const fr = {
     ev_rate_hike: 'Hausse surprise des taux',
     ev_recession: 'Choc récessif',
     ev_drought: 'Sécheresse',
+    ev_disruptive_innovation: 'Innovation disruptive',
   } as Record<string, string>,
   modifierKeys: {
     'macro.gdpGrowth': 'croissance',
@@ -407,6 +414,7 @@ export const fr = {
     'commodity.supply': 'livraisons',
     'market.demand': 'demande',
     'agri.yield': 'rendement agricole',
+    'tech.frontier': 'frontière technologique',
   } satisfies Record<ModifierKey, string>,
   rndTypes: {
     process: 'Procédés',
@@ -483,6 +491,7 @@ const SECTIONS: Record<string, string> = {
   budget: 'budget',
   type: 'type',
   projectId: 'projet',
+  developers: 'développeurs',
 };
 
 /** "hr[0].wageOffer" → "RH n°1 · salaire proposé". Ids in the path are kept as is. */
@@ -528,6 +537,10 @@ export const alertTexts: Record<AlertKind, (a: Alert) => string> = {
     `Société en difficulté : faillite dans ${fmtInt(num(a.data, 'quartersLeft'))} trimestre(s) sans redressement.`,
   capacity_saturated: (a) =>
     `Capacité saturée (${fmtPct(num(a.data, 'utilization'))} utilisés) : envisagez d’investir.`,
+  tech_behind: (a) =>
+    `Produit en retard de ${fmtDec(num(a.data, 'gap'))} niveau sur la frontière technologique : désabonnements en hausse, nouveaux clients en baisse.`,
+  maintenance_short: (a) =>
+    `Maintenance insuffisante : les développeurs hors R&D ne couvrent que ${fmtPct(num(a.data, 'coverage'))} des abonnés (la qualité baisse).`,
 };
 
 export const alertText = (a: Alert): string => alertTexts[a.kind](a);
@@ -549,6 +562,12 @@ export function targetName(kind: string, id: string | undefined): string {
       return id ?? '';
   }
 }
+
+const SITE_KINDS: Record<string, string> = {
+  factory: 'une usine',
+  farm: 'une exploitation agricole',
+  office: 'un bureau',
+};
 
 /** Journal entry in French. `companyName` resolves company ids. */
 export function eventText(e: GameEvent, companyName: (id: string) => string): string {
@@ -590,7 +609,9 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
       const order = str(d, 'order');
       const what =
         order === 'build_site'
-          ? 'lance la construction d’une usine'
+          ? str(d, 'siteKind') === 'office'
+            ? 'aménage un nouveau bureau'
+            : 'lance la construction d’une usine'
           : order === 'buy_farm'
             ? 'achète une exploitation agricole'
             : order === 'add_line'
@@ -601,7 +622,9 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
     case 'site_commissioned':
       return str(d, 'siteKind') === 'farm'
         ? `${who} met en culture une nouvelle exploitation.`
-        : `${who} met en service une nouvelle usine.`;
+        : str(d, 'siteKind') === 'office'
+          ? `${who} ouvre un nouveau bureau.`
+          : `${who} met en service une nouvelle usine.`;
     case 'harvest':
       return `${who} récolte ${fmtInt(num(d, 'qty'))} unités de ${commodityName(str(d, 'commodityId')).toLowerCase()} sur ${fmtInt(num(d, 'hectares'))} ha.`;
     case 'line_commissioned':
@@ -609,7 +632,7 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
     case 'line_modernized':
       return `${who} termine la modernisation d’une ligne.`;
     case 'asset_sold':
-      return `${who} vend ${str(d, 'order') !== 'sell_site' ? 'une ligne' : str(d, 'siteKind') === 'farm' ? 'une exploitation agricole' : 'une usine'} pour ${fmtMoney(num(d, 'proceeds'))}.`;
+      return `${who} vend ${str(d, 'order') !== 'sell_site' ? 'une ligne' : (SITE_KINDS[str(d, 'siteKind')] ?? 'une usine')} pour ${fmtMoney(num(d, 'proceeds'))}.`;
     case 'rnd_started':
       return `${who} lance un projet de R&D ${fr.rndTypes[str(d, 'type') as RndType]?.toLowerCase() ?? ''}.`;
     case 'rnd_completed':

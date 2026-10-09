@@ -302,9 +302,9 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | 4 | `capex` | Avancement des chantiers, mise en service, cessions d'actifs |
 | 5 | `labor` | Licenciements → appariement des embauches → attrition → formation → mise à jour des salaires de marché |
 | 6 | `commodities` | Livraisons des contrats → compensation du spot (prix fonction de la demande agrégée) → stocks |
-| 7 | `production` | Capacité (machines × main-d'œuvre × matières) → production → qualité (délégué au SectorModule) |
-| 8 | `products` + `perishability` | Référencement (agro) → demande totale → parts de marché (logit) → ventes limitées par les stocks → report de la demande insatisfaite → marque ; puis pertes des stocks périssables |
-| 9 | `rnd` | Avancement des projets, niveau technologique, obsolescence |
+| 7 | `production` | Capacité (machines × main-d'œuvre × matières) → production → qualité (délégué au SectorModule ; tech : qualité selon seniors et maintenance) |
+| 8 | `products` + `perishability` | Référencement (agro) → demande totale → parts de marché (logit) → ventes limitées par les stocks → report de la demande insatisfaite → marque ; puis pertes des stocks périssables. Tech : nouveaux abonnés (logit) → churn → abonnés facturés → cloud consommé |
+| 9 | `rnd` | Avance la frontière technologique (tech) ; avancement des projets (budget, ou développeurs en tech), niveau technologique, obsolescence |
 | 10 | `accounting` | Compte de résultat, impôt, intérêts, amortissements, stockage → trésorerie → bilan ; contrôle de solvabilité |
 | 11 | `stockmarket` | Valeur fondamentale → cours (avec impact des ordres) → exécution des ordres → registre → seuils et OPA |
 | 12 | `mna` / `conglomerate` | Rachats conclus, changements de contrôle, synergies, coûts de complexité, consolidation |

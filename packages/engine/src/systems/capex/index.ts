@@ -8,13 +8,9 @@ import type { CapexOrder } from '../../model/decisions';
 import type { Id } from '../../model/ids';
 import type { GameState } from '../../model/state';
 import { buyFarmCost, farmLandValue, farmResaleValue } from '../../sectors/agri/farm';
-import { plantConfig } from '../../sectors/config';
-import {
-  addLineCost,
-  buildSiteCost,
-  modernizeLineCost,
-  resaleValue,
-} from '../../sectors/plant/capex';
+import { assetResaleDiscountOf, plantConfigOf, techConfigOf } from '../../sectors/config';
+import { addLineCost, buildSiteCost, modernizeLineCost } from '../../sectors/plant/capex';
+import { officeCost } from '../../sectors/tech/team';
 
 /**
  * Cash paid when the order is placed (0 for disposals), at the price level
@@ -26,20 +22,22 @@ export function capexOrderCost(
   order: CapexOrder,
   priceLevel: number = state.macro.priceLevel,
 ): number {
-  const cfg = plantConfig(state.config, company.sector);
+  const cfg = plantConfigOf(state.config, company.sector);
+  const tech = techConfigOf(state.config, company.sector);
   const landCostIndex =
     'regionId' in order ? (state.regions[order.regionId]?.landCostIndex ?? 1) : 1;
   switch (order.kind) {
     case 'build_site':
-      return buildSiteCost(cfg, landCostIndex, priceLevel);
+      if (tech) return officeCost(tech, landCostIndex, priceLevel);
+      return cfg ? buildSiteCost(cfg, landCostIndex, priceLevel) : 0;
     case 'buy_farm': {
       const farm = state.config.sectors.agri?.farm;
       return farm ? buyFarmCost(farm, landCostIndex, priceLevel) : 0;
     }
     case 'add_line':
-      return addLineCost(cfg, priceLevel);
+      return cfg ? addLineCost(cfg, priceLevel) : 0;
     case 'modernize_line':
-      return modernizeLineCost(cfg, priceLevel);
+      return cfg ? modernizeLineCost(cfg, priceLevel) : 0;
     default:
       return 0;
   }
@@ -56,7 +54,7 @@ export function disposalBookValue(company: Company, order: CapexOrder): number {
   return 0;
 }
 
-/** Cash a disposal order brings in: plant assets at a discount, farmland near its book value. */
+/** Cash a disposal order brings in: specific assets at a discount, farmland near its book value. */
 export function disposalValue(state: GameState, company: Company, order: CapexOrder): number {
   const book = disposalBookValue(company, order);
   const farm = state.config.sectors.agri?.farm;
@@ -64,13 +62,13 @@ export function disposalValue(state: GameState, company: Company, order: CapexOr
   if (order.kind === 'sell_site' && site?.kind === 'farm' && farm) {
     return farmResaleValue(farm, book);
   }
-  return resaleValue(plantConfig(state.config, company.sector), book);
+  return book * (1 - assetResaleDiscountOf(state.config, company.sector));
 }
 
 /** Finished construction and modernization projects are put into service. */
 function commission(ctx: TurnContext, company: Company): void {
   const { config, turn } = ctx;
-  const line = plantConfig(config, company.sector).line;
+  const line = plantConfigOf(config, company.sector)?.line;
   for (const siteId of Object.keys(company.sites).sort()) {
     const site = company.sites[siteId] as Site;
     if (site.status === 'under_construction' && (site.completesAt ?? turn) <= turn) {
@@ -83,7 +81,7 @@ function commission(ctx: TurnContext, company: Company): void {
         data: { siteId, siteKind: site.kind },
       });
     }
-    if (site.status !== 'operational') continue;
+    if (site.status !== 'operational' || !line) continue;
     for (const lineId of Object.keys(site.lines).sort()) {
       const l = site.lines[lineId] as ProductionLine;
       if (l.status === 'operational' || (l.completesAt ?? turn) > turn) continue;
@@ -105,7 +103,8 @@ function newLine(
   cost: number,
   completesAt: number,
 ): ProductionLine {
-  const cfg = plantConfig(ctx.config, company.sector).line;
+  const cfg = plantConfigOf(ctx.config, company.sector)?.line;
+  if (!cfg) throw new Error(`Sector ${company.sector} has no production lines`);
   return {
     id: newId(ctx.draft.meta, 'line'),
     status: 'under_construction',
@@ -121,7 +120,8 @@ function newLine(
 /** Executes one validated order: cash out (or in), assets in (or out). */
 function execute(ctx: TurnContext, company: Company, order: CapexOrder): void {
   const { draft, config, turn } = ctx;
-  const cfg = plantConfig(config, company.sector);
+  const cfg = plantConfigOf(config, company.sector);
+  const tech = techConfigOf(config, company.sector);
   const ledger = ctx.ledger(company.id);
   const cost = capexOrderCost(draft, company, order, ctx.openingPriceLevel);
   const log = (kind: string, data: Record<string, string | number>) =>
@@ -130,6 +130,24 @@ function execute(ctx: TurnContext, company: Company, order: CapexOrder): void {
   switch (order.kind) {
     case 'build_site': {
       const siteId = newId(draft.meta, 'site');
+      if (tech) {
+        company.sites[siteId] = {
+          id: siteId,
+          kind: 'office',
+          regionId: order.regionId,
+          status: 'under_construction',
+          completesAt: turn + tech.office.setupQuarters,
+          lines: {},
+          buildingBookValue: cost,
+          buildingDepreciationPerQuarter: cost / tech.office.depreciationQuarters,
+          warehouseCapacity: 0,
+          seats: tech.office.seats,
+        };
+        ledger.capex += cost;
+        log('capex_started', { order: order.kind, siteId, siteKind: 'office', cost });
+        return;
+      }
+      if (!cfg) return;
       company.sites[siteId] = {
         id: siteId,
         kind: 'factory',
@@ -170,7 +188,7 @@ function execute(ctx: TurnContext, company: Company, order: CapexOrder): void {
     }
     case 'add_line': {
       const site = company.sites[order.siteId];
-      if (!site) return;
+      if (!site || !cfg) return;
       // A line cannot run before its factory.
       const completesAt = Math.max(turn + cfg.line.buildQuarters, site.completesAt ?? turn);
       const line = newLine(ctx, company, cost, completesAt);
@@ -181,7 +199,7 @@ function execute(ctx: TurnContext, company: Company, order: CapexOrder): void {
     }
     case 'modernize_line': {
       const line = company.sites[order.siteId]?.lines[order.lineId];
-      if (!line) return;
+      if (!line || !cfg) return;
       line.status = 'modernizing';
       line.completesAt = turn + cfg.line.modernizeQuarters;
       line.bookValue += cost;

@@ -63,7 +63,7 @@ describe('French labels', () => {
 
   it('render alerts and validation issues', () => {
     const kinds = Object.keys(alertTexts) as AlertKind[];
-    expect(kinds.length).toBe(8);
+    expect(kinds.length).toBe(10);
     const codes = Object.keys(fr.issueCodes) as ValidationIssueCode[];
     expect(codes.length).toBe(10);
     expect(issuePath('hr[0].wageOffer')).toBe('RH n°1 · salaire proposé');

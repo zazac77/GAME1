@@ -72,12 +72,12 @@ export const defaultConfig: GameConfig = {
       occ_operator: { level: 1, sectors: ['industry'], baseWage: 7500, baseLaborForce: 1200 },
       occ_technician: { level: 2, sectors: ['industry'], baseWage: 9500, baseLaborForce: 150 },
       occ_engineer: { level: 3, sectors: ['industry'], baseWage: 14000, baseLaborForce: 50 },
-      // Transversal occupations: sized for the industry and agrifood firms together.
+      // Transversal occupations: sized for the industry, agrifood and tech firms together.
       occ_sales: {
         level: 2,
-        sectors: ['industry', 'agri'],
+        sectors: ['industry', 'agri', 'tech'],
         baseWage: 10000,
-        baseLaborForce: 140,
+        baseLaborForce: 170,
       },
       occ_manager: {
         level: 4,
@@ -90,6 +90,11 @@ export const defaultConfig: GameConfig = {
       occ_food_operator: { level: 1, sectors: ['agri'], baseWage: 7000, baseLaborForce: 600 },
       occ_quality_tech: { level: 2, sectors: ['agri'], baseWage: 9000, baseLaborForce: 50 },
       occ_agronomist: { level: 3, sectors: ['agri'], baseWage: 13000, baseLaborForce: 25 },
+      // Tech: scarce talents (seniors and product managers are hired a few at a time).
+      occ_support: { level: 1, sectors: ['tech'], baseWage: 7500, baseLaborForce: 170 },
+      occ_developer: { level: 2, sectors: ['tech'], baseWage: 13000, baseLaborForce: 550 },
+      occ_senior_engineer: { level: 3, sectors: ['tech'], baseWage: 19000, baseLaborForce: 85 },
+      occ_product_manager: { level: 4, sectors: ['tech'], baseWage: 23000, baseLaborForce: 35 },
     },
     initialUnemploymentRate: 0.07,
     targetTension: 0.4,
@@ -220,6 +225,19 @@ export const defaultConfig: GameConfig = {
         perishRate: 0,
         weatherSensitivity: 0,
       },
+      // Compute capacity of the SaaS firms: volatile, bought at consumption.
+      com_cloud: {
+        unit: 'uc',
+        basePrice: 40,
+        meanReversion: 0.2,
+        volatility: 0.12,
+        seasonality: [1, 1, 1, 1],
+        priceImpact: 0.15,
+        storable: false,
+        storageCostPerUnit: 0,
+        perishRate: 0,
+        weatherSensitivity: 0,
+      },
       // Spread on the own farms at the harvest (bought at consumption).
       com_fertilizer: {
         unit: 't',
@@ -255,6 +273,8 @@ export const defaultConfig: GameConfig = {
             betaBrand: 0.01,
             betaMarketing: 0.05,
             betaDistribution: 0,
+            betaNetwork: 0,
+            betaTech: 0,
             outsideUtility: 0,
           },
           {
@@ -265,6 +285,8 @@ export const defaultConfig: GameConfig = {
             betaBrand: 0.03,
             betaMarketing: 0.08,
             betaDistribution: 0,
+            betaNetwork: 0,
+            betaTech: 0,
             outsideUtility: 0,
           },
         ],
@@ -286,6 +308,8 @@ export const defaultConfig: GameConfig = {
             betaBrand: 0.01,
             betaMarketing: 0.05,
             betaDistribution: 3,
+            betaNetwork: 0,
+            betaTech: 0,
             outsideUtility: 2,
           },
           {
@@ -296,7 +320,44 @@ export const defaultConfig: GameConfig = {
             betaBrand: 0.03,
             betaMarketing: 0.08,
             betaDistribution: 3,
+            betaNetwork: 0,
+            betaTech: 0,
             outsideUtility: 2,
+          },
+        ],
+      },
+      // Software subscriptions (price per subscriber and per quarter): the demand is the
+      // flow of new subscribers; the network effect and the technology gap weigh in.
+      mkt_software: {
+        sectorId: 'tech',
+        baseVolume: 15000,
+        refPrice: 120,
+        priceElasticity: 0.8,
+        seasonality: [1.05, 1.0, 0.9, 1.05],
+        segments: [
+          {
+            id: 'price',
+            weight: 0.6,
+            betaPrice: 3,
+            betaQuality: 0.01,
+            betaBrand: 0.01,
+            betaMarketing: 0.05,
+            betaDistribution: 0,
+            betaNetwork: 0.2,
+            betaTech: 2,
+            outsideUtility: 3,
+          },
+          {
+            id: 'quality',
+            weight: 0.4,
+            betaPrice: 1.2,
+            betaQuality: 0.03,
+            betaBrand: 0.03,
+            betaMarketing: 0.08,
+            betaDistribution: 0,
+            betaNetwork: 0.35,
+            betaTech: 3,
+            outsideUtility: 6,
           },
         ],
       },
@@ -304,6 +365,7 @@ export const defaultConfig: GameConfig = {
     spilloverRate: 0.3,
     spilloverRounds: 3,
     marketingUnit: 10000,
+    networkUnit: 1000,
     priceBounds: { min: 0.2, max: 5 },
     brand: { decay: 0.08, marketingWeight: 1.5, qualityWeight: 0.05 },
   },
@@ -488,6 +550,82 @@ export const defaultConfig: GameConfig = {
         employerBrand: 50,
       },
     },
+    // SaaS: wages are ~70 % of the costs and nearly fixed, the marginal subscriber
+    // costs little cloud. Developers off R&D maintain the product; the rest of them
+    // race the technology frontier.
+    tech: {
+      productMarketId: 'mkt_software',
+      cloudId: 'com_cloud',
+      // ≈ 12 € of cloud per subscriber and per quarter, a tenth of the price.
+      cloudPerUser: 0.3,
+      developerOccupationId: 'occ_developer',
+      seniorOccupationId: 'occ_senior_engineer',
+      supportOccupationId: 'occ_support',
+      productManagerOccupationId: 'occ_product_manager',
+      usersPerDeveloper: 500,
+      usersPerSupport: 1000,
+      seniorRatio: 0.15,
+      productManagerRatio: 0.06,
+      quality: {
+        base: 20,
+        seniorWeight: 40,
+        maxSeniorRatio: 1.5,
+        maintenanceWeight: 30,
+        adjustSpeed: 0.5,
+      },
+      // A release every 4 to 5 quarters keeps a product at the frontier.
+      frontier: { initial: 1, advancePerQuarter: 0.03, maxLead: 0.15 },
+      subscription: {
+        baseChurn: 0.06,
+        priceSensitivity: 2,
+        techGapSensitivity: 1.5,
+        qualitySensitivity: 0.6,
+        supportSensitivity: 1,
+        minChurn: 0.01,
+        maxChurn: 0.4,
+      },
+      rnd: {
+        // A release closes a third of the gap on top of its own gain.
+        product: { effort: 160, releaseGain: 0.12, imitation: 0.3 },
+        process: { effort: 80, cloudSavingPerLevel: 0.08, qualityPerLevel: 2 },
+        effortGrowthPerLevel: 0.5,
+        maxLevel: 5,
+        // At least 2 quarters per project: a team can outpace the frontier and catch up.
+        maxEffortShare: 0.5,
+        progressNoise: 0.2,
+        outcomeNoise: 0.5,
+        seniorBonus: 0.5,
+        productManagerBonus: 0.3,
+        obsolescencePerQuarter: 0.02,
+      },
+      office: {
+        buildCost: 1_200_000,
+        setupQuarters: 1,
+        depreciationQuarters: 40,
+        seats: 300,
+        upkeep: 150_000,
+        maxOffices: 4,
+      },
+      assetResaleDiscount: 0.5,
+      startingCompany: {
+        offices: 1,
+        officeAgeQuarters: 12,
+        users: 50000,
+        techGap: 0.05,
+        staff: {
+          occ_developer: 160,
+          occ_senior_engineer: 24,
+          occ_support: 50,
+          occ_product_manager: 10,
+          occ_sales: 20,
+        },
+        brand: 50,
+        employerBrand: 50,
+        // Few fixed assets to borrow against: little debt, a cash cushion.
+        cash: 6_000_000,
+        debt: 4_000_000,
+      },
+    },
   },
 
   finance: {
@@ -517,15 +655,17 @@ export const defaultConfig: GameConfig = {
     sharesOutstanding: 2_000_000,
     initialFloat: 0.4,
     initialPriceToBook: 1.2,
+    // A SaaS book value is mostly cash: listed near its earnings value instead.
+    initialPriceToBookBySector: { tech: 12 },
     maxFloatPerQuarter: 0.1,
     maxMinorityStake: 0.3,
     minPrice: 0.01,
-    sectorMultiples: { industry: 6, agri: 7 },
+    sectorMultiples: { industry: 6, agri: 7, tech: 12 },
     fundamental: {
       growthWeight: 1,
       growthCap: 0.3,
       rateSensitivity: 8,
-      salesMultiples: { industry: 0.6, agri: 0.5 },
+      salesMultiples: { industry: 0.6, agri: 0.5, tech: 2.5 },
       fullEbitdaMargin: 0.08,
       inventoryLiquidationShare: 0.7,
     },
@@ -598,6 +738,25 @@ export const defaultConfig: GameConfig = {
         premium: { priceMarkup: 0.15, startPriceIndex: 1.1, qualityTarget: 62 },
         opportunist: { priceMarkup: 0.08 },
       },
+      // Tech: R&D is a large share of the (wage) costs; quality comes from seniors.
+      tech: {
+        low_cost: {
+          priceMarkup: 0.05,
+          startPriceIndex: 0.85,
+          qualityTarget: 50,
+          rndShareOfRevenue: 0.1,
+          rndProcessShare: 0.35,
+          marketingShareOfRevenue: 0.03,
+        },
+        premium: {
+          priceMarkup: 0.3,
+          startPriceIndex: 1.15,
+          qualityTarget: 65,
+          rndShareOfRevenue: 0.16,
+          rndProcessShare: 0.25,
+        },
+        opportunist: { priceMarkup: 0.15, rndShareOfRevenue: 0.12, rndProcessShare: 0.4 },
+      },
     },
     targetCoverage: 0.25,
     forecastSmoothing: 0.5,
@@ -638,6 +797,13 @@ export const defaultConfig: GameConfig = {
       maxLeverage: 2.5,
     },
     listing: { targetDistribution: 0.9, maxShareOfRevenue: 0.05 },
+    tech: {
+      staffingCover: 1.05,
+      gapTolerance: 0.05,
+      catchUpPerGap: 0.5,
+      maxRndShare: 0.3,
+      churnPriceResponse: 0.3,
+    },
     finance: { cashBufferQuarters: 0.3, repayAboveQuarters: 1.5 },
   },
 
@@ -648,6 +814,8 @@ export const defaultConfig: GameConfig = {
       wageGapShare: 0.03,
       covenantNearShare: 0.85,
       capacityUtilization: 0.95,
+      techGap: 0.15,
+      maintenanceCoverage: 0.9,
     },
   },
 
@@ -726,6 +894,18 @@ export const defaultConfig: GameConfig = {
         durationQuarters: 2,
         decay: 0,
       },
+      {
+        // Disruptive innovation: the technology frontier jumps, every software product
+        // suddenly looks dated (churn up, buyers wait) until the next releases.
+        id: 'ev_disruptive_innovation',
+        probability: 0.03,
+        conditions: { sectors: ['tech'] },
+        target: 'market',
+        targetIds: ['mkt_software'],
+        effects: [{ key: 'tech.frontier', op: 'add', value: 0.15 }],
+        durationQuarters: 1,
+        decay: 0,
+      },
     ],
   },
 
@@ -739,6 +919,9 @@ export const defaultConfig: GameConfig = {
       { profileId: 'low_cost', sector: 'agri' },
       { profileId: 'premium', sector: 'agri' },
       { profileId: 'opportunist', sector: 'agri' },
+      { profileId: 'low_cost', sector: 'tech' },
+      { profileId: 'premium', sector: 'tech' },
+      { profileId: 'opportunist', sector: 'tech' },
     ],
     initialJitter: 0.05,
     playerStart: { quality: 50, priceIndex: 1 },

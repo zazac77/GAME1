@@ -102,7 +102,8 @@ de consommateurs (par exemple « prix », poids 60 %, et « qualité », poids
 
 ```
 U_ik = −βp_k · ln(prix_i / prixRéf) + βq_k · qualité_i + βb_k · marque_i
-       + βm_k · ln(1 + marketing_i) + βd · distribution_i (+ βn · ln(1+users_i) en tech)
+       + βm_k · ln(1 + marketing_i) + βd · distribution_i
+       (+ βn · ln(1 + users_i) + βt · (niveauTechno_i − frontière) en tech)
 part_ik = exp(U_ik) / (exp(U_0k) + Σ_j exp(U_jk))
 ```
 
@@ -597,3 +598,87 @@ endetté). Le taux global de faillite des IA tombe donc à 3,3 %. Le volume de
 base du marché alimentaire est calé pour 3 sociétés ; avec un joueur agro,
 il faudra le recaler.
 
+## 18. Choix d'implémentation (lot 2.2 : technologie)
+
+- **Secteur sans usine** : `sectors.tech` a son propre schéma (pas de lignes).
+  Une société SaaS a des **bureaux** (`Site.kind = 'office'`, `seats` places,
+  ordre `build_site` : aménagement `office.buildCost × indice foncier`, un
+  trimestre, loyer `office.upkeep` par trimestre, revente avec décote) ; on
+  n'embauche que dans la limite des places libres de la région. Une « unité »
+  est un abonné facturé un trimestre ; il n'y a ni stock ni production. La
+  section `sectors.tech` est facultative : une ancienne sauvegarde continue
+  sans tech.
+- **Métiers et matière** : support (N1), développeur (N2), ingénieur senior
+  (N3), product manager (N4) ; commercial transversal (vivier agrandi). La
+  **capacité cloud** (`com_cloud`, volatile, non stockable) est achetée à la
+  consommation : `cloudPerUser` par abonné facturé, en coût des ventes.
+- **Abonnements** (étape 8) : le flux de nouveaux abonnés
+  `Q = base · saison · cycle · (prixMoyen/prixRéf)^(−ε)` est partagé par le
+  logit, avec l'effet de réseau `βn · ln(1 + abonnés / networkUnit)` et l'écart
+  à la frontière `βt · (niveau − frontière)`. Chaque base perd son churn :
+  `churnBase · (prix/prixMoyen)^2 · (1 + 1,5·retard) · (1 + 0,6·(50 − qualité)/50)
+  · (1 + (1 − couverture du support))`, borné. Facturés = moyenne des abonnés
+  d'ouverture et de clôture ; CA = facturés × prix (prix par abonné et par
+  trimestre). Parts de marché = parts des abonnés facturés.
+- **Qualité** (étape 7, « bugs ») : tend vers
+  `base + poids · min(1,5, seniors / cible) − 30 · (1 − couverture de
+  maintenance) + bonus plateforme`. Les développeurs qui ne sont pas sur un
+  projet maintiennent `usersPerDeveloper` abonnés chacun.
+- **Frontière technologique** (étape 9) : `ProductMarket.techFrontier`
+  avance de `advancePerQuarter` par trimestre, plus le modificateur
+  `tech.frontier` (événement `ev_disruptive_innovation` : +0,15 d'un coup).
+- **R&D en développeur·trimestres** : la décision `rnd[].developers` affecte
+  des développeurs (budget nul) ; leurs salaires passent de `wages` à `rnd`.
+  Un développeur apporte `1 + 0,5 · min(1, couverture des seniors)`
+  développeur·trimestre, × bruit ; au plus `maxEffortShare` de l'effort par
+  trimestre (deux trimestres minimum). Une **version** (projet produit, 160
+  dév·trim.) ajoute `releaseGain × U[0,5 ; 1,5] × (1 + 0,3 · couverture PM)`
+  plus **30 % du retard** (imitation : rattraper coûte moins qu'innover),
+  sans dépasser `frontière + maxLead`. Un projet **plateforme** (procédés)
+  ajoute un niveau : −8 % de cloud par abonné et +2 points de qualité par
+  niveau, avec obsolescence. Sans imitation, un petit acteur ne suivait plus
+  la frontière (effort absolu constant) et le leader dépassait 70 % du marché.
+- **IA tech** : prévision lissée des nouveaux abonnés et du churn ; effectifs
+  = maintenance des abonnés attendus (× `ai.tech.staffingCover`) + R&D à
+  `rndShareOfRevenue` du CA en développeurs, plus un **rattrapage** sur les
+  versions au-delà de `gapTolerance` de retard (borné par la marge d'EBITDA,
+  pour ne pas s'endetter) ; seniors au ratio qu'exige la qualité du profil,
+  support par abonnés, PM par développeurs ; l'effectif est calé sur des
+  projets à plein régime (pas de licenciement à chaque fin de projet). Prix :
+  coût complet hors R&D réparti sur au moins `costingUtilization` des abonnés
+  que l'équipe peut maintenir (pas de spirale quand la base fond), marge du
+  profil, mélange avec le prix des rivaux, guerre des prix ; baisse si le
+  produit, plus cher que la moyenne, perd ses abonnés plus vite que le churn de
+  base. Bureau supplémentaire quand l'effectif dépasse les places.
+- **Vues** : `PlayerView.costs` chiffre un bureau par région et les projets en
+  développeurs (`effort`, `maxDevelopers`, places libres, frontière) ;
+  `previewDecisions` estime les abonnés (`expectedUsers`) ; alertes
+  `tech_behind` et `maintenance_short`. Les concurrents publient leurs abonnés
+  et leur niveau technologique.
+- **Bourse** : multiple d'EBITDA 12, multiple de CA 2,5 ; cotation initiale à
+  12 × la valeur comptable (`initialPriceToBookBySector`), proche de la valeur
+  fondamentale (une société SaaS a peu d'actifs). Financement de départ propre
+  au secteur (trésorerie 6 M€, dette 4 M€).
+
+Équilibrage mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50,
+joueur industriel en pilote automatique) :
+
+| Indicateur (50 parties) | Résultat |
+|---|---|
+| Marge nette médiane tech | 7,5 % (low-cost 2,7 %, opportuniste 10,0 %, premium 7,5 %) |
+| Marge nette médiane industrie / agro | 8,5 % / 5,9 % |
+| Faillite des IA industrie / agro / tech | 12,0 % / 0 % / 0 % (4,0 % au total) |
+| Part de marché max : industrie / agro / tech | 47,9 % / 48,6 % / 46,2 % |
+| Volatilité des matières / des cours | 12,5 % / 13,5 % |
+| Dérive des salaires réels | +6,9 % |
+| Joueur « premium » en tête (industrie) | 15/50 parties, tour 15 en médiane |
+| Joueur tech en pilote automatique (`--sector tech`) | jamais en faillite, rang médian 2 |
+| Joueur tech passif | toujours en faillite (sans R&D, le produit décroche de la frontière) |
+
+Limites connues, pour le lot 2.5 : aucune IA tech ne fait faillite ; le taux de
+faillite du low-cost industriel varie de 23 à 36 % selon la séquence d'aléa
+(100 parties, variantes neutres), le taux global des IA reste sous la cible
+(4 %). Le volume de base du marché logiciel est calé pour 3 sociétés. La
+mesure « prend la tête » de sim-cli compte l'avance des premiers trimestres :
+un joueur tech passif (qui ne dépense rien en R&D) mène au début avant de
+s'effondrer.

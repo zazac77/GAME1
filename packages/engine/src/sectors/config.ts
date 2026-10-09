@@ -1,5 +1,6 @@
-import type { AgriConfig, GameConfig, PlantSectorConfig } from '../config/schema';
-import type { SectorId } from '../model/ids';
+import type { AgriConfig, GameConfig, PlantSectorConfig, TechConfig } from '../config/schema';
+import type { Company, ProductLine } from '../model/company';
+import type { Id, SectorId } from '../model/ids';
 
 /** Configuration of a plant sector (factories with lines), if the sector has one. */
 export function plantConfigOf(
@@ -28,3 +29,32 @@ export const agriConfigOf = (
   config: GameConfig,
   sector: SectorId | 'holding',
 ): AgriConfig | undefined => (sector === 'agri' ? config.sectors.agri : undefined);
+
+/** Tech configuration when the company is in technology (offices, subscriptions, frontier). */
+export const techConfigOf = (
+  config: GameConfig,
+  sector: SectorId | 'holding',
+): TechConfig | undefined => (sector === 'tech' ? config.sectors.tech : undefined);
+
+/** Product market a sector sells on, if the sector is configured. */
+export const productMarketIdOf = (
+  config: GameConfig,
+  sector: SectorId | 'holding',
+): Id | undefined =>
+  plantConfigOf(config, sector)?.productMarketId ?? techConfigOf(config, sector)?.productMarketId;
+
+/** Resale discount on the book value of a sector's specific assets (1: worthless). */
+export const assetResaleDiscountOf = (config: GameConfig, sector: SectorId | 'holding'): number =>
+  plantConfigOf(config, sector)?.assetResaleDiscount ??
+  techConfigOf(config, sector)?.assetResaleDiscount ??
+  1;
+
+/** The product line a company sells on its sector's market (one per company for now). */
+export function sectorProductLine(config: GameConfig, company: Company): ProductLine | undefined {
+  const marketId = productMarketIdOf(config, company.sector);
+  if (marketId === undefined) return undefined;
+  return Object.keys(company.productLines)
+    .sort()
+    .map((id) => company.productLines[id] as ProductLine)
+    .find((l) => l.marketId === marketId);
+}

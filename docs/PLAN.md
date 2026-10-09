@@ -32,6 +32,10 @@ plusieurs commits poussés avec les tests au vert.
 
 ➡ **Validation Phase 1** : tu joues une partie complète et me fais tes retours.
 
+✅ **Phase 1 validée** sur les chiffres de `sim-cli` (lot 1.5, `GAME_DESIGN.md`
+§16), sans partie test du joueur. Les retours de jeu seront traités en
+corrections ponctuelles.
+
 ## Phase 2 : secteurs, IA avancée, rachats, bourse v2
 
 | Lot | Contenu | Effort |

@@ -245,6 +245,15 @@ const productsSchema = z.strictObject({
   }),
 });
 
+const rndTypeSchema = z.strictObject({
+  /** Cost of the first project, before the price level. */
+  baseCost: pos,
+  /** Reachable quality points per level. */
+  qualityPerLevel: nonNeg,
+  /** Relative operator productivity per level. */
+  productivityPerLevel: nonNeg,
+});
+
 const industrySchema = z.strictObject({
   productMarketId: id,
   /** Commodity units consumed per unit produced. */
@@ -305,6 +314,24 @@ const industrySchema = z.strictObject({
     techLevelWeight: nonNeg,
     /** Share of the gap to the aimed quality closed each quarter. */
     adjustSpeed: share,
+  }),
+  /**
+   * R&D projects (step 9). A project costs baseCost·(1 + costGrowthPerLevel·level)
+   * at the price level of its start; completing it adds one level (up to
+   * maxLevel). Process level: company-wide productivity and reachable quality;
+   * product level: reachable quality of the product line. Levels lose
+   * obsolescencePerQuarter each quarter.
+   */
+  rnd: z.strictObject({
+    process: rndTypeSchema,
+    product: rndTypeSchema,
+    costGrowthPerLevel: nonNeg,
+    maxLevel: pos,
+    /** At most this share of a project's cost is spent per quarter (minimum duration). */
+    maxSpendShare: z.number().gt(0).max(1),
+    /** Progress of a quarter = budget / cost × U[1 − noise, 1 + noise]. */
+    progressNoise: z.number().min(0).lt(1),
+    obsolescencePerQuarter: nonNeg,
   }),
   /** Outbound logistics per unit sold, before the regional index. */
   logisticsCostPerUnit: nonNeg,
@@ -428,6 +455,8 @@ const aiProfileSchema = z.strictObject({
   stockoutPremium: nonNeg,
   marketingShareOfRevenue: share,
   rndShareOfRevenue: share,
+  /** Share of the R&D budget spent on process projects (the rest on product projects). */
+  rndProcessShare: share,
 });
 
 const aiSchema = z.strictObject({

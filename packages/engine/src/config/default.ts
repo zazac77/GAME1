@@ -225,6 +225,19 @@ export const defaultConfig: GameConfig = {
         techLevelWeight: 20,
         adjustSpeed: 0.5,
       },
+      rnd: {
+        // A process level: +4 % operator productivity and +2 quality points.
+        process: { baseCost: 1_500_000, qualityPerLevel: 2, productivityPerLevel: 0.04 },
+        // A product level: +6 reachable quality points.
+        product: { baseCost: 2_000_000, qualityPerLevel: 6, productivityPerLevel: 0 },
+        costGrowthPerLevel: 0.5,
+        maxLevel: 5,
+        // At least 3 quarters per project.
+        maxSpendShare: 0.35,
+        progressNoise: 0.2,
+        // Rivals catch up: a level fades in about 12 years.
+        obsolescencePerQuarter: 0.02,
+      },
       logisticsCostPerUnit: 8,
       finishedGoodsStorageCost: 4,
       assetResaleDiscount: 0.5,
@@ -315,6 +328,7 @@ export const defaultConfig: GameConfig = {
         stockoutPremium: 0,
         marketingShareOfRevenue: 0.02,
         rndShareOfRevenue: 0.01,
+        rndProcessShare: 0.8,
       },
       premium: {
         priceMarkup: 0.35,
@@ -327,6 +341,7 @@ export const defaultConfig: GameConfig = {
         stockoutPremium: 0,
         marketingShareOfRevenue: 0.05,
         rndShareOfRevenue: 0.04,
+        rndProcessShare: 0.3,
       },
       opportunist: {
         priceMarkup: 0.2,
@@ -339,6 +354,7 @@ export const defaultConfig: GameConfig = {
         stockoutPremium: 0.05,
         marketingShareOfRevenue: 0.03,
         rndShareOfRevenue: 0.02,
+        rndProcessShare: 0.5,
       },
     },
     targetCoverage: 0.25,

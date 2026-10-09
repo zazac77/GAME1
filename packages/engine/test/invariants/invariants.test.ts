@@ -51,6 +51,14 @@ const specArb = fc.record({
       limitFactor: fc.option(fc.double({ min: 0.5, max: 2, noNaN: true })),
     }),
   ),
+  rnd: fc.array(
+    fc.record({
+      type: fc.constantFrom<'process' | 'product'>('process', 'product'),
+      budget: fc.double({ min: 0, max: 3e6, noNaN: true }),
+      staleId: fc.boolean(),
+    }),
+    { maxLength: 3 },
+  ),
   garbage: fc.boolean(),
 });
 type Spec = fc.Arbitrary<typeof specArb extends fc.Arbitrary<infer T> ? T : never>;
@@ -110,6 +118,12 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
       d.capex.push({ kind: o.kind, siteId });
     else d.capex.push({ kind: o.kind, siteId, lineId });
   }
+  for (const r of spec.rnd) {
+    const project = company.rnd.find((p) => p.type === r.type);
+    const entry: CompanyDecisions['rnd'][number] = { type: r.type, budget: r.budget };
+    if (r.staleId) entry.projectId = project?.id ?? 'rnd_999';
+    d.rnd.push(entry);
+  }
   if (spec.stock) {
     const others = Object.keys(state.companies).sort();
     const targetId = others[spec.stock.target % others.length] ?? '';
@@ -135,6 +149,7 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
     d.purchasing.spot.push({ commodityId: 'com_steel', qty: -5 });
     d.marketing[line.id] = Number.POSITIVE_INFINITY;
     d.finance.borrow = Number.NaN;
+    d.rnd.push({ type: 'process', budget: Number.NaN });
   }
   return d;
 }
@@ -178,6 +193,35 @@ function checkInvariants(before: GameState, after: GameState): void {
       expect(line.quality).toBeGreaterThanOrEqual(0);
       expect(line.quality).toBeLessThanOrEqual(100);
       expect(line.price).toBeGreaterThan(0);
+    }
+    // R&D: levels within bounds, at most one project per type, progress below completion.
+    const maxLevel = after.config.sectors.industry.rnd.maxLevel;
+    expect(c.processLevel).toBeGreaterThanOrEqual(0);
+    expect(c.processLevel).toBeLessThanOrEqual(maxLevel);
+    for (const line of Object.values(c.productLines)) {
+      expect(line.techLevel ?? 0).toBeGreaterThanOrEqual(0);
+      expect(line.techLevel ?? 0).toBeLessThanOrEqual(maxLevel);
+    }
+    expect(new Set(c.rnd.map((p) => p.type)).size).toBe(c.rnd.length);
+    for (const p of c.rnd) {
+      expect(p.progress).toBeGreaterThanOrEqual(0);
+      expect(p.progress).toBeLessThan(1);
+      // Uncertain progress: a project overruns at most to cost / (1 − noise).
+      const noise = after.config.sectors.industry.rnd.progressNoise;
+      expect(p.spent).toBeLessThanOrEqual((p.cost / (1 - noise)) * (1 + 1e-9));
+    }
+    if (quarter === turn) {
+      const spent = sum(c.rnd.map((p) => p.spent));
+      const before0 = sum(before.companies[c.id]?.rnd.map((p) => p.spent) ?? []);
+      expect(c.books.current.pnl.rnd).toBeGreaterThanOrEqual(0);
+      // Without completions, what the projects absorbed is what the books expensed.
+      if (
+        !after.log.some(
+          (e) => e.kind === 'rnd_completed' && e.companyId === c.id && e.turn === turn,
+        )
+      ) {
+        expect(spent - before0).toBeCloseTo(c.books.current.pnl.rnd, 3);
+      }
     }
     expect(c.brand).toBeGreaterThanOrEqual(0);
     expect(c.brand).toBeLessThanOrEqual(100);

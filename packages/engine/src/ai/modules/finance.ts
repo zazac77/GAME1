@@ -1,8 +1,9 @@
 import { sum } from '../../core/math';
 import type { Plan } from './plan';
+import { rnd } from './rnd';
 
 /**
- * 7. Marketing (share of the expected revenue) and 8. finance: borrows when
+ * 7. Marketing and R&D (shares of the expected revenue) and 8. finance: borrows when
  * the projected end-of-quarter cash falls below the buffer (or when the
  * plan's spending exceeds what validation would allow), repays term debt
  * with the cash above repayAboveQuarters of cash costs.
@@ -17,6 +18,7 @@ export function marketingAndFinance(plan: Plan): void {
     plan.decisions.marketing[line.id] = marketing;
     plan.spend.discretionary += marketing;
   }
+  rnd(plan, revenue);
   for (const h of plan.decisions.hr) {
     plan.spend.discretionary += h.hire * h.wageOffer * config.labor.hiringCost;
     plan.spend.other +=

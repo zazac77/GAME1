@@ -12,6 +12,7 @@ import { macroSystem } from '../systems/macro';
 import { productionSystem } from '../systems/production';
 import { productsSystem } from '../systems/products';
 import { reportingSystem } from '../systems/reporting';
+import { rndSystem } from '../systems/rnd';
 import { stockMarketSystem } from '../systems/stockmarket';
 import { filterControlled, validationSystem } from '../systems/validation';
 import { buildTurnReport } from '../views/report';
@@ -33,7 +34,7 @@ export const PIPELINE: readonly System[] = [
   commoditiesSystem, // 6. contract deliveries, spot clearing, stocks
   productionSystem, // 7. capacity, output, quality (SectorModule)
   productsSystem, // 8. demand, logit shares, sales, brand
-  pending('rnd'), // 9. projects, tech level, obsolescence (lot 1.4)
+  rndSystem, // 9. obsolescence, projects, R&D levels
   accountingSystem, // 10. statements, tax, cash, solvency
   stockMarketSystem, // 11. fundamental, price, orders, registry, index
   pending('mna'), // 12. acquisitions, changes of control

@@ -48,6 +48,10 @@ export interface CompanyDecisions {
   capex: CapexOrder[];
   /** Marketing budget by product line. */
   marketing: Record<Id, Money>;
+  /**
+   * Budget of the quarter by R&D project. Without projectId, funds the
+   * project of that type in progress, or starts one.
+   */
   rnd: { projectId?: Id; type: RndType; budget: Money }[];
   finance: {
     borrow?: Money;

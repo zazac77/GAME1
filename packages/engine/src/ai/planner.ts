@@ -18,7 +18,7 @@ export type { PlanSignal } from './modules/plan';
 /**
  * Plans the decisions of one company from its Observation only (never the
  * GameState) and the actor's memory: forecast → production → HR → price →
- * purchasing → capex → marketing and finance. Heuristics with a little
+ * purchasing → capex → marketing, R&D and finance. Heuristics with a little
  * randomness (price war ripostes), no optimizer. The decisions then go
  * through the same validation as the player's. Pure: returns a new memory.
  */

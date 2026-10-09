@@ -2,7 +2,7 @@ import { indexedRefPrice, isOperating, trainees } from '../../core/companies';
 import { emptyDecisions } from '../../core/decisions';
 import { laborPoolKey } from '../../core/keys';
 import { clamp, sum } from '../../core/math';
-import type { Company } from '../../model/company';
+import type { Company, RndType } from '../../model/company';
 import type {
   CapexOrder,
   CompanyDecisions,
@@ -12,6 +12,8 @@ import type {
 } from '../../model/decisions';
 import type { Id } from '../../model/ids';
 import type { GameState } from '../../model/state';
+import { mainProductLine } from '../../sectors/industry';
+import { rndLevel, rndMaxSpend, rndProjectCost } from '../../sectors/industry/rnd';
 import { capexOrderCost } from '../capex';
 import { borrowingCapacity } from '../finance/credit';
 
@@ -191,8 +193,40 @@ export function normalizeDecisions(
     else if (budget > 0) out.marketing[lineId] = budget;
   }
 
+  // ---- R&D: one project per type at a time, spending capped per quarter ---
+  const ind = config.sectors.industry;
+  const mainLine = mainProductLine(state, company);
+  const seenRnd = new Set<RndType>();
+  (input.rnd ?? []).forEach((r, i) => {
+    const path = `rnd[${i}]`;
+    if (r?.type !== 'process' && r?.type !== 'product')
+      return flag(`${path}.type`, 'invalid_value');
+    if (!isNum(r.budget) || r.budget < 0) {
+      return flag(`${path}.budget`, 'invalid_value', r.budget);
+    }
+    const current = company.rnd.find((p) => p.type === r.type);
+    if (r.projectId !== undefined && r.projectId !== current?.id) {
+      return flag(`${path}.projectId`, 'unknown_id');
+    }
+    if (seenRnd.has(r.type)) return flag(path, 'duplicate');
+    seenRnd.add(r.type);
+    if (r.type === 'product' && !mainLine) return flag(path, 'unknown_id');
+    if (r.budget === 0) return;
+    let cost = current?.cost ?? 0;
+    if (!current) {
+      const level = rndLevel(company, r.type, mainLine);
+      if (level >= ind.rnd.maxLevel) return flag(path, 'limit');
+      cost = rndProjectCost(ind, r.type, level, state.macro.priceLevel);
+    }
+    const max = rndMaxSpend(ind, cost, current?.progress ?? 0);
+    const budget = bound(`${path}.budget`, r.budget, 0, max);
+    if (budget <= 0) return;
+    const entry: CompanyDecisions['rnd'][number] = { type: r.type, budget };
+    if (current) entry.projectId = current.id;
+    out.rnd.push(entry);
+  });
+
   // ---- features of later lots --------------------------------------------
-  if ((input.rnd ?? []).length > 0) flag('rnd', 'not_available');
   if ((input.mna ?? []).length > 0) flag('mna', 'not_available');
   if ((input.intraGroup ?? []).length > 0) flag('intraGroup', 'not_available');
   const fin = input.finance ?? {};
@@ -229,7 +263,6 @@ export function normalizeDecisions(
   // ---- capex: investments paid when ordered, from cash and new debt -----
   const capexBudget = Math.max(0, cash + (out.finance.borrow ?? 0) - (out.finance.repay ?? 0));
   let capexSpent = 0;
-  const ind = config.sectors.industry;
   let siteCount = Object.keys(company.sites).length;
   const lineCount: Record<Id, number> = {};
   for (const [siteId, site] of Object.entries(company.sites)) {
@@ -347,6 +380,7 @@ export function normalizeDecisions(
   const spending =
     sum(out.purchasing.spot.map(spotCost)) +
     sum(Object.values(out.marketing)) +
+    sum(out.rnd.map((r) => r.budget)) +
     sum(out.hr.map((h) => h.hire * wageOf(h) * config.labor.hiringCost)) +
     sum(out.hr.map((h) => (h.train?.count ?? 0) * config.labor.training.costPerPerson));
   const liquidity = Math.max(
@@ -365,6 +399,8 @@ export function normalizeDecisions(
     for (const lineId of Object.keys(out.marketing)) {
       out.marketing[lineId] = (out.marketing[lineId] ?? 0) * f;
     }
+    for (const r of out.rnd) r.budget *= f;
+    out.rnd = out.rnd.filter((r) => r.budget > 0);
     for (const h of out.hr) {
       h.hire = Math.floor(h.hire * f);
       if (h.train) {

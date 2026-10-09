@@ -372,9 +372,9 @@ Précisions retenues en codant les systèmes ; les coefficients sont dans
 - **Faillite** : la société est gelée (plus de décisions, de production ni
   de ventes) et ses salariés retournent au marché du travail. Les enchères
   sur ses actifs viendront avec les rachats (phase 2).
-- **Pas encore implémenté** : `rnd` (étape 9, lot 1.4), dont les décisions
-  sont refusées avec `not_available` ; dividendes et opérations sur actions
-  (phase 2). `capex` est arrivé avec le lot 1.3 (§14).
+- **Pas encore implémenté** : dividendes et opérations sur actions
+  (phase 2). `capex` est arrivé avec le lot 1.3 (§14), `rnd` avec le
+  lot 1.4 (§15).
 
 ## 14. Choix d'implémentation (lot 1.3)
 
@@ -454,3 +454,39 @@ Précisions retenues en codant les systèmes ; les coefficients sont dans
 - **sim-cli** : le joueur est en pilote automatique (`playerProfileId`) ou
   passif (`defaultDecisions`). Bornes de sanité dans
   `packages/sim-cli/src/metrics.ts`.
+
+## 15. Choix d'implémentation (lot 1.4)
+
+- **R&D** (étape 9, `sectors.industry.rnd`) : deux types de projets, au plus
+  un de chaque à la fois. Une décision `{ type, budget }` finance le projet
+  en cours de ce type, ou en démarre un. Le coût d'un projet est fixé à son
+  démarrage : `baseCost × (1 + costGrowthPerLevel × niveau) × niveau des
+  prix`. Le budget d'un trimestre est plafonné à `maxSpendShare` du coût
+  (durée minimale) et au reste à financer ; c'est une dépense discrétionnaire
+  (réduite avec le marketing faute de liquidités), passée en charges
+  (`pnl.rnd`). Avancement du trimestre = `budget / coût × U[1 − bruit,
+  1 + bruit]` (`progressNoise`) : un projet peut dépasser son budget. À 100 %,
+  il ajoute un niveau (plafond `maxLevel`), effectif dès le trimestre
+  suivant.
+  - **Procédés** (`Company.processLevel`) : productivité des opérateurs
+    × `(1 + productivityPerLevel × niveau)` et qualité atteignable
+    + `qualityPerLevel × niveau`.
+  - **Produit** (`ProductLine.techLevel`) : qualité atteignable
+    + `qualityPerLevel × niveau`.
+  - **Obsolescence** : chaque niveau perd `obsolescencePerQuarter` par
+    trimestre (les rivaux rattrapent). Les nouveaux projets sont chiffrés au
+    niveau du début de trimestre, comme dans la validation.
+- **IA** : `rndShareOfRevenue` du CA attendu, réparti entre procédés
+  (`rndProcessShare`) et produit ; la marge du prix de revient couvre
+  marketing et R&D.
+- **Vues** : `defaultDecisions` reconduit aussi les budgets de R&D (un
+  budget dont le projet s'est achevé lance le suivant) ; `previewDecisions`
+  compte la R&D dans l'EBITDA et la trésorerie estimés. Le journal
+  (`rnd_started`, `rnd_completed`) reste privé.
+- **UI** (`packages/web`) : React + Vite, état `zustand`, graphiques
+  `recharts`, Tailwind. Le brouillon de décisions part de
+  `defaultDecisions` et l'aperçu (`previewDecisions`) se recalcule à chaque
+  modification. Sauvegardes dans IndexedDB (`idb-keyval`) : slots manuels,
+  autosave en rotation sur les 3 derniers tours, export/import du
+  `SaveFile` en JSON (migré au chargement).
+

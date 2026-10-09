@@ -54,6 +54,7 @@ export interface CompanyPreview {
     severance: Money;
     training: Money;
     marketing: Money;
+    rnd: Money;
     maintenance: Money;
     logistics: Money;
     storage: Money;

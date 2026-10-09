@@ -97,19 +97,29 @@ export interface ProductLine {
   /** Quality aimed at (0..100); higher quality consumes more material. */
   qualityTarget: number;
   price: Money;
+  /** Product R&D level (0..rnd.maxLevel, fractional with obsolescence): raises the reachable quality. */
   techLevel?: number;
   users?: number;
 }
 
 export type RndType = 'process' | 'product';
 
+/** An R&D project in progress (removed when completed). */
 export interface RndProject {
   id: Id;
   type: RndType;
+  /** Product line improved by a product project. */
   productLineId?: Id;
-  /** 0..1 */
+  /** 0..1; the project completes at 1. */
   progress: number;
+  /** Cash spent so far. */
   spent: Money;
+  /**
+   * Nominal budget, fixed at its start (price level included). Progress is
+   * uncertain: the actual spending may differ (up to cost / (1 − progressNoise)).
+   */
+  cost: Money;
+  startedAt: Quarter;
 }
 
 export interface Company {
@@ -132,6 +142,9 @@ export interface Company {
   employerBrand: number;
   /** Cumulative units produced (learning curve). */
   cumulativeOutput: number;
+  /** Process R&D level (0..rnd.maxLevel, fractional with obsolescence). */
+  processLevel: number;
+  /** At most one project of each type at a time. */
   rnd: RndProject[];
   loans: Loan[];
   credit: CreditStatus;

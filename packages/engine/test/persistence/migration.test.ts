@@ -4,11 +4,14 @@ import { SCHEMA_VERSION } from '../../src/core/version';
 import { assertJsonSafe, playerCompanyId, steadyDecisions } from '../helpers';
 import saveV1 from '../fixtures/save-v1.json';
 import saveV2 from '../fixtures/save-v2.json';
+import saveV3 from '../fixtures/save-v3.json';
 
 // A v1 save written by the lot 1.1 engine (seed 1234, after 2 quarters).
 const v1 = JSON.stringify(saveV1);
 // A v2 save written by the lot 1.2 engine (seed 1234, after 2 quarters).
 const v2 = JSON.stringify(saveV2);
+// A v3 save written by the lot 1.3 engine (seed 1234, after 2 quarters).
+const v3 = JSON.stringify(saveV3);
 
 describe('migrations', () => {
   it('loads a v1 save into the current schema', () => {
@@ -74,6 +77,26 @@ describe('migrations', () => {
       expect(state.aiMemory[actor.id]?.demandForecast).toBeGreaterThan(0);
     }
     expect(Object.values(state.stock.quotes).every((q) => q.publishedQuarter >= 0)).toBe(true);
+    assertJsonSafe(state);
+  });
+
+  it('loads a v3 save: R&D levels and config filled in, R&D playable', () => {
+    expect(JSON.parse(v3).schemaVersion).toBe(3);
+    let state = deserializeGame(v3);
+    expect(state.meta.schemaVersion).toBe(SCHEMA_VERSION);
+    for (const c of Object.values(state.companies)) {
+      expect(c.processLevel).toBe(0);
+      expect(c.rnd).toEqual([]);
+      for (const line of Object.values(c.productLines)) expect(line.techLevel).toBe(0);
+    }
+    expect(state.config.sectors.industry.rnd.maxLevel).toBeGreaterThan(0);
+    expect(state.config.ai.profiles.low_cost?.rndProcessShare).toBe(0.8);
+    for (let i = 0; i < 3; i++) {
+      const d = steadyDecisions(state, playerCompanyId(state));
+      d.rnd = [{ type: 'process', budget: 200_000 }];
+      state = resolveTurn(state, [d]).state;
+    }
+    expect(state.companies[playerCompanyId(state)]?.rnd[0]?.spent).toBeCloseTo(600_000, 3);
     assertJsonSafe(state);
   });
 });

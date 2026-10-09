@@ -54,7 +54,7 @@ function priceWar(plan: Plan): void {
 
 /**
  * 3. Price: full cost (fixed costs spread over at least costingUtilization
- * of the capacity) + profile markup (marketing taken out of the revenue),
+ * of the capacity) + profile markup (marketing and R&D taken out of the revenue),
  * blended geometrically with the rivals' average price × the profile
  * positioning; + premium while rivals are out of stock; − price war
  * discount; never below the variable cost floor; moves by at most
@@ -89,7 +89,8 @@ export function pricing(plan: Plan): void {
   const { depreciation, interest } = company.books.current.pnl;
   const fullCost = plan.variableCost + (wages + maintenance + depreciation + interest) / volume;
   const costPrice =
-    (fullCost * (1 + profile.priceMarkup)) / Math.max(0.5, 1 - profile.marketingShareOfRevenue);
+    (fullCost * (1 + profile.priceMarkup)) /
+    Math.max(0.5, 1 - profile.marketingShareOfRevenue - profile.rndShareOfRevenue);
   plan.quarterlyCashCosts = wages + maintenance + interest + plan.variableCost * volume;
 
   const rivals = obs.competitors

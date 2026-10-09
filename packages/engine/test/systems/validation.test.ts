@@ -76,7 +76,7 @@ describe('validation', () => {
         newContracts: [{ commodityId: 'com_steel', qtyPerQuarter: -3, quarters: 4 }],
       },
       capex: [{ kind: 'build_site', regionId: 'reg_atlantide' }],
-      rnd: [{ type: 'process', budget: 1000 }],
+      rnd: [{ type: 'process', budget: Number.NaN }],
       finance: { dividend: 1000, borrow: -5 },
       stockOrders: [{ targetId: 'co_999', side: 'buy', shares: 10 }],
     };
@@ -90,7 +90,7 @@ describe('validation', () => {
       'purchasing.spot[1].qty:invalid_value',
       'purchasing.spot[2]:invalid_value', // energy is bought at consumption
       'purchasing.newContracts[0].qtyPerQuarter:invalid_value',
-      'rnd:not_available',
+      'rnd[0].budget:invalid_value',
       'finance.dividend:not_available',
       'finance.borrow:invalid_value',
       'capex[0]:unknown_id',

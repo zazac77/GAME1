@@ -171,6 +171,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   // Sales.
   const price = line ? (d.pricing[line.id]?.price ?? line.price) : 0;
   const marketing = sum(Object.values(d.marketing));
+  const rnd = sum(d.rnd.map((r) => r.budget));
   const expectedDemand = line
     ? estimateDemand(
         state,
@@ -202,7 +203,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     installments += left <= 1 ? loan.principal : loan.principal / left;
   }
   const other = hiring + severance + training + maintenance + logistics;
-  const expectedEbitda = expectedRevenue - cogs - wages - marketing - storage - other;
+  const expectedEbitda = expectedRevenue - cogs - wages - marketing - rnd - storage - other;
   const overdraft = sum(
     company.loans.filter((l) => l.kind === 'overdraft').map((l) => l.principal),
   );
@@ -217,6 +218,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     materials -
     wages -
     marketing -
+    rnd -
     storage -
     other -
     interest -
@@ -236,6 +238,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
       severance,
       training,
       marketing,
+      rnd,
       maintenance,
       logistics,
       storage,

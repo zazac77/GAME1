@@ -8,6 +8,7 @@ import type { CompanyDecisions } from '../../model/decisions';
 import type { Id } from '../../model/ids';
 import type { GameState } from '../../model/state';
 import type { SectorModule } from '../types';
+import { rndProductivityFactor, rndQualityBonus } from './rnd';
 
 type IndustryConfig = GameState['config']['sectors']['industry'];
 
@@ -34,7 +35,7 @@ function effectiveStaff(state: GameState, staff: Staff | undefined): number {
 const staffAt = (company: Company, regionId: Id, occupationId: Id): Staff | undefined =>
   company.workforce[laborPoolKey(regionId, occupationId)];
 
-/** Units per operator and per quarter in a region. */
+/** Units per operator and per quarter in a region (process R&D included). */
 export function operatorProductivity(state: GameState, company: Company, regionId: Id): number {
   const cfg = state.config.sectors.industry;
   const operators = effectiveStaff(state, staffAt(company, regionId, cfg.operatorOccupationId));
@@ -54,7 +55,8 @@ export function operatorProductivity(state: GameState, company: Company, regionI
     { kind: 'laborPool', id: laborPoolKey(regionId, cfg.operatorOccupationId) },
     { kind: 'company', id: company.id },
   ]);
-  return cfg.operatorProductivity * support * learning * Math.max(0, modifier);
+  const rnd = rndProductivityFactor(cfg, company, mainProductLine(state, company));
+  return cfg.operatorProductivity * support * learning * rnd * Math.max(0, modifier);
 }
 
 /**
@@ -120,7 +122,10 @@ function plannedOutput(
   );
 }
 
-/** Moves the product line's quality towards min(aimed, reachable). */
+/**
+ * Moves the product line's quality towards min(aimed, reachable). Reachable
+ * quality: engineers, line tech level and R&D levels.
+ */
 function updateQuality(state: GameState, company: Company, line: ProductLine): void {
   const cfg = state.config.sectors.industry;
   const q = cfg.quality;
@@ -148,7 +153,8 @@ function updateQuality(state: GameState, company: Company, line: ProductLine): v
   const reachable = clamp(
     q.base +
       q.engineerWeight * Math.min(q.maxEngineerRatio, ratio) +
-      q.techLevelWeight * (techLevel - 1),
+      q.techLevelWeight * (techLevel - 1) +
+      rndQualityBonus(cfg, company, line),
     0,
     100,
   );

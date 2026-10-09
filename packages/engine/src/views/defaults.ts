@@ -9,7 +9,8 @@ import { mainProductLine } from '../sectors/industry';
 
 /**
  * "Same as last quarter": prices, quality aimed at, wages, production
- * targets and marketing carry over; one-shot parts (investments, new
+ * targets, marketing and R&D budgets carry over (an R&D budget whose project
+ * completed starts the next project of its type); one-shot parts (investments, new
  * contracts, loans, repayments, stock orders, hires, dismissals, trainings)
  * do not. Spot purchases are recomputed to cover the planned output with the
  * stock and contracts at hand (a copied quantity would not match the stock).
@@ -27,6 +28,7 @@ export function defaultDecisions(state: GameState, companyId: Id): CompanyDecisi
     d.pricing = structuredClone(last.pricing);
     d.production = structuredClone(last.production);
     d.marketing = structuredClone(last.marketing);
+    d.rnd = last.rnd.map((r) => ({ type: r.type, budget: r.budget }));
     d.hr = last.hr.map((h) => ({
       regionId: h.regionId,
       occupationId: h.occupationId,

@@ -372,6 +372,6 @@ Précisions retenues en codant les systèmes ; les coefficients sont dans
 - **Faillite** : la société est gelée (plus de décisions, de production ni
   de ventes) et ses salariés retournent au marché du travail. Les enchères
   sur ses actifs viendront avec les rachats (phase 2).
-- **Pas encore implémenté** : `capex` et `rnd` (étapes 4 et 9 du pipeline,
-  décisions refusées avec `not_available`), dividendes et opérations sur
-  actions (phase 2).
+- **Pas encore implémenté** : `capex` (étape 4, lot 1.3) et `rnd`
+  (étape 9, lot 1.4), dont les décisions sont refusées avec
+  `not_available` ; dividendes et opérations sur actions (phase 2).

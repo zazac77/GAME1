@@ -79,6 +79,7 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
           : config.macro.gdpGrowth.recessionMean,
       inflation: config.macro.inflation.initial,
       policyRate: config.macro.policyRate.initial,
+      baseRate: config.macro.policyRate.initial,
       demandIndex: 1,
       priceLevel: 1,
     },
@@ -106,13 +107,15 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
   for (const [regionId, r] of Object.entries(config.regions)) {
     state.regions[regionId] = { id: regionId, ...r } satisfies Region;
     for (const [occupationId, occ] of Object.entries(config.labor.occupations)) {
+      const marketWage = occ.baseWage * r.wageIndex;
       state.labor[laborPoolKey(regionId, occupationId)] = {
         regionId,
         occupationId,
         laborForce: Math.round(occ.baseLaborForce * r.populationWeight),
         outsideEmployment: 0, // set once company headcounts are known
-        marketWage: occ.baseWage * r.wageIndex,
+        marketWage,
         tension: config.labor.targetTension,
+        wageHistory: [marketWage],
       } satisfies LaborPool;
     }
   }
@@ -136,7 +139,7 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
       baseVolume: m.baseVolume,
       refPrice: m.refPrice,
       segments: m.segments.map((s) => ({ ...s })),
-      lastResult: { shares: {}, volume: 0, avgPrice: m.refPrice },
+      lastResult: { shares: {}, demand: 0, volume: 0, avgPrice: m.refPrice },
     } satisfies ProductMarket;
   }
 
@@ -316,6 +319,7 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
         id: productLineId,
         marketId: market.id,
         quality,
+        qualityTarget: quality,
         price: jitter(market.refPrice * priceIndex),
       },
     },
@@ -344,16 +348,11 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
       };
     }
   }
+  // Finished goods are carried at their material cost (wages are period costs).
   materialCostPerUnit *= 1 + industry.qualityCostSlope * Math.max(0, quality - 50);
-  const operatorWage = sum(
-    Object.values(workforce)
-      .filter((s) => s.occupationId === industry.operatorOccupationId)
-      .map((s) => s.wage),
-  );
-  const unitCost = materialCostPerUnit + operatorWage / industry.operatorProductivity;
   company.inventory[productLineId] = {
     qty: Math.round(output * start.finishedGoodsCoverQuarters),
-    avgCost: unitCost,
+    avgCost: materialCostPerUnit,
   };
 
   // Financing: starting cash and a term loan; equity balances the sheet.

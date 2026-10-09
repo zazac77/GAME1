@@ -72,6 +72,8 @@ export interface ProductLine {
   marketId: Id;
   /** 0..100 */
   quality: number;
+  /** Quality aimed at (0..100); higher quality consumes more material. */
+  qualityTarget: number;
   price: Money;
   techLevel?: number;
   users?: number;

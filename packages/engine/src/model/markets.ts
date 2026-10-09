@@ -6,8 +6,10 @@ export interface MacroState {
   gdpGrowth: number;
   /** Annualized inflation of the last quarter. */
   inflation: number;
-  /** Annualized policy rate. */
+  /** Annualized policy rate (base rate + modifiers, floored). */
   policyRate: number;
+  /** Smoothed Taylor-rule rate, before temporary shocks. */
+  baseRate: number;
   /** Cyclical demand multiplier (1 = trend). */
   demandIndex: number;
   /** Cumulative price level (1 at game start). */
@@ -33,6 +35,8 @@ export interface LaborPool {
   marketWage: Money;
   /** Vacancies / unemployed. */
   tension: number;
+  /** Market wage at the start of each of the last quarters, oldest first (graduates lag). */
+  wageHistory: Money[];
   // unemployed = laborForce − outsideEmployment − Σ company headcount (tested invariant)
 }
 
@@ -62,6 +66,9 @@ export interface ConsumerSegment {
 export interface ProductMarketResult {
   /** Product line id → share of the volume sold. */
   shares: Record<Id, number>;
+  /** Units demanded from the simulated firms, before stock limits. */
+  demand: number;
+  /** Units sold. */
   volume: number;
   avgPrice: Money;
 }

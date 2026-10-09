@@ -4,8 +4,9 @@ Jeu de gestion au tour par tour (1 tour = 1 trimestre) avec des marchés simulé
 travail, matières premières, produits et bourse. Une IA concurrente joue avec les
 mêmes règles que le joueur, et l'objectif à long terme est de bâtir un conglomérat.
 
-Statut : **Phase 1, lot 1.1** (socle du moteur : config, modèle, RNG, pipeline,
-génération du monde, sauvegardes).
+Statut : **Phase 1, lot 1.2** (marchés et production : macro, événements,
+travail, matières premières, production industrielle, produits, comptabilité,
+dette, découvert et faillite). Lot 1.1 : socle du moteur.
 
 ```
 npm install

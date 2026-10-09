@@ -12,6 +12,22 @@ export const AI_PROFILE_IDS = [
 ] as const;
 export const MACRO_REGIMES = ['expansion', 'recession'] as const;
 export const CREDIT_RATINGS = ['AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC'] as const;
+/**
+ * Quantities that modifiers (events, later synergies) can change. Each system
+ * documents which keys it reads and with which targets.
+ */
+export const MODIFIER_KEYS = [
+  'macro.gdpGrowth', // add, annualized growth (global)
+  'macro.inflation', // add, annualized inflation (global)
+  'macro.policyRate', // add, annualized rate on top of the Taylor rule (global)
+  'macro.expansionToRecession', // add, quarterly switch probability (global)
+  'labor.productivity', // mul, operator productivity (region, laborPool, company)
+  'labor.wageGrowth', // add, quarterly market wage growth (region, laborPool)
+  'labor.attrition', // mul, quit rate (region, laborPool, company)
+  'commodity.price', // mul, world price used for clearing (commodity)
+  'commodity.supply', // mul, share of contracts and spot orders delivered (commodity)
+  'market.demand', // mul, total demand of a product market (market)
+] as const;
 
 const sectorId = z.enum(SECTOR_IDS);
 const aiProfileId = z.enum(AI_PROFILE_IDS);
@@ -70,6 +86,8 @@ const macroSchema = z.strictObject({
     smoothing: share,
     floor: z.number(),
   }),
+  /** Cyclical demand index: ln(d_t) = persistence·ln(d_{t−1}) + sensitivity·(g − trend)/4. */
+  demand: z.strictObject({ gapPersistence: share, gdpSensitivity: nonNeg }),
 });
 
 const regionSchema = z.strictObject({
@@ -115,7 +133,27 @@ const laborSchema = z.strictObject({
   severanceQuarters: nonNeg,
   /** Employer brand lost per 1 % of the workforce dismissed. */
   dismissalBrandPenalty: nonNeg,
-  attrition: z.strictObject({ baseRate: share, wageSensitivity: nonNeg }),
+  /** Allowed wage offers, relative to the market wage. */
+  wageOfferBounds: z.strictObject({ min: pos, max: pos }),
+  employerBrand: z.strictObject({
+    /** Share of the gap to its target closed each quarter. */
+    recovery: share,
+    /** Target = 50 + weight·(average relative wage − 1). */
+    wagePremiumWeight: nonNeg,
+    /** Hiring weight f(brand) = (brand / 50)^elasticity. */
+    hiringElasticity: nonNeg,
+  }),
+  /** Quit rate = base·(market / wage)^σ·(1 + brandSensitivity·(50 − brand)/50). */
+  attrition: z.strictObject({ baseRate: share, wageSensitivity: nonNeg, brandSensitivity: nonNeg }),
+  /** Non-simulated economy of each pool. */
+  outside: z.strictObject({
+    /** Share of the gap to its target employment closed each quarter. */
+    adjustSpeed: share,
+    /** Target unemployment = initial rate·demandIndex^(−sensitivity). */
+    cycleSensitivity: nonNeg,
+    /** Vacancies posted by the outside economy, as a share of its jobs. */
+    vacancyRate: share,
+  }),
   /** Max hires per quarter, as a share of the pool, by qualification level (1..4). */
   maxHiringShareByLevel: z.tuple([share, share, share, share]),
   training: z.strictObject({
@@ -157,6 +195,14 @@ const commoditiesSchema = z.strictObject({
   contractQuarters: z.strictObject({ min: posInt, max: posInt }),
   /** Take-or-pay penalty, as a share of the value of the volume not taken. */
   takeOrPayPenalty: share,
+  /** Contract volume (share of the reference demand) that earns the full discount. */
+  contractDiscountFullVolumeShare: pos,
+  /** Floor of D_sim / D_ref in the spot price formula. */
+  minDemandShare: pos,
+  /** Limit orders are cut by 1/tranches until their limit is met. */
+  limitOrderTranches: posInt,
+  /** Storage cost multiplier for units above the warehouse capacity. */
+  overflowStorageMultiplier: z.number().min(1),
   markets: z.record(id, commodityMarketSchema),
 });
 
@@ -186,6 +232,12 @@ const productsSchema = z.strictObject({
   markets: z.record(id, productMarketSchema),
   /** Share of unserved demand lost when it is reallocated to firms with stock. */
   spilloverRate: share,
+  /** Reallocation rounds of unserved demand. */
+  spilloverRounds: nonNegInt,
+  /** Marketing enters utilities and brand as ln(1 + budget / unit). */
+  marketingUnit: pos,
+  /** Allowed prices, relative to the inflation-indexed reference price. */
+  priceBounds: z.strictObject({ min: pos, max: pos }),
   brand: z.strictObject({
     decay: share,
     marketingWeight: nonNeg,
@@ -207,6 +259,8 @@ const industrySchema = z.strictObject({
     initialTechLevel: pos,
     /** Productivity lost per quarter of age. */
     agingPenalty: nonNeg,
+    /** Fixed maintenance per line and per quarter. */
+    maintenanceCost: nonNeg,
   }),
   factory: z.strictObject({
     /** Before the regional land cost index. */
@@ -223,10 +277,32 @@ const industrySchema = z.strictObject({
   operatorProductivity: pos,
   /** Target staff per operator, by occupation. */
   supportRatios: z.record(id, nonNeg),
+  /** Productivity factor from support staff: min(maxBonus, (actual / target ratio)^elasticity). */
+  supportStaff: z.strictObject({ elasticity: nonNeg, maxBonus: z.number().min(1) }),
   /** Labor cost reduction per doubling of cumulative output. */
   learningRate: share,
-  /** Extra material cost per quality point above 50, as a share of material cost. */
+  /** Cumulative output at which the learning factor is 1. */
+  learningReferenceOutput: pos,
+  /** Extra material consumed per quality point above 50, as a share of the recipe. */
   qualityCostSlope: nonNeg,
+  /**
+   * Reachable quality = base + engineerWeight·min(maxEngineerRatio, actual / target
+   * engineer ratio) + techLevelWeight·(average line tech level − 1).
+   */
+  quality: z.strictObject({
+    /** Occupation whose ratio to operators drives quality; its target ratio is in supportRatios. */
+    engineerOccupationId: id,
+    base: nonNeg,
+    engineerWeight: nonNeg,
+    maxEngineerRatio: pos,
+    techLevelWeight: nonNeg,
+    /** Share of the gap to the aimed quality closed each quarter. */
+    adjustSpeed: share,
+  }),
+  /** Outbound logistics per unit sold, before the regional index. */
+  logisticsCostPerUnit: nonNeg,
+  /** Storage cost of a finished unit per quarter. */
+  finishedGoodsStorageCost: nonNeg,
   /** Resale discount on specific assets. */
   assetResaleDiscount: share,
   startingCompany: z.strictObject({
@@ -260,6 +336,14 @@ const financeSchema = z.strictObject({
   /** Ordered from best to worst; the last entry catches everything. */
   ratings: z.array(ratingSchema).min(1),
   covenant: z.strictObject({ maxNetDebtToEbitda: pos, spreadPenalty: nonNeg }),
+  /** New borrowing allowed against fixed assets when EBITDA does not support it. */
+  collateralLoanToValue: share,
+  /**
+   * Discretionary spending (spot purchases, marketing, hiring, training,
+   * repayments) is capped at cash + new borrowing + this share of the last
+   * quarter's revenue.
+   */
+  spendingOverdraftShareOfRevenue: nonNeg,
   startingCash: nonNeg,
   startingDebt: nonNeg,
   initialRating: z.enum(CREDIT_RATINGS),
@@ -315,7 +399,7 @@ const aiSchema = z.strictObject({
 
 const effectSchema = z.strictObject({
   /** Name of the modified quantity, interpreted by the systems. */
-  key: z.string().min(1),
+  key: z.enum(MODIFIER_KEYS),
   op: z.enum(['add', 'mul']),
   value: z.number().finite(),
 });
@@ -330,6 +414,8 @@ const eventDefinitionSchema = z.strictObject({
     sectors: z.array(sectorId).optional(),
   }),
   target: z.enum(['global', 'region', 'laborPool', 'commodity', 'market', 'company']),
+  /** Restricts the drawn target to these ids (e.g. the energy commodity). */
+  targetIds: z.array(z.string().min(1)).min(1).optional(),
   effects: z.array(effectSchema).min(1),
   durationQuarters: posInt,
   /** Share of the effect lost each quarter. */
@@ -404,6 +490,10 @@ export const gameConfigSchema = z
     }
     const occupationRefs: [(string | number)[], string][] = [
       [['sectors', 'industry', 'operatorOccupationId'], industry.operatorOccupationId],
+      [
+        ['sectors', 'industry', 'quality', 'engineerOccupationId'],
+        industry.quality.engineerOccupationId,
+      ],
       ...Object.keys(industry.supportRatios).map((o): [string[], string] => [
         ['sectors', 'industry', 'supportRatios', o],
         o,
@@ -415,6 +505,9 @@ export const gameConfigSchema = z
     ];
     for (const [path, occupationId] of occupationRefs) {
       if (!(occupationId in cfg.labor.occupations)) issue(path, 'unknown occupation');
+    }
+    if (!industry.supportRatios[industry.quality.engineerOccupationId]) {
+      issue(['sectors', 'industry', 'supportRatios'], 'needs a ratio for the engineer occupation');
     }
     if (industry.startingCompany.lines > industry.factory.maxLines) {
       issue(['sectors', 'industry', 'startingCompany', 'lines'], 'exceeds factory.maxLines');
@@ -429,6 +522,35 @@ export const gameConfigSchema = z
 
     const { min, max } = cfg.commodities.contractQuarters;
     if (min > max) issue(['commodities', 'contractQuarters'], 'min > max');
+    if (cfg.labor.wageOfferBounds.min > cfg.labor.wageOfferBounds.max) {
+      issue(['labor', 'wageOfferBounds'], 'min > max');
+    }
+    if (cfg.products.priceBounds.min > cfg.products.priceBounds.max) {
+      issue(['products', 'priceBounds'], 'min > max');
+    }
+
+    const known: Record<string, readonly string[]> = {
+      region: Object.keys(cfg.regions),
+      commodity: Object.keys(cfg.commodities.markets),
+      market: Object.keys(cfg.products.markets),
+      laborPool: Object.keys(cfg.regions).flatMap((r) =>
+        Object.keys(cfg.labor.occupations).map((o) => `${r}:${o}`),
+      ),
+    };
+    const eventIds = new Set<string>();
+    cfg.events.definitions.forEach((ev, i) => {
+      if (eventIds.has(ev.id)) issue(['events', 'definitions', i, 'id'], 'duplicate event id');
+      eventIds.add(ev.id);
+      if (!ev.targetIds) return;
+      const pool = known[ev.target];
+      if (!pool) {
+        issue(['events', 'definitions', i, 'targetIds'], `targetIds not allowed for ${ev.target}`);
+        return;
+      }
+      for (const t of ev.targetIds) {
+        if (!pool.includes(t)) issue(['events', 'definitions', i, 'targetIds'], `unknown ${t}`);
+      }
+    });
 
     if (!cfg.stockMarket.sectorMultiples[cfg.scenario.playerSector]) {
       issue(['stockMarket', 'sectorMultiples'], 'missing multiple for the player sector');
@@ -443,6 +565,7 @@ export type MacroRegime = (typeof MACRO_REGIMES)[number];
 export type CreditRating = (typeof CREDIT_RATINGS)[number];
 export type AiProfileConfig = z.infer<typeof aiProfileSchema>;
 export type EventDefinition = z.infer<typeof eventDefinitionSchema>;
+export type ModifierKey = (typeof MODIFIER_KEYS)[number];
 
 export type DeepPartial<T> = T extends readonly unknown[]
   ? T

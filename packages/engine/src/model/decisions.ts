@@ -37,8 +37,8 @@ export interface HrDecision {
 export interface CompanyDecisions {
   companyId: Id;
   /** By product line. */
-  pricing: Record<Id, { price: Money }>;
-  /** By site. */
+  pricing: Record<Id, { price: Money; qualityTarget?: number }>;
+  /** By site; a missing site produces at full capacity. */
   production: Record<Id, { targetOutput: number }>;
   hr: HrDecision[];
   purchasing: {
@@ -60,4 +60,25 @@ export interface CompanyDecisions {
   stockOrders: { targetId: Id; side: 'buy' | 'sell'; shares: number; limitPrice?: Money }[];
   mna: MnaAction[];
   intraGroup?: IntraGroupTransfer[];
+}
+
+export type ValidationIssueCode =
+  | 'not_controlled' // the actor does not control this company
+  | 'inactive_company' // bankrupt or absorbed: decisions ignored
+  | 'unknown_id' // site, line, pool, commodity… that does not exist or belongs to someone else
+  | 'invalid_value' // NaN, negative or non-integer where it matters: dropped or fixed
+  | 'clamped' // value brought back within its bounds
+  | 'duplicate' // second entry for the same key: ignored
+  | 'budget' // discretionary spending scaled down to the available liquidity
+  | 'not_available'; // feature arriving in a later lot
+
+/** Why a decision was changed by validation. Rendered in French by the UI. */
+export interface ValidationIssue {
+  companyId: Id;
+  /** Path in CompanyDecisions, e.g. "hr[0].fire". */
+  path: string;
+  code: ValidationIssueCode;
+  /** Value as submitted and as kept, when relevant. */
+  submitted?: number;
+  applied?: number;
 }

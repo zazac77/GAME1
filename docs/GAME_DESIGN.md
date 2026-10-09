@@ -331,3 +331,47 @@ Modes configurables (`victory`) :
 Le score affiché en continu est la valeur de la participation du joueur
 dans sa société de tête (cours × actions détenues, ou valorisation si elle
 n'est pas cotée).
+
+## 13. Choix d'implémentation (lot 1.2)
+
+Précisions retenues en codant les systèmes ; les coefficients sont dans
+`config/default.ts`.
+
+- **Modificateurs** : `(base + Σ add) × Π mul`, clés listées dans
+  `MODIFIER_KEYS` (`config/schema.ts`). Un modificateur `global` s'applique
+  partout. Ils vieillissent au début de l'étape `events` (décroissance, puis
+  expiration). Comme `macro` passe avant `events`, un événement macro (taux,
+  récession) agit à partir du trimestre suivant ; les autres agissent dès le
+  trimestre du tirage. Un événement ne se cumule pas avec lui-même.
+- **Macro** : le choc de taux s'ajoute au taux de base lissé
+  (`macro.baseRate`) sans s'accumuler. `demandIndex` suit
+  `ln d = ρ·ln d₋₁ + k·(g − tendance)/4`.
+- **Travail** : l'offre de salaire s'applique à tout le groupe de salariés
+  du bassin. Les postes vacants V incluent ceux de l'économie hors
+  simulation (`labor.outside.vacancyRate`), ce qui place la tension à sa
+  cible au départ. L'économie hors simulation converge vers un chômage cible
+  qui dépend du cycle. Les recrues du trimestre ne partent pas et ne sont
+  pas formées ; les stagiaires partent moins. La formation déplace aussi la
+  personne d'un bassin à l'autre (`laborForce`).
+- **Matières** : l'énergie (non stockable) est achetée à la consommation
+  (contrats d'abord, take-or-pay sur le volume inutilisé, puis spot). Son
+  prix spot se forme sur la consommation prévue. Les ordres à cours limité
+  sont réduits par tranches tant que `P > limite`.
+- **Production** : la qualité visée (`pricing[ligne].qualityTarget`)
+  augmente la consommation de matières ; la qualité atteignable dépend du
+  ratio d'ingénieurs et du niveau technologique. Les produits finis sont
+  valorisés au coût matière ; les salaires sont des charges de période.
+- **Comptabilité** : les fonds propres ne bougent qu'avec le résultat net,
+  donc actif = passif vérifie réellement chaque flux. Intérêts sur l'encours
+  après les opérations de début de trimestre, puis échéances constantes des
+  prêts. Découvert automatique pour que la trésorerie finisse ≥ 0. Impôt
+  payé dans le trimestre.
+- **Crédit** : capacité d'emprunt = max(marge sous le covenant, LTV sur les
+  actifs immobilisés) ; aucune pendant un bris de covenant. Les dépenses
+  discrétionnaires sont plafonnées par la liquidité disponible.
+- **Faillite** : la société est gelée (plus de décisions, de production ni
+  de ventes) et ses salariés retournent au marché du travail. Les enchères
+  sur ses actifs viendront avec les rachats (phase 2).
+- **Pas encore implémenté** : `capex` et `rnd` (étapes 4 et 9 du pipeline,
+  décisions refusées avec `not_available`), dividendes et opérations sur
+  actions (phase 2).

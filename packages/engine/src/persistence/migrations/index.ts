@@ -1,14 +1,14 @@
 import { SCHEMA_VERSION } from '../../core/version';
+import { migrateV1ToV2 } from './v1-to-v2';
 
 export type RawState = Record<string, unknown>;
 /** Upgrades a raw state by exactly one schema version. */
 export type Migration = (state: RawState) => RawState;
 
-/**
- * MIGRATIONS[v] upgrades a state from schemaVersion v to v + 1.
- * v1 is the first released shape: nothing to migrate yet.
- */
-export const MIGRATIONS: Readonly<Record<number, Migration>> = {};
+/** MIGRATIONS[v] upgrades a state from schemaVersion v to v + 1. */
+export const MIGRATIONS: Readonly<Record<number, Migration>> = {
+  1: migrateV1ToV2,
+};
 
 export function migrateState(
   state: RawState,

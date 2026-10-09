@@ -1,4 +1,10 @@
-export type { SectorId, AiProfileId, MacroRegime, CreditRating } from '../config/schema';
+export type {
+  SectorId,
+  AiProfileId,
+  MacroRegime,
+  CreditRating,
+  ModifierKey,
+} from '../config/schema';
 
 export type Id = string; // "co_003", "reg_nord", "occ_operator"
 export type Money = number; // euros (float; rounded for display only)

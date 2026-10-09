@@ -34,6 +34,7 @@ export const defaultConfig: GameConfig = {
       smoothing: 0.7,
       floor: 0,
     },
+    demand: { gapPersistence: 0.85, gdpSensitivity: 3 },
   },
 
   regions: {
@@ -82,7 +83,11 @@ export const defaultConfig: GameConfig = {
     rampUpProductivity: 0.5,
     severanceQuarters: 1.5,
     dismissalBrandPenalty: 0.5,
-    attrition: { baseRate: 0.03, wageSensitivity: 2 },
+    wageOfferBounds: { min: 0.6, max: 2.5 },
+    employerBrand: { recovery: 0.1, wagePremiumWeight: 100, hiringElasticity: 1 },
+    attrition: { baseRate: 0.03, wageSensitivity: 2, brandSensitivity: 0.5 },
+    // vacancyRate ≈ targetTension·u / (1 − u): tension sits at its target at start.
+    outside: { adjustSpeed: 0.25, cycleSensitivity: 1.5, vacancyRate: 0.03 },
     maxHiringShareByLevel: [1, 1, 0.1, 0.05],
     training: { costPerPerson: 4000, quarters: 2, attritionReduction: 0.3 },
     graduates: { baseRate: 0.01, wagePremiumElasticity: 1, lagQuarters: 6 },
@@ -94,6 +99,10 @@ export const defaultConfig: GameConfig = {
     contractVolumeDiscountMax: 0.05,
     contractQuarters: { min: 2, max: 8 },
     takeOrPayPenalty: 0.3,
+    contractDiscountFullVolumeShare: 0.25,
+    minDemandShare: 0.2,
+    limitOrderTranches: 5,
+    overflowStorageMultiplier: 3,
     markets: {
       com_steel: {
         unit: 't',
@@ -169,6 +178,9 @@ export const defaultConfig: GameConfig = {
       },
     },
     spilloverRate: 0.3,
+    spilloverRounds: 3,
+    marketingUnit: 10000,
+    priceBounds: { min: 0.2, max: 5 },
     brand: { decay: 0.08, marketingWeight: 1.5, qualityWeight: 0.05 },
   },
 
@@ -184,6 +196,7 @@ export const defaultConfig: GameConfig = {
         modernizeCost: 1_500_000,
         initialTechLevel: 1,
         agingPenalty: 0.002,
+        maintenanceCost: 25000,
       },
       factory: {
         buildCost: 6_000_000,
@@ -195,8 +208,21 @@ export const defaultConfig: GameConfig = {
       operatorOccupationId: 'occ_operator',
       operatorProductivity: 100,
       supportRatios: { occ_technician: 0.12, occ_engineer: 0.04 },
+      supportStaff: { elasticity: 0.3, maxBonus: 1.05 },
       learningRate: 0.05,
+      // Roughly the cumulative output of a starting company (3 years at 25 000/quarter).
+      learningReferenceOutput: 300000,
       qualityCostSlope: 0.01,
+      quality: {
+        engineerOccupationId: 'occ_engineer',
+        base: 25,
+        engineerWeight: 45,
+        maxEngineerRatio: 1.5,
+        techLevelWeight: 20,
+        adjustSpeed: 0.5,
+      },
+      logisticsCostPerUnit: 8,
+      finishedGoodsStorageCost: 4,
       assetResaleDiscount: 0.5,
       startingCompany: {
         lines: 5,
@@ -231,6 +257,8 @@ export const defaultConfig: GameConfig = {
       { rating: 'CCC', maxNetDebtToEbitda: 1e9, minInterestCoverage: 0, spread: 0.09 },
     ],
     covenant: { maxNetDebtToEbitda: 4, spreadPenalty: 0.03 },
+    collateralLoanToValue: 0.4,
+    spendingOverdraftShareOfRevenue: 0.25,
     startingCash: 6_000_000,
     startingDebt: 8_000_000,
     initialRating: 'BBB',
@@ -289,8 +317,72 @@ export const defaultConfig: GameConfig = {
     targetCoverage: 0.25,
   },
 
-  // Event definitions arrive with the event engine (lot 1.2).
-  events: { definitions: [] },
+  // Effects are read by the systems through MODIFIER_KEYS (config/schema.ts).
+  events: {
+    definitions: [
+      {
+        // Regional strike: output collapses for a quarter, wages are renegotiated up.
+        id: 'ev_strike',
+        probability: 0.04,
+        conditions: {},
+        target: 'region',
+        effects: [
+          { key: 'labor.productivity', op: 'mul', value: 0.5 },
+          { key: 'labor.wageGrowth', op: 'add', value: 0.01 },
+        ],
+        durationQuarters: 1,
+        decay: 0,
+      },
+      {
+        // Energy crisis, worse in winter.
+        id: 'ev_energy_crisis',
+        probability: 0.03,
+        conditions: { seasons: [0, 3] },
+        target: 'commodity',
+        targetIds: ['com_energy'],
+        effects: [{ key: 'commodity.price', op: 'mul', value: 1.6 }],
+        durationQuarters: 3,
+        decay: 0.3,
+      },
+      {
+        // Electronic components shortage: prices up, deliveries rationed.
+        id: 'ev_component_shortage',
+        probability: 0.03,
+        conditions: { sectors: ['industry'] },
+        target: 'commodity',
+        targetIds: ['com_electronics'],
+        effects: [
+          { key: 'commodity.price', op: 'mul', value: 1.4 },
+          { key: 'commodity.supply', op: 'mul', value: 0.7 },
+        ],
+        durationQuarters: 2,
+        decay: 0,
+      },
+      {
+        // Surprise policy rate hike, fading over a year.
+        id: 'ev_rate_hike',
+        probability: 0.03,
+        conditions: {},
+        target: 'global',
+        effects: [{ key: 'macro.policyRate', op: 'add', value: 0.015 }],
+        durationQuarters: 4,
+        decay: 0.25,
+      },
+      {
+        // Recession shock: forces the regime switch and hits demand at once.
+        id: 'ev_recession',
+        probability: 0.02,
+        conditions: { regimes: ['expansion'] },
+        target: 'global',
+        effects: [
+          { key: 'macro.expansionToRecession', op: 'add', value: 1 },
+          { key: 'market.demand', op: 'mul', value: 0.95 },
+        ],
+        durationQuarters: 2,
+        decay: 0,
+      },
+    ],
+  },
 
   scenario: {
     playerSector: 'industry',

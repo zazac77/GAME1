@@ -1,4 +1,5 @@
-import type { Id, Quarter } from './ids';
+import type { ValidationIssue } from './decisions';
+import type { Id, ModifierKey, Quarter } from './ids';
 
 export type ModifierTargetKind =
   'global' | 'region' | 'laborPool' | 'commodity' | 'market' | 'company';
@@ -9,7 +10,7 @@ export interface Modifier {
   /** Event definition (or synergy) that created it. */
   sourceId: Id;
   target: { kind: ModifierTargetKind; id?: Id };
-  key: string;
+  key: ModifierKey;
   op: 'add' | 'mul';
   value: number;
   /** Quarters left, including the current one. */
@@ -40,4 +41,6 @@ export interface TurnReport {
   /** The quarter that was resolved. */
   turn: Quarter;
   events: GameEvent[];
+  /** Changes made to the submitted decisions. */
+  issues: ValidationIssue[];
 }

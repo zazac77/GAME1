@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gameMetrics, median, std, summarize } from '../src/metrics';
+import { firstSustained, gameMetrics, median, std, summarize } from '../src/metrics';
 import { formatSummary, toCsv } from '../src/report';
 import { runGame } from '../src/run';
 
@@ -9,6 +9,13 @@ describe('sim-cli', () => {
     expect(std([1, 3])).toBeCloseTo(Math.SQRT2, 12);
     expect(median([3, 1, 2])).toBe(2);
     expect(median([4, 1, 2, 3])).toBe(2.5);
+  });
+
+  it('finds the first sustained lead', () => {
+    expect(firstSustained([true, false, true, true, true], 3)).toBe(2);
+    expect(firstSustained([false, true, false, true], 2)).toBe(3); // ahead until the end
+    expect(firstSustained([true, false], 2)).toBeNull();
+    expect(firstSustained([], 2)).toBeNull();
   });
 
   // Acceptance of lot 1.3 (docs/PLAN.md): AI-only games without errors, within
@@ -40,6 +47,7 @@ describe('sim-cli', () => {
         ...g.companies.filter((c) => c.kind === 'ai').map((c) => c.finalEquity),
       );
       expect(player?.finalEquity ?? 0).toBeLessThan(best);
+      expect(g.playerRank).toBeGreaterThan(1);
     }
   }, 60_000);
 });

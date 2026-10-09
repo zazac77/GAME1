@@ -51,6 +51,26 @@ export interface GameMetrics {
   maxMarketShare: number;
   finalIndex: number;
   playerScore: number;
+  /** Rank of the player by equity gain (final − initial equity) among all companies, 1 = best. */
+  playerRank: number;
+  /**
+   * First quarter from which the player's equity gain is the highest of all
+   * companies for LEAD_HOLD_QUARTERS quarters in a row (or until the end); null if never.
+   */
+  playerLeadTurn: number | null;
+}
+
+/** Quarters the player must stay ahead for the lead to count. */
+export const LEAD_HOLD_QUARTERS = 4;
+
+/** First index from which `ahead` holds for `hold` entries in a row (or until the end). */
+export function firstSustained(ahead: readonly boolean[], hold: number): number | null {
+  let run = 0;
+  for (let i = 0; i < ahead.length; i++) {
+    run = ahead[i] ? run + 1 : 0;
+    if (run >= hold) return i - hold + 1;
+  }
+  return run > 0 ? ahead.length - run : null;
 }
 
 export function std(values: readonly number[]): number {
@@ -165,6 +185,15 @@ export function gameMetrics(record: GameRecord): GameMetrics {
   const commodityVols = Object.keys(first.commodities).map((id) =>
     std(logReturns(record.states.slice(1).map((s) => s.commodities[id]?.spotPrice ?? 0))),
   );
+  const equity = (s: GameState, id: string) => s.companies[id]?.books.current.balance.equity ?? 0;
+  const ids = Object.keys(first.companies);
+  const gain = (s: GameState, id: string) => equity(s, id) - equity(first, id);
+  const pid = record.playerCompanyId;
+  const ahead = record.states
+    .slice(1)
+    .map((s) => ids.every((id) => id === pid || gain(s, pid) > gain(s, id)));
+  const lead = firstSustained(ahead, LEAD_HOLD_QUARTERS);
+  const playerRank = 1 + ids.filter((id) => id !== pid && gain(last, id) >= gain(last, pid)).length;
   const playerActor = last.actors[last.meta.playerActorId];
   const held = last.stock.registry[record.playerCompanyId]?.[playerActor?.id ?? ''] ?? 0;
 
@@ -182,6 +211,8 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     maxMarketShare: Math.max(0, ...companies.map((c) => c.maxMarketShare)),
     finalIndex: last.stock.index.value,
     playerScore: held * (last.stock.quotes[record.playerCompanyId]?.price ?? 0),
+    playerRank,
+    playerLeadTurn: lead === null ? null : lead + 1,
   };
   if (record.error) metrics.error = record.error;
   return metrics;
@@ -200,6 +231,12 @@ export interface Summary {
   medianShareVolatility: number;
   maxMarketShare: number;
   medianMaxMarketShare: number;
+  /** Games the player ends first by equity gain. */
+  playerFirst: number;
+  medianPlayerRank: number;
+  /** Games where the player takes a sustained lead, and the median quarter it does. */
+  playerLeads: number;
+  medianPlayerLeadTurn: number;
   byProfile: Record<string, { companies: number; bankruptcyRate: number; medianNetMargin: number }>;
 }
 
@@ -229,6 +266,12 @@ export function summarize(games: readonly GameMetrics[]): Summary {
     medianShareVolatility: median(all.map((c) => c.shareVolatility)),
     maxMarketShare: Math.max(0, ...games.map((g) => g.maxMarketShare)),
     medianMaxMarketShare: median(games.map((g) => g.maxMarketShare)),
+    playerFirst: games.filter((g) => g.playerRank === 1).length,
+    medianPlayerRank: median(games.map((g) => g.playerRank)),
+    playerLeads: games.filter((g) => g.playerLeadTurn !== null).length,
+    medianPlayerLeadTurn: median(
+      games.flatMap((g) => (g.playerLeadTurn === null ? [] : [g.playerLeadTurn])),
+    ),
     byProfile,
   };
 }

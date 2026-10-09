@@ -12,6 +12,7 @@ export function formatSummary(s: Summary, turns: number): string {
     `Volatilité trimestrielle des matières (médiane) : ${pct(s.medianCommodityVolatility)} (cible 5–15 %)`,
     `Volatilité trimestrielle des cours (médiane) : ${pct(s.medianShareVolatility)} (cible 8–20 %)`,
     `Part de marché max : ${pct(s.maxMarketShare)} (médiane des parties ${pct(s.medianMaxMarketShare)} ; cible < 60 %)`,
+    `Joueur : 1er (gain de fonds propres) dans ${s.playerFirst}/${s.games} parties, rang médian ${s.medianPlayerRank} ; prend la tête dans ${s.playerLeads}/${s.games} parties, au tour ${Number.isNaN(s.medianPlayerLeadTurn) ? '—' : s.medianPlayerLeadTurn} en médiane (cible : passif jamais 1er, attentif en tête en 12–20 tours)`,
     'Par profil :',
     ...Object.entries(s.byProfile).map(
       ([p, v]) =>
@@ -36,6 +37,8 @@ export function toCsv(games: readonly GameMetrics[]): string {
     'finalSharePrice',
     'shareVolatility',
     'maxMarketShare',
+    'playerRank',
+    'playerLeadTurn',
   ];
   const rows = games.flatMap((g) =>
     g.companies.map((c) =>
@@ -52,6 +55,8 @@ export function toCsv(games: readonly GameMetrics[]): string {
         c.finalSharePrice.toFixed(2),
         c.shareVolatility.toFixed(4),
         c.maxMarketShare.toFixed(4),
+        g.playerRank,
+        g.playerLeadTurn ?? '',
       ].join(','),
     ),
   );

@@ -4,10 +4,10 @@ import { fixedAssetValue } from '../../src/core/companies';
 import { sum } from '../../src/core/math';
 import { siteCeilings } from '../../src/sectors/industry';
 import { emptyDecisions, normalizeDecisions } from '../../src/systems/validation';
-import { newGame, playerCompanyId, resolveAll, steadyDecisions } from '../helpers';
+import { LOW_DEBT, newGame, playerCompanyId, resolveAll, steadyDecisions } from '../helpers';
 
 const setup = () => {
-  const state = newGame(31, { scenario: { initialJitter: 0 } });
+  const state = newGame(31, { ...LOW_DEBT, scenario: { initialJitter: 0 } });
   const id = playerCompanyId(state);
   const company = state.companies[id] as Company;
   const siteId = Object.keys(company.sites)[0] ?? '';

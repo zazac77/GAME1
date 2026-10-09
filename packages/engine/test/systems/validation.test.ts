@@ -3,10 +3,10 @@ import { resolveTurn, validateDecisions } from '../../src';
 import type { CompanyDecisions } from '../../src';
 import { laborPoolKey } from '../../src/core/keys';
 import { emptyDecisions, normalizeDecisions } from '../../src/systems/validation';
-import { newGame, playerCompanyId } from '../helpers';
+import { LOW_DEBT, newGame, playerCompanyId } from '../helpers';
 
 const setup = () => {
-  const state = newGame(5);
+  const state = newGame(5, LOW_DEBT);
   const id = playerCompanyId(state);
   const company = state.companies[id];
   if (!company) throw new Error('no player company');
@@ -49,7 +49,10 @@ describe('validation', () => {
       wageOffer: 1,
     });
     const { decisions, issues } = normalizeDecisions(state, company, d);
-    expect(decisions.pricing[lineId]?.price).toBeCloseTo(5 * 320, 6);
+    expect(decisions.pricing[lineId]?.price).toBeCloseTo(
+      5 * (state.productMarkets.mkt_appliances?.refPrice ?? 0),
+      6,
+    );
     expect(decisions.pricing[lineId]?.qualityTarget).toBe(100);
     const hr = decisions.hr[0];
     expect(hr?.wageOffer).toBeCloseTo(0.6 * market, 6);

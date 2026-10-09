@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Company } from '../../src';
 import { sum } from '../../src/core/math';
 import { emptyDecisions } from '../../src/systems/validation';
-import { newGame, playerCompanyId, resolveAll, steadyAll } from '../helpers';
+import { LOW_DEBT, newGame, playerCompanyId, resolveAll, steadyAll } from '../helpers';
 
 const balanceGap = (c: Company) => {
   const b = c.books.current.balance;
@@ -17,7 +17,7 @@ const balanceGap = (c: Company) => {
 
 describe('debt, overdraft and bankruptcy', () => {
   it('borrows at the start of the quarter and repays voluntarily', () => {
-    const state = newGame(12);
+    const state = newGame(12, LOW_DEBT);
     const id = playerCompanyId(state);
     const d = emptyDecisions(id);
     d.finance.borrow = 500_000;
@@ -39,8 +39,8 @@ describe('debt, overdraft and bankruptcy', () => {
     const id = playerCompanyId(state);
     const c = state.companies[id] as Company;
     // Little cash (equity follows) and nothing to sell or produce.
+    c.books.current.balance.equity -= c.books.current.balance.cash - 100_000;
     c.books.current.balance.cash = 100_000;
-    c.books.current.balance.equity -= 5_900_000;
     c.inventory = {};
     c.books.current.balance.equity -= c.books.current.balance.inventory;
     c.books.current.balance.inventory = 0;

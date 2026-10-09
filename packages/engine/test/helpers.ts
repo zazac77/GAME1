@@ -9,6 +9,12 @@ import type { System, SystemId } from '../src/core/system';
 import { industryModule, mainProductLine } from '../src/sectors/industry';
 import { emptyDecisions } from '../src/systems/validation';
 
+/**
+ * A lightly indebted start: low enough debt for the bank to lend at
+ * turn 0 (the default start has no credit line until its first accounts).
+ */
+export const LOW_DEBT = { finance: { startingCash: 6_000_000, startingDebt: 6_000_000 } } as const;
+
 export const newGame = (
   seed = 42,
   overrides?: DeepPartial<GameConfig>,

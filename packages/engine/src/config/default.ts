@@ -37,30 +37,32 @@ export const defaultConfig: GameConfig = {
     demand: { gapPersistence: 0.85, gdpSensitivity: 3 },
   },
 
+  // A trade-off, not a ranking: dearer labor and land near the customers,
+  // cheaper ones far from them (labor is ~110 €/unit, logistics ~20 €/unit).
   regions: {
     reg_capitale: {
       populationWeight: 1.4,
-      wageIndex: 1.15,
-      landCostIndex: 1.5,
-      logisticsCostIndex: 0.9,
+      wageIndex: 1.06,
+      landCostIndex: 1.3,
+      logisticsCostIndex: 0.75,
     },
     reg_nord: {
       populationWeight: 1.0,
-      wageIndex: 0.95,
+      wageIndex: 0.98,
       landCostIndex: 0.8,
       logisticsCostIndex: 1.0,
     },
     reg_ouest: {
       populationWeight: 0.9,
-      wageIndex: 0.97,
+      wageIndex: 1.0,
       landCostIndex: 0.9,
       logisticsCostIndex: 1.05,
     },
     reg_sud: {
       populationWeight: 0.8,
-      wageIndex: 0.92,
+      wageIndex: 0.96,
       landCostIndex: 0.85,
-      logisticsCostIndex: 1.1,
+      logisticsCostIndex: 1.15,
     },
   },
 
@@ -152,13 +154,15 @@ export const defaultConfig: GameConfig = {
       mkt_appliances: {
         sectorId: 'industry',
         baseVolume: 90000,
-        refPrice: 320,
+        // About the full cost of a starting firm at 85 % utilization + a mid markup:
+        // the market opens near its equilibrium instead of drifting up by a third.
+        refPrice: 365,
         priceElasticity: 1.2,
         seasonality: [0.9, 1.0, 0.95, 1.15],
         segments: [
           {
             id: 'price',
-            weight: 0.6,
+            weight: 0.65,
             betaPrice: 4,
             betaQuality: 0.02,
             betaBrand: 0.01,
@@ -167,9 +171,9 @@ export const defaultConfig: GameConfig = {
           },
           {
             id: 'quality',
-            weight: 0.4,
+            weight: 0.35,
             betaPrice: 1.5,
-            betaQuality: 0.06,
+            betaQuality: 0.05,
             betaBrand: 0.03,
             betaMarketing: 0.08,
             outsideUtility: 0,
@@ -216,7 +220,8 @@ export const defaultConfig: GameConfig = {
       learningRate: 0.05,
       // Roughly the cumulative output of a starting company (3 years at 25 000/quarter).
       learningReferenceOutput: 300000,
-      qualityCostSlope: 0.01,
+      // +2.5 % of material per quality point above 50: quality has a real cost.
+      qualityCostSlope: 0.025,
       quality: {
         engineerOccupationId: 'occ_engineer',
         base: 25,
@@ -238,7 +243,7 @@ export const defaultConfig: GameConfig = {
         // Rivals catch up: a level fades in about 12 years.
         obsolescencePerQuarter: 0.02,
       },
-      logisticsCostPerUnit: 8,
+      logisticsCostPerUnit: 20,
       finishedGoodsStorageCost: 4,
       assetResaleDiscount: 0.5,
       startingCompany: {
@@ -276,8 +281,9 @@ export const defaultConfig: GameConfig = {
     covenant: { maxNetDebtToEbitda: 4, spreadPenalty: 0.03 },
     collateralLoanToValue: 0.4,
     spendingOverdraftShareOfRevenue: 0.25,
-    startingCash: 6_000_000,
-    startingDebt: 8_000_000,
+    // Net debt ≈ 2.5 × the starting EBITDA (BBB): a bad run can wipe out the equity.
+    startingCash: 4_000_000,
+    startingDebt: 16_000_000,
     initialRating: 'BBB',
   },
 
@@ -300,9 +306,9 @@ export const defaultConfig: GameConfig = {
     priceFormation: {
       fundamentalPull: 0.3,
       marketBeta: 1,
-      earningsSurprise: 0.5,
+      earningsSurprise: 0.3,
       orderImpact: 0.8,
-      noise: 0.06,
+      noise: 0.04,
       marketVolatility: 0.04,
       marketRateSensitivity: 4,
       marketDemandSensitivity: 1,
@@ -316,12 +322,14 @@ export const defaultConfig: GameConfig = {
 
   ai: {
     profiles: {
+      // The fragile volume player: thin markup, priced under the market. It is the
+      // usual bankruptcy (≈ 20 % of them over 40 quarters).
       low_cost: {
-        priceMarkup: 0.12,
+        priceMarkup: 0.03,
         // Quality up to 50 costs no extra material: a low-cost firm still aims near it.
         qualityTarget: 48,
-        startPriceIndex: 0.9,
-        competitorPriceWeight: 0.5,
+        startPriceIndex: 0.85,
+        competitorPriceWeight: 0.35,
         wagePremium: 0,
         riskAversion: 0.5,
         aggressiveness: 0.7,
@@ -332,7 +340,7 @@ export const defaultConfig: GameConfig = {
       },
       premium: {
         priceMarkup: 0.35,
-        qualityTarget: 70,
+        qualityTarget: 65,
         startPriceIndex: 1.15,
         competitorPriceWeight: 0.4,
         wagePremium: 0.1,

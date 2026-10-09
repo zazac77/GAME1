@@ -494,3 +494,43 @@ Précisions retenues en codant les systèmes ; les coefficients sont dans
   autosave en rotation sur les 3 derniers tours, export/import du
   `SaveFile` en JSON (migré au chargement).
 
+
+## 16. Choix d'équilibrage (lot 1.5)
+
+Mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50).
+
+- **Prix de référence calé sur le coût** : à 320 €, le coût complet d'une
+  société de départ à 85 % de charge (~300 €) dépassait presque le prix ;
+  les IA montaient leurs prix d'un tiers en termes réels, les volumes
+  tombaient à ~70 % de la capacité et les marges s'écrasaient. À 365 €, le
+  marché démarre près de son équilibre.
+- **Régions = arbitrage** : l'écart de salaires (1,15 contre 0,92) écrasait
+  l'écart logistique (8 €/unité). Salaires resserrés (0,96 à 1,06), logistique
+  à 20 €/unité, plus chère loin de la Capitale. Le joueur (Capitale) n'est
+  plus handicapé par sa région.
+- **Qualité payante** : +2,5 % de matières par point au-delà de 50 (au lieu
+  de 1 %), segment qualité à 35 % et `betaQuality` 0,05 ; premium vise 65.
+  Le premium restait seul gagnant (jusqu'à 63 % du marché).
+- **Faillites** : un bilan de départ plus endetté (dette 16 M€, trésorerie
+  4 M€ : dette nette ≈ 2,5 × EBITDA, cohérent avec BBB) et un low-cost à
+  marge fine, sous le marché. Le low-cost est le profil fragile (~20 % de
+  faillites sur 40 tours). Au tour 0, la banque ne prête pas encore (pas
+  d'EBITDA publié et dette au-dessus de la LTV) ; elle prête dès le
+  trimestre suivant.
+- **Bourse** : `earningsSurprise` 0,3 et `noise` 0,04 (volatilité ~16 %).
+- **Mesure du joueur** (`sim-cli`) : rang par gain de fonds propres et
+  premier trimestre d'une avance tenue 4 trimestres. Le pilote automatique
+  premium sert d'approximation d'un joueur attentif.
+
+| Indicateur (50 parties) | Cible | Résultat |
+|---|---|---|
+| Faillite des IA | 5–20 % | 7,3 % |
+| Marge nette médiane | 4–10 % | 7,8 % |
+| Dérive des salaires réels | ±15 % | +4,9 % |
+| Volatilité des matières / des cours | 5–15 % / 8–20 % | 13,4 % / 16,5 % |
+| Part de marché max | < 60 % | 47,9 % |
+| Joueur passif 1er | jamais | 0/50 |
+| Joueur « premium » en tête | 12–20 tours | 15/50 parties, tour 15 en médiane |
+
+Limite connue : en mode passif, si le joueur et le low-cost font faillite,
+le duopole restant peut dépasser 60 % (1 partie sur 50, 74 %).

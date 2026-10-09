@@ -34,7 +34,11 @@ describe('sim-cli', () => {
       expect(profile.bankruptcyRate).toBeLessThan(0.5);
     }
     expect(formatSummary(summary, 40)).toContain('50 × 40');
-    expect(toCsv(games).trim().split('\n')).toHaveLength(1 + 50 * 10);
+    const companies = games.reduce((n, g) => n + g.companies.length, 0);
+    expect(toCsv(games).trim().split('\n')).toHaveLength(1 + companies);
+    expect(games.every((g) => g.companies.filter((c) => c.kind !== 'acquired').length === 10)).toBe(
+      true,
+    );
     expect(Object.keys(summary.bySector).sort()).toEqual(['agri', 'industry', 'tech']);
   }, 120_000);
 

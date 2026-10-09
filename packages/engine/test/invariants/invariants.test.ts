@@ -2,13 +2,19 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import type { CompanyDecisions, GameState } from '../../src';
 import { defaultConfig } from '../../src/config/default';
-import { fixedAssetValue, isOperating, trainees } from '../../src/core/companies';
+import {
+  controlledCompanyIds,
+  fixedAssetValue,
+  isOperating,
+  trainees,
+} from '../../src/core/companies';
 import { laborPoolKey } from '../../src/core/keys';
 import { sum } from '../../src/core/math';
 import { sectorModule } from '../../src/sectors';
 import { farmlandLeft } from '../../src/sectors/agri/farm';
 import { plantConfig, sectorProductLine, techConfigOf } from '../../src/sectors/config';
 import { unemployed } from '../../src/systems/labor/pools';
+import { holdings, holdingsCarrying } from '../../src/systems/stockmarket';
 import { emptyDecisions } from '../../src/systems/validation';
 import { resolveTurn } from '../../src';
 import { assertJsonSafe, newGame, resolveAll } from '../helpers';
@@ -70,6 +76,25 @@ const specArb = fc.record({
     }),
     { maxLength: 3 },
   ),
+  equity: fc.record({
+    dividend: fc.double({ min: 0, max: 5e6, noNaN: true }),
+    issue: fc.nat(600_000),
+    buyback: fc.nat(300_000),
+    ipo: fc.boolean(),
+  }),
+  deal: fc.option(
+    fc.record({
+      kind: fc.constantFrom<'due_diligence' | 'tender_offer' | 'private_purchase'>(
+        'due_diligence',
+        'tender_offer',
+        'private_purchase',
+      ),
+      pick: fc.nat(30),
+      premium: fc.double({ min: -0.2, max: 1.5, noNaN: true }),
+      stockShare: fc.double({ min: 0, max: 1, noNaN: true }),
+      debt: fc.double({ min: 0, max: 5e7, noNaN: true }),
+    }),
+  ),
   garbage: fc.boolean(),
 });
 type Spec = fc.Arbitrary<typeof specArb extends fc.Arbitrary<infer T> ? T : never>;
@@ -118,7 +143,33 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
   }
   d.marketing[line.id] = spec.marketing;
   d.listing[line.id] = spec.listing; // refused outside agrifood
-  d.finance = { borrow: spec.borrow, repay: spec.repay };
+  d.finance = {
+    borrow: spec.borrow,
+    repay: spec.repay,
+    dividend: spec.equity.dividend,
+    issueShares: spec.equity.issue,
+    buyback: spec.equity.buyback,
+    ipo: spec.equity.ipo,
+  };
+  if (spec.deal) {
+    const targets = [
+      ...state.mna.listings.map((l) => l.id),
+      ...Object.keys(state.companies).sort(),
+    ];
+    const targetId = targets[spec.deal.pick % targets.length] ?? '';
+    const ref = state.stock.quotes[targetId]?.referencePrice ?? 1;
+    d.mna.push(
+      spec.deal.kind === 'due_diligence'
+        ? { kind: 'due_diligence', targetId }
+        : {
+            kind: spec.deal.kind,
+            targetId,
+            pricePerShare: ref * (1 + spec.deal.premium),
+            stockShare: spec.deal.stockShare,
+            debt: spec.deal.debt,
+          },
+    );
+  }
   const regions = Object.keys(state.regions).sort();
   const sites = Object.keys(company.sites).sort();
   for (const o of spec.capex) {
@@ -286,14 +337,16 @@ function checkInvariants(before: GameState, after: GameState): void {
       for (const line of Object.values(c.productLines)) expect(line.users ?? 0).toBe(0);
     }
     if (quarter === turn) {
-      // Fixed assets = Σ book values; financial assets at fair value.
+      // Fixed assets = Σ book values; financial assets: minority stakes at fair value,
+      // stakes in the group at cost (impaired below the recoverable value).
       expect(b.fixedAssets).toBeCloseTo(fixedAssetValue(c), 3);
-      const fairValue = sum(
-        Object.entries(after.stock.registry).map(
-          ([t, register]) => (register[c.id] ?? 0) * (after.stock.quotes[t]?.price ?? 0),
-        ),
-      );
-      expect(b.financialAssets).toBeCloseTo(fairValue, 3);
+      expect(b.financialAssets).toBeCloseTo(holdingsCarrying(after, c), 3);
+      for (const [targetId, h] of Object.entries(holdings(after, c))) {
+        expect(h.carrying).toBeGreaterThanOrEqual(0);
+        if (!h.inGroup) expect(h.carrying).toBeCloseTo(h.fairValue, 6);
+        else expect(c.participations[targetId]?.shares).toBe(h.shares);
+      }
+      expect(c.books.current.shares).toBe(c.sharesOutstanding);
       expect(c.books.history.at(-1)).toEqual(c.books.current);
     }
     for (const site of Object.values(c.sites)) {
@@ -369,16 +422,19 @@ describe('invariants (property-based)', () => {
           maxLength: 6,
         }),
         (seed, eventful, turns) => {
-          const overrides = eventful
-            ? {
-                events: {
-                  definitions: defaultConfig.events.definitions.map((d) => ({
-                    ...d,
-                    probability: 0.4,
-                  })),
-                },
-              }
-            : undefined;
+          const overrides = {
+            mna: { listings: { arrivalProbability: 1 } },
+            ...(eventful
+              ? {
+                  events: {
+                    definitions: defaultConfig.events.definitions.map((d) => ({
+                      ...d,
+                      probability: 0.4,
+                    })),
+                  },
+                }
+              : {}),
+          };
           let state = newGame(seed, overrides, { mode: 'sandbox' });
           const ids = Object.keys(state.companies).sort();
           for (const specs of turns) {
@@ -393,7 +449,7 @@ describe('invariants (property-based)', () => {
       ),
       { numRuns: 30 },
     );
-  });
+  }, 60_000);
 
   it('hold over games played by the AI planners (investments and disposals included)', () => {
     for (const seed of [2, 99]) {
@@ -405,6 +461,45 @@ describe('invariants (property-based)', () => {
       }
       expect(state.log.some((e) => e.kind === 'capex_started')).toBe(true);
     }
+  });
+
+  it('hold through takeovers, public offerings and equity transactions', () => {
+    let state = newGame(31, { mna: { listings: { arrivalProbability: 1 } } }, { mode: 'sandbox' });
+    const id = Object.values(state.actors).find((a) => a.kind === 'player')?.rootCompanyId ?? '';
+    for (let t = 0; t < 14; t++) {
+      // A rich player, so that every kind of deal goes through.
+      const b = state.companies[id]?.books.current.balance;
+      if (b) {
+        b.cash += 50_000_000;
+        b.equity += 50_000_000;
+      }
+      const d = emptyDecisions(id);
+      const listing = state.mna.listings[0];
+      const rival = Object.keys(state.companies)
+        .sort()
+        .find((c) => c !== id && !controlledCompanyIds(state, state.meta.playerActorId).has(c));
+      const ref = state.stock.quotes[rival ?? '']?.referencePrice ?? 1;
+      if (t === 1 && listing) d.mna.push({ kind: 'due_diligence', targetId: listing.id });
+      if (t === 2 && listing) d.mna.push({ kind: 'private_purchase', targetId: listing.id });
+      if (t === 3 && rival) {
+        d.mna.push({ kind: 'tender_offer', targetId: rival, pricePerShare: 1.6 * ref, debt: 1e7 });
+      }
+      if (t === 5 && rival) {
+        d.mna.push({ kind: 'private_purchase', targetId: rival, pricePerShare: 2 * ref });
+      }
+      if (t === 4) d.finance.issueShares = 100_000;
+      if (t === 6) d.finance.buyback = 50_000;
+      if (t >= 7) d.finance.dividend = 500_000;
+      const subs = [...controlledCompanyIds(state, state.meta.playerActorId)].filter(
+        (c) => c !== id,
+      );
+      const decisions = [d, ...subs.map((c) => ({ ...emptyDecisions(c), finance: { ipo: true } }))];
+      const next = resolveTurn(state, decisions).state;
+      checkInvariants(state, next);
+      state = next;
+    }
+    expect(state.log.some((e) => e.kind === 'takeover')).toBe(true);
+    expect(state.log.some((e) => e.kind === 'ipo')).toBe(true);
   });
 
   it('hold over a long game of passive companies (distress and bankruptcies)', () => {

@@ -4,12 +4,13 @@ Jeu de gestion au tour par tour (1 tour = 1 trimestre) avec des marchés simulé
 travail, matières premières, produits et bourse. Une IA concurrente joue avec les
 mêmes règles que le joueur, et l'objectif à long terme est de bâtir un conglomérat.
 
-Statut : **Phase 1, lot 1.4** (R&D procédés et produit côté moteur, application
-web React jouable : tableau de bord, décisions en 6 onglets avec aperçu,
-marchés, concurrents, bourse, rapport de tour, sauvegardes IndexedDB avec
-autosave et export/import JSON). Lot 1.3 : investissements, IA concurrente,
-bourse v1, vues joueur, `sim-cli`. Lot 1.2 : marchés et production. Lot 1.1 :
-socle du moteur.
+Statut : **Phase 2, lot 2.4** (rachats et bourse v2 côté moteur : sociétés à
+vendre générées, audit d'acquisition, valorisation, OPA amicale et rachat de
+bloc payés en numéraire, dette d'acquisition ou actions, filiales contrôlées et
+intégration, introduction en bourse de filiale, augmentation de capital,
+dividendes, rachat d'actions). Lots 2.1 à 2.3 : agroalimentaire, technologie,
+IA avancée. Phase 1 (lots 1.1 à 1.5) : moteur, marchés, IA, bourse v1,
+application web jouable, équilibrage.
 
 ```
 npm install

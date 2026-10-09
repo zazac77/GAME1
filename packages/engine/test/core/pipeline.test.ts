@@ -30,6 +30,7 @@ describe('pipeline', () => {
       'events',
       'weather',
       'financePre',
+      'mnaPre',
       'capex',
       'labor',
       'commodities',

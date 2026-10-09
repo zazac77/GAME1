@@ -1,8 +1,12 @@
-import { producingLines } from '../core/companies';
+import { isOperating, producingLines } from '../core/companies';
+import { controlledBy, controllingActor, managementProfile } from '../core/control';
 import type {
   ActiveEventView,
   CompetitorView,
+  GroupView,
   LaborPoolView,
+  ListingView,
+  MnaView,
   Observation,
   SelfView,
   SiteView,
@@ -14,20 +18,24 @@ import type { GameState } from '../model/state';
 import { plantConfigOf } from '../sectors/config';
 import { operatorProductivity, siteCapacity, siteCeilings } from '../sectors/plant';
 import { borrowingCapacity } from '../systems/finance/credit';
+import { maxSharesKeepingControl } from '../systems/finance/equity';
 import { unemployed } from '../systems/labor/pools';
+import { blockSeller, boardPremium } from '../systems/mna/rules';
 import { publishedStatements } from '../systems/stockmarket/fundamental';
 
 /**
  * The only door from GameState to a planner (and to the PlayerView): the
- * actor's own company in full, the markets, and what is public about the
- * others (shelf prices, job ads, factories, published accounts, quotes). Returns a
- * deep copy: nothing the observer does can touch the state.
+ * observed company in full (by default the actor's root company; any company
+ * the actor runs, or one nobody controls, for its management), the markets,
+ * and what is public about the others (shelf prices, job ads, factories,
+ * published accounts, quotes, controlling shareholders, companies for sale).
+ * Returns a deep copy: nothing the observer does can touch the state.
  */
-export function observe(state: GameState, actorId: Id): Observation {
-  const actor = state.actors[actorId];
-  if (!actor) throw new Error(`Unknown actor ${actorId}`);
-  const own = state.companies[actor.rootCompanyId];
-  if (!own) throw new Error(`Unknown company ${actor.rootCompanyId}`);
+export function observe(state: GameState, actorId: Id, companyId?: Id): Observation {
+  const ownId = companyId ?? state.actors[actorId]?.rootCompanyId;
+  if (ownId === undefined) throw new Error(`Unknown actor ${actorId}`);
+  const own = state.companies[ownId];
+  if (!own) throw new Error(`Unknown company ${ownId}`);
   const lastClosed = state.meta.turn - 1;
   const ownLines = new Set(Object.keys(own.productLines));
 
@@ -67,6 +75,33 @@ export function observe(state: GameState, actorId: Id): Observation {
     remaining: m.remaining,
   }));
 
+  const actorOfGroup = controllingActor(state, own.id);
+  const group: GroupView = {
+    isHead: actorOfGroup !== undefined && state.actors[actorOfGroup]?.rootCompanyId === own.id,
+    companies: actorOfGroup ? controlledBy(state, actorOfGroup) : [own.id],
+  };
+  if (actorOfGroup) group.actorId = actorOfGroup;
+  const turn = state.meta.turn;
+  const mna: MnaView = {
+    listings: state.mna.listings
+      .filter((l) => l.expiresAt > turn)
+      .map((l): ListingView => ({
+        id: l.id,
+        name: l.name,
+        sector: l.sector,
+        regionId: l.regionId,
+        scale: l.scale,
+        managementProfileId: l.managementProfileId,
+        listedAt: l.listedAt,
+        expiresAt: l.expiresAt,
+        askingPrice: l.askingPrice,
+        estimate: { ...l.estimate },
+        netDebt: l.netDebt,
+      })),
+    diligence: state.mna.diligence.filter((d) => d.buyerId === own.id && d.orderedAt < turn),
+    tenderOffers: state.stock.tenderOffers,
+  };
+
   const observation: Observation = {
     turn: state.meta.turn,
     actorId,
@@ -85,9 +120,12 @@ export function observe(state: GameState, actorId: Id): Observation {
       float,
       holdings,
     },
+    mna,
+    group,
     news,
   };
-  if (actor.profileId) observation.profileId = actor.profileId;
+  const profileId = managementProfile(state, own);
+  if (profileId) observation.profileId = profileId;
   return structuredClone(observation);
 }
 
@@ -121,13 +159,17 @@ function selfView(state: GameState, company: Company): SelfView {
     operatorProductivity: productivity,
     borrowingCapacity: borrowingCapacity(state.config, company),
     outputCeiling: sites.reduce((s, x) => s + x.ceiling, 0),
+    sharesWithinControl: Math.min(
+      Number.MAX_SAFE_INTEGER,
+      company.listed ? maxSharesKeepingControl(state, company) : 0,
+    ),
   };
 }
 
 function competitorView(state: GameState, company: Company, lastClosed: number): CompetitorView {
   const market = (marketId: Id) => state.productMarkets[marketId]?.lastResult;
   const actor = Object.values(state.actors).find((a) => a.rootCompanyId === company.id);
-  return {
+  const view: CompetitorView = {
     companyId: company.id,
     name: company.name,
     actorName: actor?.name ?? '',
@@ -180,5 +222,13 @@ function competitorView(state: GameState, company: Company, lastClosed: number):
           -state.config.views.competitorHistoryQuarters,
         )
       : [],
+    shares: company.sharesOutstanding,
   };
+  const controller = controllingActor(state, company.id);
+  if (controller) view.controllerId = controller;
+  const asked = isOperating(company) ? boardPremium(state, company) : undefined;
+  if (asked !== undefined) view.askedPremium = asked;
+  const seller = blockSeller(state, company);
+  if (seller) view.blockShares = state.stock.registry[company.id]?.[seller] ?? 0;
+  return view;
 }

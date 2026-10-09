@@ -68,7 +68,7 @@ describe('AI planner', () => {
     const state = playTurns(newGame(9), 3);
     for (const actor of aiActors(state)) {
       const obs = observe(state, actor.id);
-      const memory = state.aiMemory[actor.id] as AiMemory;
+      const memory = state.aiMemory[actor.rootCompanyId] as AiMemory;
       const a = plan(obs, memory);
       expect(plan(obs, memory)).toEqual(a);
       const company = state.companies[actor.rootCompanyId] as Company;
@@ -84,7 +84,7 @@ describe('AI planner', () => {
     const decide = (profile: string) => {
       const actor = actorOf(state, profile);
       return Object.values(
-        plan(observe(state, actor.id), state.aiMemory[actor.id]).decisions.pricing,
+        plan(observe(state, actor.id), state.aiMemory[actor.rootCompanyId]).decisions.pricing,
       )[0];
     };
     const premium = decide('premium');
@@ -118,7 +118,7 @@ describe('AI planner', () => {
     const product = rival?.products[0];
     if (!rival || !product) throw new Error('no rival');
     healthy(obs);
-    const memory = attackedBy(obs, state.aiMemory[actor.id] as AiMemory, product);
+    const memory = attackedBy(obs, state.aiMemory[actor.rootCompanyId] as AiMemory, product);
 
     const fierce = structuredClone(obs);
     if (fierce.config.ai.profiles.low_cost) fierce.config.ai.profiles.low_cost.aggressiveness = 1;
@@ -173,7 +173,7 @@ describe('AI planner', () => {
     (base.companies[actor.rootCompanyId] as Company).contracts = [];
     const richObs = observe(base, actor.id);
     richObs.self.borrowingCapacity = 0;
-    const rich = plan(richObs, base.aiMemory[actor.id]).decisions;
+    const rich = plan(richObs, base.aiMemory[actor.rootCompanyId]).decisions;
     const { config } = base;
     const qty = (d: typeof rich) => d.purchasing.spot.reduce((s, o) => s + o.qty, 0);
     const soft = (d: typeof rich) =>
@@ -198,7 +198,7 @@ describe('AI planner', () => {
       company.books.current.pnl.revenue = 0;
       const obs = observe(state, actor.id);
       obs.self.borrowingCapacity = 0;
-      const { decisions } = plan(obs, state.aiMemory[actor.id]);
+      const { decisions } = plan(obs, state.aiMemory[actor.rootCompanyId]);
       const { issues } = normalizeDecisions(state, company, decisions);
       expect(issues.filter((i) => i.code === 'budget')).toEqual([]);
       expect(soft(decisions)).toBeLessThan(soft(rich));
@@ -244,7 +244,7 @@ describe('AI step', () => {
     const next = resolveTurn(state, []).state;
     const player = next.actors[next.meta.playerActorId];
     expect(player?.profileId).toBe('premium');
-    expect(next.aiMemory[player?.id ?? '']?.demandForecast).toBeGreaterThan(0);
+    expect(next.aiMemory[player?.rootCompanyId ?? '']?.demandForecast).toBeGreaterThan(0);
     const company = next.companies[player?.rootCompanyId ?? ''];
     expect(company?.lastDecisions?.hr.length).toBeGreaterThan(0);
     const unknown = 'tycoon' as AiProfileId;
@@ -277,7 +277,7 @@ describe('AI tactics (lot 2.3)', () => {
     const seen = new Set<string>();
     for (const actor of aiActors(state)) {
       const company = state.companies[actor.rootCompanyId] as Company;
-      const a = plan(observe(state, actor.id), state.aiMemory[actor.id]);
+      const a = plan(observe(state, actor.id), state.aiMemory[actor.rootCompanyId]);
       const { issues } = normalizeDecisions(state, company, a.decisions);
       expect(issues.filter((i) => i.code !== 'clamped')).toEqual([]);
       seen.add(actor.profileId ?? '');
@@ -312,7 +312,7 @@ describe('AI tactics (lot 2.3)', () => {
     const state = playTurns(newGame(9), 3);
     const actor = actorOf(state, 'low_cost');
     const obs = observe(state, actor.id);
-    const memory = structuredClone(state.aiMemory[actor.id] as AiMemory);
+    const memory = structuredClone(state.aiMemory[actor.rootCompanyId] as AiMemory);
     const { rival, product } = marketRival(obs);
     (memory.rivals[rival.companyId] ??= { grudge: 0, weakQuarters: 0 }).grudge = 0.5;
     const next = plan(obs, memory).memory;
@@ -337,7 +337,7 @@ describe('AI tactics (lot 2.3)', () => {
     const fierce = structuredClone(obs);
     if (fierce.config.ai.profiles.low_cost) fierce.config.ai.profiles.low_cost.aggressiveness = 1;
 
-    const memory = attackedBy(obs, state.aiMemory[actor.id] as AiMemory, product);
+    const memory = attackedBy(obs, state.aiMemory[actor.rootCompanyId] as AiMemory, product);
     memory.priceWar = {
       rivalIds: [rival.companyId],
       discount: W.discount * depth,
@@ -362,7 +362,7 @@ describe('AI tactics (lot 2.3)', () => {
     const meek = structuredClone(obs);
     if (meek.config.ai.profiles.low_cost) meek.config.ai.profiles.low_cost.aggressiveness = 0;
     meek.config.ai.priceWar.grudgeAggression = 1;
-    const resented = attackedBy(obs, state.aiMemory[actor.id] as AiMemory, product);
+    const resented = attackedBy(obs, state.aiMemory[actor.rootCompanyId] as AiMemory, product);
     resented.rivals[rival.companyId] = { grudge: 1, weakQuarters: 0 };
     expect(plan(meek, resented).memory.priceWar?.rivalIds).toEqual([rival.companyId]);
     resented.rivals[rival.companyId] = { grudge: 0, weakQuarters: 0 };
@@ -378,7 +378,7 @@ describe('AI tactics (lot 2.3)', () => {
     pnl.revenue = 1e7;
     pnl.ebitda = -1e5;
     if (obs.config.ai.profiles.low_cost) obs.config.ai.profiles.low_cost.aggressiveness = 1;
-    const memory = attackedBy(obs, state.aiMemory[actor.id] as AiMemory, product);
+    const memory = attackedBy(obs, state.aiMemory[actor.rootCompanyId] as AiMemory, product);
     memory.priceWar = { rivalIds: [rival.companyId], discount: 0.1, startedAt: 0, escalations: 0 };
     const truce = plan(obs, memory);
     expect(truce.memory.priceWar).toBeUndefined();
@@ -394,7 +394,7 @@ describe('AI tactics (lot 2.3)', () => {
     const obs = healthy(observe(state, actor.id));
     if (obs.config.ai.profiles.premium) obs.config.ai.profiles.premium.aggressiveness = 0;
     const { product, lineId } = marketRival(obs);
-    const calm = structuredClone(state.aiMemory[actor.id] as AiMemory);
+    const calm = structuredClone(state.aiMemory[actor.rootCompanyId] as AiMemory);
     calm.rivalPrices[product.lineId] = product.price;
     const attacked = plan(obs, attackedBy(obs, calm, product)).decisions.marketing[lineId] ?? 0;
     const quiet = plan(obs, calm).decisions.marketing[lineId] ?? 0;
@@ -458,7 +458,7 @@ describe('AI tactics (lot 2.3)', () => {
     const own = obs.self.company.productLines[lineId];
     if (!own) throw new Error('no line');
     own.quality = 68;
-    const memory = structuredClone(state.aiMemory[actor.id] as AiMemory);
+    const memory = structuredClone(state.aiMemory[actor.rootCompanyId] as AiMemory);
     memory.rivals[rival.companyId] = { grudge: 0, weakQuarters: 0, quality: 60 };
     delete memory.counterLaunch;
     delete memory.lastCounterLaunchAt;
@@ -504,7 +504,7 @@ describe('AI tactics (lot 2.3)', () => {
     const own = obs.self.company.productLines[lineId];
     if (!own) throw new Error('no line');
     product.techLevel = (own.techLevel ?? 0) + 0.2;
-    const memory = structuredClone(state.aiMemory[actor.id] as AiMemory);
+    const memory = structuredClone(state.aiMemory[actor.rootCompanyId] as AiMemory);
     memory.rivals[rival.companyId] = {
       grudge: 0,
       weakQuarters: 0,
@@ -528,11 +528,11 @@ describe('AI tactics (lot 2.3)', () => {
   });
 
   it('preys on a rival in difficulty: watchlist, offensive news once, lower price, more output', () => {
-    const state = playTurns(newGame(9), 4);
+    const state = playTurns(newGame(13), 4);
     const actor = actorOf(state, 'opportunist');
     const obs = healthy(observe(state, actor.id));
     const { rival } = marketRival(obs);
-    const memory = structuredClone(state.aiMemory[actor.id] as AiMemory);
+    const memory = structuredClone(state.aiMemory[actor.rootCompanyId] as AiMemory);
     memory.demandForecast = 0.3 * obs.self.outputCeiling; // room to produce more
     memory.rivals[rival.companyId] = { grudge: 0, weakQuarters: 1 };
     memory.watchlist = [];
@@ -565,7 +565,7 @@ describe('AI tactics (lot 2.3)', () => {
     const premium = actorOf(state, 'premium');
     const premiumObs = observe(state, premium.id);
     for (const c of premiumObs.competitors) c.creditRating = 'CCC';
-    const premiumMemory = structuredClone(state.aiMemory[premium.id] as AiMemory);
+    const premiumMemory = structuredClone(state.aiMemory[premium.rootCompanyId] as AiMemory);
     for (const r of Object.values(premiumMemory.rivals)) r.weakQuarters = 5;
     expect(plan(premiumObs, premiumMemory).memory.watchlist).toEqual([]);
   });
@@ -587,5 +587,88 @@ describe('AI tactics (lot 2.3)', () => {
     const between = moves.filter((m) => ai.has(m.from) && ai.has(m.to) && m.to !== player);
     expect(between.length).toBeGreaterThan(0);
     expect(new Set(moves.map((m) => m.kind)).size).toBeGreaterThan(1);
+  });
+});
+
+describe('AI takeovers and dividends (lot 2.4)', () => {
+  /** A conglomerate head with cash to spare and a cheap company for sale. */
+  function dealSetup() {
+    const state = playTurns(newGame(15), 3);
+    const actor = actorOf(state, 'conglomerate');
+    const obs = healthy(observe(state, actor.id));
+    obs.config.ai.profiles.conglomerate = {
+      ...(obs.config.ai.profiles.conglomerate as NonNullable<
+        Observation['config']['ai']['profiles']['conglomerate']
+      >),
+      acquisitiveness: 1,
+    };
+    const b = obs.self.company.books.current.balance;
+    b.cash += 50_000_000;
+    b.equity += 50_000_000;
+    // Rivals are not for sale here: only the listing is a candidate.
+    for (const c of obs.competitors) delete c.askedPremium;
+    obs.mna.listings = [
+      {
+        id: 'tgt_900',
+        name: 'Pépite',
+        sector: 'tech',
+        regionId: 'reg_nord',
+        scale: 0.5,
+        managementProfileId: 'premium',
+        listedAt: obs.turn - 1,
+        expiresAt: obs.turn + 4,
+        askingPrice: 5_000_000,
+        estimate: { revenue: 10_000_000, ebitda: 2_000_000 },
+        netDebt: 0,
+      },
+    ];
+    return { state, actor, obs };
+  }
+
+  it('orders a due diligence on a cheap listing, then bids on what it reveals', () => {
+    const { obs } = dealSetup();
+    expect(obs.group.isHead).toBe(true);
+    const first = plan(obs);
+    expect(first.decisions.mna).toContainEqual({ kind: 'due_diligence', targetId: 'tgt_900' });
+    expect(first.memory.deal).toEqual({ targetId: 'tgt_900', since: obs.turn });
+
+    const next = structuredClone(obs);
+    next.turn += 1;
+    next.mna.diligence = [
+      {
+        buyerId: obs.companyId,
+        targetId: 'tgt_900',
+        orderedAt: obs.turn,
+        expiresAt: obs.turn + 5,
+        figures: { revenue: 10_000_000, ebitda: 2_000_000 },
+        netDebt: 0,
+        hiddenLiability: 0,
+      },
+    ];
+    const bid = plan(next, first.memory);
+    expect(bid.decisions.mna.map((a) => a.kind)).toEqual(['private_purchase']);
+    expect(bid.memory.deal).toBeUndefined();
+    expect(bid.memory.lastDealAt).toBe(next.turn);
+
+    // A due diligence revealing a much weaker company kills the deal.
+    next.mna.diligence[0] = {
+      ...(next.mna.diligence[0] as Observation['mna']['diligence'][number]),
+      figures: { revenue: 800_000, ebitda: 20_000 },
+    };
+    const dropped = plan(next, first.memory);
+    expect(dropped.decisions.mna).toEqual([]);
+    expect(dropped.memory.deal).toBeUndefined();
+  });
+
+  it('a profile without acquisitiveness never buys; a listed company pays dividends', () => {
+    const { state, obs } = dealSetup();
+    obs.profileId = 'low_cost';
+    expect(plan(obs).decisions.mna).toEqual([]);
+    const sound = healthy(observe(state, actorOf(state, 'premium').id));
+    const paid = plan(sound).decisions.finance.dividend ?? 0;
+    const { pnl } = sound.self.company.books.current;
+    if (pnl.netIncome > 0)
+      expect(paid).toBeLessThanOrEqual(state.config.ai.dividends.payout * pnl.netIncome + 1e-6);
+    expect(paid).toBeGreaterThanOrEqual(0);
   });
 });

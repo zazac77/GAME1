@@ -9,6 +9,7 @@ import { eventsSystem } from '../systems/events';
 import { financePreSystem } from '../systems/finance';
 import { laborSystem } from '../systems/labor';
 import { macroSystem } from '../systems/macro';
+import { mnaPreSystem, mnaSystem } from '../systems/mna';
 import { perishabilitySystem } from '../systems/perishability';
 import { productionSystem } from '../systems/production';
 import { productsSystem } from '../systems/products';
@@ -31,7 +32,8 @@ export const PIPELINE: readonly System[] = [
   macroSystem, // 2. cycle, inflation, policy rate
   eventsSystem, // 2. draw events, apply or expire modifiers
   weatherSystem, // 2. regional weather (crop yields)
-  financePreSystem, // 3. loans, repayments (equity, dividends: phase 2)
+  financePreSystem, // 3. loans, repayments, dividends, share issues, buybacks, offerings
+  mnaPreSystem, // 3. due diligences, integration costs
   capexSystem, // 4. commissioning, construction, disposals
   laborSystem, // 5. dismissals, matching, attrition, training, wages
   commoditiesSystem, // 6. contract deliveries, spot clearing, stocks
@@ -41,7 +43,7 @@ export const PIPELINE: readonly System[] = [
   rndSystem, // 9. obsolescence, projects, R&D levels
   accountingSystem, // 10. statements, tax, cash, solvency
   stockMarketSystem, // 11. fundamental, price, orders, registry, index
-  pending('mna'), // 12. acquisitions, changes of control
+  mnaSystem, // 12. takeovers, changes of control, holdings, listings
   pending('conglomerate'), // 12. synergies, complexity, consolidation
   pending('victory'), // 13. end conditions
   reportingSystem, // 13. history, journal, next quarter

@@ -7,4 +7,5 @@ export type * from './decisions';
 export type * from './events';
 export type * from './state';
 export type * from './ai';
+export type * from './mna';
 export type * from './views';

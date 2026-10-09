@@ -140,7 +140,8 @@ describe('previewDecisions', () => {
   });
 
   it('estimates the quarter close to what happens', () => {
-    let state = playTurns(newGame(13), 4);
+    // Random events (supply shortages…) are unknown to the preview by design.
+    let state = playTurns(newGame(13, { events: { definitions: [] } }), 4);
     let revenueGap = 0;
     let cashGap = 0;
     for (let t = 0; t < 4; t++) {
@@ -221,5 +222,62 @@ describe('turn report', () => {
     for (const e of events) expect(e.effects.length).toBeGreaterThan(0);
     expect(events.find((e) => e.target.kind === 'global')?.concernsPlayer).toBe(true);
     expect(events.find((e) => e.target.id === 'com_energy')?.concernsPlayer).toBe(true);
+  });
+});
+
+describe('group, deals and equity quotes (lot 2.4)', () => {
+  it('quotes the deals on offer, values the group and views a subsidiary', () => {
+    let state = playTurns(newGame(14, { mna: { listings: { arrivalProbability: 1 } } }), 2);
+    const id = playerCompanyId(state);
+    const b = player(state).books.current.balance;
+    b.cash += 100_000_000;
+    b.equity += 100_000_000;
+    const view = getPlayerView(state);
+    assertJsonSafe(view);
+    expect(view.groupCompanies.map((g) => g.companyId)).toEqual([id]);
+    expect(view.groupCompanies[0]?.stake).toBeCloseTo(0.6, 9);
+    const capital = view.costs?.capital;
+    expect(capital?.maxIssue).toBe(0.2 * player(state).sharesOutstanding - 1);
+    expect(capital?.maxDividend).toBeGreaterThan(0);
+    expect(capital?.ipo).toBeUndefined(); // already listed
+    const listing = view.deals.find((d) => d.kind === 'listing');
+    if (!listing) throw new Error('no listing quoted');
+    expect(listing.valuation.low).toBeLessThanOrEqual(listing.valuation.high);
+    expect(listing.diligence).toBe('none');
+    const rival = view.deals.find((d) => d.kind === 'company');
+    expect(rival?.askedPremium).toBeGreaterThan(0);
+    expect(rival?.blockShares).toBe(0.6 * player(state).sharesOutstanding);
+
+    // The preview counts the deal and the dividend in the cash at the end of the quarter.
+    const d = steadyDecisions(state, id);
+    const base = previewDecisions(state, [d]).companies[id];
+    const p = previewDecisions(state, [
+      {
+        ...d,
+        finance: { dividend: 1_000_000 },
+        mna: [{ kind: 'private_purchase', targetId: listing.targetId }],
+      },
+    ]).companies[id];
+    expect(p?.equity).toBeCloseTo(-1_000_000, 6);
+    expect(p?.acquisitions).toBeCloseTo(listing.price ?? 0, 3);
+    expect(p?.expectedCashEnd).toBeCloseTo(
+      (base?.expectedCashEnd ?? 0) - 1_000_000 - (listing.price ?? 0),
+      0,
+    );
+
+    state = resolveTurn(state, [
+      { ...d, mna: [{ kind: 'private_purchase', targetId: listing.targetId }] },
+    ]).state;
+    const group = getPlayerView(state).groupCompanies;
+    expect(group).toHaveLength(2);
+    const sub = group[1];
+    expect(sub?.stake).toBe(1);
+    expect(sub?.parentId).toBe(id);
+    expect(sub?.cost).toBeCloseTo(listing.price ?? 0, 3);
+    expect(sub?.integrationUntil).toBeGreaterThan(state.meta.turn);
+    const subView = getPlayerView(state, sub?.companyId);
+    expect(subView.self.company.id).toBe(sub?.companyId);
+    expect(subView.group.isHead).toBe(false);
+    expect(() => getPlayerView(state, 'co_999')).toThrow();
   });
 });

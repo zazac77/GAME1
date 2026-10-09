@@ -2,8 +2,9 @@ import type { Actor, RndType } from './company';
 import type { Observation } from './ai';
 import type { ValidationIssue } from './decisions';
 import type { GameEvent, GameEventSeverity, ModifierTargetKind } from './events';
-import type { GameMode, Id, ModifierKey, Money, Quarter } from './ids';
+import type { GameMode, HolderId, Id, ModifierKey, Money, Quarter, SectorId } from './ids';
 import type { HistoryStore } from './state';
+import type { AnnualFigures } from './mna';
 
 export type AlertKind =
   | 'material_low' // stored material + contract deliveries below the alert cover
@@ -43,6 +44,20 @@ export interface RndQuote {
   maxDevelopers?: number;
 }
 
+/** Equity transactions the company can make this quarter. */
+export interface CapitalQuotes {
+  /** Most it can pay out (cash, within its equity); 0 while distressed or in breach of covenant. */
+  maxDividend: Money;
+  /** Listed: price of a new share and most new shares (control of the group kept). */
+  issuePrice: Money;
+  maxIssue: number;
+  /** Listed: price paid per share bought back and most shares this quarter. */
+  buybackPrice: Money;
+  maxBuyback: number;
+  /** Unlisted: terms of a public offering, if it can go public now. */
+  ipo?: { pricePerShare: Money; newShares: number; proceeds: Money };
+}
+
 /** Prices the player is quoted for this quarter's one-shot decisions. */
 export interface PlayerCosts {
   /** Cost of a new factory, by region. */
@@ -52,6 +67,7 @@ export interface PlayerCosts {
   /** Cash a disposal would bring, by line id and by site id. */
   saleValue: Record<Id, Money>;
   rnd: Record<RndType, RndQuote>;
+  capital: CapitalQuotes;
   /** Agri: price of a farm and farmland still for sale (hectares), by region. */
   farms?: { buy: Record<Id, Money>; landLeft: Record<Id, number>; hectares: number };
   /**
@@ -66,6 +82,66 @@ export interface PlayerCosts {
   };
 }
 
+/** Valuation of a company the player could buy, from what the player knows. */
+export interface DealQuote {
+  targetId: Id;
+  kind: 'listing' | 'company';
+  name: string;
+  sector: SectorId | 'holding';
+  /** Annual figures used: the due diligence, else the published accounts or the public estimate. */
+  figures: AnnualFigures;
+  netDebt: Money;
+  /** A due diligence of the viewed company on it is usable now (pending: results next quarter). */
+  diligence: 'none' | 'pending' | 'done';
+  /** Revealed by the due diligence. */
+  hiddenLiability?: Money;
+  /** Equity value of the whole company: multiples, DCF, range and expected control premium. */
+  valuation: {
+    multiples: Money;
+    dcf: Money;
+    low: Money;
+    mid: Money;
+    high: Money;
+    controlPremium: number;
+  };
+  /** Company: share price at the start of the quarter and premium its board asks (absent: not for sale). */
+  referencePrice?: Money;
+  askedPremium?: number;
+  /** Company: shares of the block of its controlling shareholder, and shares a tender offer would seek. */
+  blockShares?: number;
+  tenderShares?: number;
+  /** Listing: price for 100 % (less the liability a due diligence revealed). */
+  price?: Money;
+  dueDiligenceCost: Money;
+  /** Acquisition loan the bank would grant for it. */
+  debtCapacity: Money;
+}
+
+/** A company of the player's group. */
+export interface GroupCompanyView {
+  companyId: Id;
+  name: string;
+  sector: SectorId | 'holding';
+  status: 'active' | 'distressed' | 'bankrupt' | 'absorbed';
+  listed: boolean;
+  /** The root company of the player (the group head). */
+  isRoot: boolean;
+  /** Holder of the largest stake in it within the group (a company, or the player's actor). */
+  parentId: HolderId;
+  /** Share of its capital the group holds. */
+  stake: number;
+  /** Value of the group's shares (quote, or private value of an unlisted company). */
+  value: Money;
+  /** Cost of the stakes held by the group's companies (absent for the root company). */
+  cost?: Money;
+  revenue: Money;
+  netIncome: Money;
+  cash: Money;
+  equity: Money;
+  /** Integration under way after its takeover: until this quarter (exclusive). */
+  integrationUntil?: Quarter;
+}
+
 /** What the UI shows: the player's Observation plus journal, history and alerts. */
 export interface PlayerView extends Observation {
   status: 'running' | 'won' | 'lost';
@@ -78,8 +154,12 @@ export interface PlayerView extends Observation {
   history: HistoryStore;
   /** Value of the player's stake in its root company (price × shares held). */
   score: Money;
-  /** Quotes for investments, disposals and R&D (absent once the company is gone). */
+  /** Quotes for investments, disposals, R&D and equity transactions (absent once the company is gone). */
   costs?: PlayerCosts;
+  /** Companies of the player's group (root first). */
+  groupCompanies: GroupCompanyView[];
+  /** Companies the viewed company could buy (listings, then companies by id). */
+  deals: DealQuote[];
 }
 
 /** Deterministic estimate of a quarter under the submitted decisions. */
@@ -114,6 +194,13 @@ export interface CompanyPreview {
   borrowing: Money;
   repayment: Money;
   installments: Money;
+  /** Net cash of the equity transactions (issues and offerings − dividends − buybacks). */
+  equity: Money;
+  /** Due diligences ordered, integration costs, an undeclared liability coming due. */
+  mnaCosts: Money;
+  /** Cash part of the deals (end of quarter) and acquisition loans drawn for them (estimates). */
+  acquisitions: Money;
+  acquisitionDebt: Money;
   expectedEbitda: Money;
   expectedCashEnd: Money;
   /** The estimate ends below zero: the overdraft would be drawn. */

@@ -13,7 +13,8 @@ import type {
   SectorId,
 } from './ids';
 import type { CommodityMarket, LaborPool, MacroState, ProductMarket, Region } from './markets';
-import type { Quote } from './stock';
+import type { DueDiligence, TargetListing } from './mna';
+import type { Quote, TenderOffer } from './stock';
 
 /** What a planner remembers about one rival company. */
 export interface RivalMemory {
@@ -43,7 +44,14 @@ export interface CounterLaunchState {
   until: Quarter;
 }
 
-/** What a planner remembers from one quarter to the next (its own brain, per actor). */
+/** A takeover the planner is preparing (due diligence ordered, then a bid). */
+export interface DealMemory {
+  targetId: Id;
+  /** Quarter the due diligence was ordered. */
+  since: Quarter;
+}
+
+/** What a planner remembers from one quarter to the next (its own brain, per company). */
 export interface AiMemory {
   /** By rival company id (operating rivals only). */
   rivals: Record<Id, RivalMemory>;
@@ -65,6 +73,10 @@ export interface AiMemory {
   priceForecast: Record<Id, Money>;
   /** Consecutive quarters of low capacity utilization. */
   lowUtilizationQuarters: number;
+  /** Takeover in preparation (group heads only). */
+  deal?: DealMemory;
+  /** Last quarter a takeover was attempted. */
+  lastDealAt?: Quarter;
 }
 
 // ---- Observation: the only input of the AI planner (and the base of PlayerView) ----
@@ -97,6 +109,8 @@ export interface SelfView {
   borrowingCapacity: Money;
   /** Units the company can make this quarter with its current crew and lines. */
   outputCeiling: number;
+  /** New shares it can issue without its controlling actor losing control. */
+  sharesWithinControl: number;
 }
 
 /** What anyone can see on the shelves. */
@@ -132,6 +146,16 @@ export interface CompetitorView {
   sites: { regionId: Id; status: 'operational' | 'under_construction'; lines: number }[];
   /** Published statements (listed companies, with the publication lag), oldest first. */
   published: Statements[];
+  /** Actor controlling it (the shareholder register is public). */
+  controllerId?: Id;
+  /**
+   * Premium over its price its controlling shareholder (or its board) asks to
+   * back a friendly offer or sell its block; absent when it is not for sale.
+   */
+  askedPremium?: number;
+  /** Shares of the shareholder holding control on its own (a block for sale). */
+  blockShares?: number;
+  shares: number;
 }
 
 /** Public news: an event whose effects are still active. */
@@ -151,6 +175,28 @@ export interface StockMarketView {
   float: Record<Id, number>;
   /** Shares of other companies held by the observer's company. */
   holdings: Record<Id, number>;
+}
+
+/** A company for sale, as the public sees it (actual figures and liability are private). */
+export type ListingView = Omit<TargetListing, 'actual' | 'hiddenLiability'>;
+
+/** Takeover market as an observer sees it. */
+export interface MnaView {
+  listings: ListingView[];
+  /** The observer's own due diligences, usable this quarter. */
+  diligence: DueDiligence[];
+  /** Recent tender offers (public). */
+  tenderOffers: TenderOffer[];
+}
+
+/** The observer's group: the companies the same actor controls. */
+export interface GroupView {
+  /** Actor at the head of the group (none: nobody controls the company). */
+  actorId?: Id;
+  /** Whether the observed company is the actor's root company (the group head). */
+  isHead: boolean;
+  /** Companies of the group, the observed one included. */
+  companies: Id[];
 }
 
 /**
@@ -173,5 +219,7 @@ export interface Observation {
   self: SelfView;
   competitors: CompetitorView[];
   stock: StockMarketView;
+  mna: MnaView;
+  group: GroupView;
   news: ActiveEventView[];
 }

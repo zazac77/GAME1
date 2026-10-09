@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Company } from '../../src';
 import { sum } from '../../src/core/math';
-import { emptyDecisions } from '../../src/systems/validation';
+import { emptyDecisions, normalizeDecisions } from '../../src/systems/validation';
 import { LOW_DEBT, newGame, playerCompanyId, resolveAll, steadyAll } from '../helpers';
 
 const balanceGap = (c: Company) => {
@@ -119,5 +119,111 @@ describe('debt, overdraft and bankruptcy', () => {
     expect(next.companies[id]?.books).toEqual(frozen.books);
     const line = Object.keys(frozen.productLines)[0] ?? '';
     expect(next.productMarkets.mkt_appliances?.lastResult.shares[line]).toBeUndefined();
+  });
+});
+
+describe('equity transactions (stock market v2)', () => {
+  const setup = () => {
+    const state = newGame(21, LOW_DEBT);
+    const id = playerCompanyId(state);
+    return { state, id, company: state.companies[id] as Company };
+  };
+
+  it('pays dividends pro rata: companies holding shares book theirs, the price drops', () => {
+    const { state, id, company } = setup();
+    // An AI company holds 100 000 shares of the player.
+    const holderId = Object.keys(state.companies).find((c) => c !== id) ?? '';
+    const register = state.stock.registry[id] ?? {};
+    const price = state.stock.quotes[id]?.price ?? 0;
+    register.public = (register.public ?? 0) - 100_000;
+    register[holderId] = 100_000;
+    const hb = (state.companies[holderId] as Company).books.current.balance;
+    hb.financialAssets += 100_000 * price;
+    hb.equity += 100_000 * price;
+
+    const d = emptyDecisions(id);
+    d.finance.dividend = 1_000_000;
+    const N = company.sharesOutstanding;
+    const mid = resolveAll(state, [d], { until: 'financePre' });
+    expect(mid.state.stock.quotes[id]?.price).toBeCloseTo(price - 1_000_000 / N, 9);
+    expect(mid.ctx.ledger(holderId).dividendsReceived).toBeCloseTo((1_000_000 * 100_000) / N, 6);
+
+    const { state: next, ctx } = resolveAll(state, [d]);
+    const c = next.companies[id] as Company;
+    expect(ctx.ledger(id).dividendsPaid).toBe(1_000_000);
+    const opening = company.books.current.balance.equity;
+    expect(c.books.current.balance.equity).toBeCloseTo(
+      opening + c.books.current.pnl.netIncome - 1_000_000,
+      3,
+    );
+    const holder = next.companies[holderId] as Company;
+    expect(holder.books.current.pnl.financial).not.toBe(0);
+    for (const x of [c, holder]) expect(Math.abs(balanceGap(x))).toBeLessThan(1e-3);
+    expect(next.log.some((e) => e.kind === 'dividend_paid' && e.companyId === id)).toBe(true);
+  });
+
+  it('forbids dividends beyond the cash or while distressed', () => {
+    const { state, id, company } = setup();
+    const d = { ...emptyDecisions(id), finance: { dividend: 1e12 } };
+    const { decisions } = normalizeDecisions(state, company, d);
+    expect(decisions.finance.dividend).toBeCloseTo(
+      Math.min(company.books.current.balance.cash, company.books.current.balance.equity),
+      3,
+    );
+    company.status = 'distressed';
+    const refused = normalizeDecisions(state, company, d);
+    expect(refused.decisions.finance.dividend).toBeUndefined();
+    expect(refused.issues.map((i) => i.code)).toContain('invalid_state');
+  });
+
+  it('issues new shares at a discount, never so many that the founder loses control', () => {
+    const { state, id, company } = setup();
+    const N = company.sharesOutstanding;
+    const { decisions } = normalizeDecisions(state, company, {
+      ...emptyDecisions(id),
+      finance: { issueShares: N },
+    });
+    // The founder holds 60 %: below 0.6 / 0.5 − 1 = 20 % of new shares.
+    expect(decisions.finance.issueShares).toBe(0.2 * N - 1);
+    const d = { ...emptyDecisions(id), finance: { issueShares: 100_000 } };
+    const ref = state.stock.quotes[id]?.referencePrice ?? 0;
+    const { state: next, ctx } = resolveAll(state, [d]);
+    const SM = state.config.stockMarket.capital;
+    expect(ctx.ledger(id).equityIssued).toBeCloseTo(
+      100_000 * ref * (1 - SM.issueDiscount) * (1 - SM.issueFeeShare),
+      3,
+    );
+    const c = next.companies[id] as Company;
+    expect(c.sharesOutstanding).toBe(N + 100_000);
+    expect(next.stock.registry[id]?.public).toBe((state.stock.registry[id]?.public ?? 0) + 100_000);
+    expect(c.books.current.shares).toBe(N + 100_000);
+    expect(Math.abs(balanceGap(c))).toBeLessThan(1e-3);
+  });
+
+  it('buys back shares from the float and cancels them; not with an issue', () => {
+    const { state, id, company } = setup();
+    const N = company.sharesOutstanding;
+    const float = state.stock.registry[id]?.public ?? 0;
+    const { decisions } = normalizeDecisions(state, company, {
+      ...emptyDecisions(id),
+      finance: { buyback: N },
+    });
+    // At most 10 % of the float in a quarter (below 5 % of the capital here).
+    expect(decisions.finance.buyback).toBe(Math.floor(0.1 * float));
+    const both = normalizeDecisions(state, company, {
+      ...emptyDecisions(id),
+      finance: { issueShares: 1000, buyback: 1000 },
+    });
+    expect(both.decisions.finance.buyback).toBeUndefined();
+    expect(both.issues.map((i) => i.code)).toContain('duplicate');
+
+    const { state: next, ctx } = resolveAll(state, [
+      { ...emptyDecisions(id), finance: { buyback: 50_000 } },
+    ]);
+    const c = next.companies[id] as Company;
+    expect(c.sharesOutstanding).toBe(N - 50_000);
+    expect(next.stock.registry[id]?.public).toBe(float - 50_000);
+    expect(ctx.ledger(id).buybacks).toBeGreaterThan(0);
+    expect(Math.abs(balanceGap(c))).toBeLessThan(1e-3);
   });
 });

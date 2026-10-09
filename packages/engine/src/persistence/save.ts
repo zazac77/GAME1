@@ -43,6 +43,11 @@ const stateShapeSchema = z.object({
   actors: record,
   companies: record,
   stock: record,
+  mna: z.object({
+    listings: z.array(z.unknown()),
+    diligence: z.array(z.unknown()),
+    integrations: z.array(z.unknown()),
+  }),
   modifiers: z.array(z.unknown()),
   pendingEvents: z.array(z.unknown()),
   aiMemory: record,

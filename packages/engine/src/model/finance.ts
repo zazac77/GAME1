@@ -12,12 +12,20 @@ export interface IncomeStatement {
   depreciation: Money;
   ebit: Money;
   interest: Money;
-  /** Fair value changes of financial assets (unrealized and realized, untaxed). */
+  /**
+   * Financial result (untaxed): dividends received, fair value changes of
+   * minority stakes (unrealized and realized), impairment of controlled ones.
+   */
   financial: Money;
   tax: Money;
   netIncome: Money;
 }
 
+/**
+ * Cash flows of the quarter. Financing includes the equity transactions
+ * (share issues, dividends paid, buybacks); investing includes the stock
+ * trades, acquisitions and dividends received.
+ */
 export interface CashFlowStatement {
   operating: Money;
   investing: Money;
@@ -30,6 +38,7 @@ export interface BalanceSheet {
   cash: Money;
   inventory: Money;
   fixedAssets: Money;
+  /** Minority stakes at fair value, controlled stakes at cost (less impairment). */
   financialAssets: Money;
   debt: Money;
   equity: Money;
@@ -38,6 +47,8 @@ export interface BalanceSheet {
 
 export interface Statements {
   quarter: Quarter;
+  /** Shares outstanding at the close of the quarter. */
+  shares: number;
   pnl: IncomeStatement;
   cashFlow: CashFlowStatement;
   balance: BalanceSheet;

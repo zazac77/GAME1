@@ -10,13 +10,36 @@ export type CapexOrder =
   | { kind: 'sell_line'; siteId: Id; lineId: Id }
   | { kind: 'sell_site'; siteId: Id };
 
-/** Phase 2+. */
-export interface MnaAction {
-  kind: 'tender_offer' | 'private_purchase' | 'divest';
-  targetId: Id;
-  pricePerShare?: Money;
-  shares?: number;
+/** How the cash part of an acquisition is financed, and the share of it paid in shares. */
+export interface DealFinancing {
+  /**
+   * Share of the price paid in new shares of the buyer (exchange of shares,
+   * listed buyers only), valued at the buyer's price at the start of the quarter.
+   */
+  stockShare?: number;
+  /** Acquisition loan drawn to pay the cash part (bounded by the target's EBITDA). */
+  debt?: Money;
 }
+
+/**
+ * Takeovers (phase 2). Settled at the end of the quarter (step 12), on the
+ * cash then available; a due diligence is paid at the start of the quarter
+ * and its results are known from the next one.
+ */
+export type MnaAction =
+  | { kind: 'due_diligence'; targetId: Id }
+  /**
+   * Friendly tender offer on a listed company, for every share the buyer's
+   * group does not hold: needs the support of the target's board, succeeds
+   * only if the group ends with control.
+   */
+  | ({ kind: 'tender_offer'; targetId: Id; pricePerShare: Money } & DealFinancing)
+  /**
+   * Over-the-counter purchase: the block of the target's controlling
+   * shareholder at pricePerShare, or 100 % of a listing (targetId = listing
+   * id) at its asking price.
+   */
+  | ({ kind: 'private_purchase'; targetId: Id; pricePerShare?: Money } & DealFinancing);
 
 /** Phase 3. */
 export interface IntraGroupTransfer {
@@ -61,9 +84,13 @@ export interface CompanyDecisions {
   finance: {
     borrow?: Money;
     repay?: Money;
+    /** Total dividend paid to the shareholders at the start of the quarter. */
     dividend?: Money;
+    /** New shares sold to the public (capital increase) at a discount to the price. */
     issueShares?: number;
+    /** Own shares bought back from the public and cancelled. */
     buyback?: number;
+    /** Initial public offering of an unlisted company (new shares sold to the public). */
     ipo?: boolean;
   };
   stockOrders: { targetId: Id; side: 'buy' | 'sell'; shares: number; limitPrice?: Money }[];

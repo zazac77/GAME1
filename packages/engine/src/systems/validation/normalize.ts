@@ -25,6 +25,24 @@ import {
 } from '../../sectors/tech/team';
 import { capexOrderCost } from '../capex';
 import { borrowingCapacity } from '../finance/credit';
+import {
+  acquisitionDebtCapacity,
+  blockSeller,
+  canTarget,
+  dueDiligenceCost,
+  heldByGroup,
+  listingPrice,
+  openListing,
+  pendingOrUsableDiligence,
+} from '../mna/rules';
+import {
+  buybackPrice,
+  ipoTerms,
+  issuePrice,
+  maxBuyback,
+  maxDividend,
+  maxNewShares,
+} from '../finance/equity';
 
 export { emptyDecisions } from '../../core/decisions';
 
@@ -268,12 +286,8 @@ export function normalizeDecisions(
   });
 
   // ---- features of later lots --------------------------------------------
-  if ((input.mna ?? []).length > 0) flag('mna', 'not_available');
   if ((input.intraGroup ?? []).length > 0) flag('intraGroup', 'not_available');
   const fin = input.finance ?? {};
-  for (const key of ['dividend', 'issueShares', 'buyback', 'ipo'] as const) {
-    if (fin[key]) flag(`finance.${key}`, 'not_available');
-  }
 
   // ---- debt ---------------------------------------------------------------
   const { cash, revenue } = {
@@ -301,8 +315,14 @@ export function normalizeDecisions(
     }
   }
 
+  // ---- equity: dividends, share issues, buybacks, public offering --------
+  const equityCash = normalizeEquity(state, company, fin, out, flag, bound);
+
   // ---- capex: investments paid when ordered, from cash and new debt -----
-  const capexBudget = Math.max(0, cash + (out.finance.borrow ?? 0) - (out.finance.repay ?? 0));
+  const capexBudget = Math.max(
+    0,
+    cash + (out.finance.borrow ?? 0) - (out.finance.repay ?? 0) + equityCash,
+  );
   let capexSpent = 0;
   let siteCount = Object.values(company.sites).filter((s) =>
     tech ? isOffice(s) : s.kind === 'factory',
@@ -401,7 +421,7 @@ export function normalizeDecisions(
     const quote = state.stock.quotes[o?.targetId];
     const register = state.stock.registry[o?.targetId];
     if (!target || !quote || !register) return flag(path, 'unknown_id');
-    if (target.id === company.id) return flag(path, 'invalid_value'); // buybacks: phase 2
+    if (target.id === company.id) return flag(path, 'invalid_value'); // own shares: finance.buyback
     if (!target.listed || !isOperating(target)) return flag(path, 'invalid_state');
     if (o.side !== 'buy' && o.side !== 'sell') return flag(`${path}.side`, 'invalid_value');
     if (seenTargets.has(target.id)) return flag(path, 'duplicate');
@@ -434,6 +454,20 @@ export function normalizeDecisions(
     out.stockOrders.push(order);
   });
 
+  // ---- takeovers: settled at the end of the quarter -----------------------
+  const diligenceSpent = normalizeMna(
+    state,
+    company,
+    input,
+    out,
+    flag,
+    bound,
+    Math.max(
+      0,
+      cash + (out.finance.borrow ?? 0) - (out.finance.repay ?? 0) + equityCash - capexSpent,
+    ),
+  );
+
   // ---- budget: discretionary spending within the available liquidity -----
   const spotCost = (o: CompanyDecisions['purchasing']['spot'][number]): number => {
     const market = state.commodities[o.commodityId];
@@ -451,8 +485,10 @@ export function normalizeDecisions(
     0,
     cash +
       (out.finance.borrow ?? 0) -
-      (out.finance.repay ?? 0) -
-      capexSpent +
+      (out.finance.repay ?? 0) +
+      equityCash -
+      capexSpent -
+      diligenceSpent +
       config.finance.spendingOverdraftShareOfRevenue * revenue,
   );
   if (spending > liquidity) {
@@ -483,6 +519,188 @@ export function normalizeDecisions(
 
 type Flag = (path: string, code: ValidationIssueCode, submitted?: number, applied?: number) => void;
 type Bound = (path: string, x: number, min: number, max: number) => number;
+
+/**
+ * Takeovers: due diligences (one per target while its results are valid,
+ * paid now), then at most one deal per quarter (a friendly tender offer on a
+ * listed company, the block of a controlling shareholder, or a listing),
+ * outside the buyer's group and never on the player's companies for an AI.
+ * Payment: stockShare in new shares (listed buyers), an acquisition loan
+ * within the bank's limit, and cash: a deal whose cash part exceeds the
+ * cash at hand plus that loan is dropped (the quarter's flows may still
+ * make it fail at settlement). Returns the cost of the due diligences.
+ */
+function normalizeMna(
+  state: GameState,
+  company: Company,
+  input: CompanyDecisions,
+  out: CompanyDecisions,
+  flag: Flag,
+  bound: Bound,
+  room: number,
+): number {
+  let spent = 0;
+  let dealDone = false;
+  const seen = new Set<Id>();
+  (input.mna ?? []).forEach((a, i) => {
+    const path = `mna[${i}]`;
+    const targetId = typeof a?.targetId === 'string' ? a.targetId : '';
+    const listing = openListing(state, targetId);
+    const target = listing ? undefined : state.companies[targetId];
+    if (!listing && !target) return flag(`${path}.targetId`, 'unknown_id');
+    if (target && !canTarget(state, company, target)) return flag(path, 'invalid_state');
+    if (a.kind === 'due_diligence') {
+      if (seen.has(targetId) || pendingOrUsableDiligence(state, company.id, targetId)) {
+        return flag(path, 'duplicate');
+      }
+      const cost = dueDiligenceCost(state, targetId);
+      if (cost > room - spent) return flag(path, 'budget', cost, 0);
+      seen.add(targetId);
+      spent += cost;
+      out.mna.push({ kind: 'due_diligence', targetId });
+      return;
+    }
+    if (a.kind !== 'tender_offer' && a.kind !== 'private_purchase') {
+      return flag(`${path}.kind`, 'invalid_value');
+    }
+    if (dealDone) return flag(path, 'duplicate');
+    let stockShare = 0;
+    if (a.stockShare !== undefined) {
+      if (!isNum(a.stockShare)) flag(`${path}.stockShare`, 'invalid_value');
+      else if (a.stockShare > 0 && !company.listed) flag(`${path}.stockShare`, 'invalid_state');
+      else stockShare = bound(`${path}.stockShare`, a.stockShare, 0, 1);
+    }
+    let debt = 0;
+    if (a.debt !== undefined) {
+      if (!isNum(a.debt) || a.debt < 0) flag(`${path}.debt`, 'invalid_value', a.debt);
+      else
+        debt = bound(`${path}.debt`, a.debt, 0, acquisitionDebtCapacity(state, company, targetId));
+    }
+    let total = 0;
+    const deal = { kind: a.kind, targetId } as Extract<
+      CompanyDecisions['mna'][number],
+      { kind: 'tender_offer' | 'private_purchase' }
+    >;
+    if (listing) {
+      if (a.kind !== 'private_purchase') return flag(`${path}.kind`, 'invalid_value');
+      total = listingPrice(state, company.id, listing);
+    } else if (target) {
+      if (!isNum(a.pricePerShare) || a.pricePerShare <= 0) {
+        return flag(`${path}.pricePerShare`, 'invalid_value', a.pricePerShare);
+      }
+      deal.pricePerShare = a.pricePerShare;
+      let shares: number;
+      if (a.kind === 'tender_offer') {
+        if (!target.listed) return flag(path, 'invalid_state');
+        shares = target.sharesOutstanding - heldByGroup(state, company.id, target.id);
+      } else {
+        const seller = blockSeller(state, target);
+        if (!seller) return flag(path, 'invalid_state');
+        shares = state.stock.registry[target.id]?.[seller] ?? 0;
+      }
+      total = shares * a.pricePerShare;
+    }
+    const cashPart = total * (1 - stockShare);
+    if (cashPart > room - spent + debt) return flag(path, 'budget', cashPart, room - spent + debt);
+    if (stockShare > 0) deal.stockShare = stockShare;
+    if (debt > 0) deal.debt = debt;
+    out.mna.push(deal);
+    dealDone = true;
+  });
+  return spent;
+}
+
+/**
+ * Dividend (within the cash and the equity; none while distressed or in
+ * breach of covenant), share issue (listed, within maxNewShares) or buyback
+ * (listed, from the float, paid in cash), public offering (unlisted, with
+ * enough closed quarters). Returns the net cash these bring at the start of
+ * the quarter (negative: they consume it).
+ */
+function normalizeEquity(
+  state: GameState,
+  company: Company,
+  fin: CompanyDecisions['finance'],
+  out: CompanyDecisions,
+  flag: Flag,
+  bound: Bound,
+): number {
+  const { config } = state;
+  const capital = config.stockMarket.capital;
+  let cash = Math.max(
+    0,
+    company.books.current.balance.cash + (out.finance.borrow ?? 0) - (out.finance.repay ?? 0),
+  );
+  let net = 0;
+  if (fin.dividend !== undefined) {
+    if (!isNum(fin.dividend) || fin.dividend < 0) {
+      flag('finance.dividend', 'invalid_value', fin.dividend);
+    } else if (fin.dividend > 0) {
+      if (company.status === 'distressed' || company.credit.covenantBreached) {
+        flag('finance.dividend', 'invalid_state');
+      } else {
+        const max = Math.min(cash, maxDividend(company));
+        const dividend = bound('finance.dividend', fin.dividend, 0, max);
+        if (dividend > 0) {
+          out.finance.dividend = dividend;
+          cash -= dividend;
+          net -= dividend;
+        }
+      }
+    }
+  }
+  const shares = (key: 'issueShares' | 'buyback'): number | undefined => {
+    const x = fin[key];
+    if (x === undefined || x === 0) return undefined;
+    if (!isNum(x) || x < 0) {
+      flag(`finance.${key}`, 'invalid_value', x);
+      return undefined;
+    }
+    if (!company.listed) {
+      flag(`finance.${key}`, 'invalid_state');
+      return undefined;
+    }
+    return Math.floor(x);
+  };
+  const issue = shares('issueShares');
+  if (issue !== undefined) {
+    const n = bound('finance.issueShares', issue, 0, maxNewShares(state, company));
+    if (n > 0) {
+      out.finance.issueShares = n;
+      const proceeds = n * issuePrice(state, company) * (1 - capital.issueFeeShare);
+      cash += proceeds;
+      net += proceeds;
+    }
+  }
+  const buyback = shares('buyback');
+  if (buyback !== undefined) {
+    if (out.finance.issueShares) flag('finance.buyback', 'duplicate');
+    else {
+      const price = buybackPrice(state, company);
+      const affordable = price > 0 ? Math.floor(cash / price) : 0;
+      const n = bound(
+        'finance.buyback',
+        buyback,
+        0,
+        Math.min(maxBuyback(state, company), affordable),
+      );
+      if (n > 0) {
+        out.finance.buyback = n;
+        net -= n * price;
+      }
+    }
+  }
+  if (fin.ipo !== undefined && fin.ipo !== false) {
+    const terms = fin.ipo === true ? ipoTerms(state, company) : undefined;
+    if (fin.ipo !== true) flag('finance.ipo', 'invalid_value');
+    else if (!terms) flag('finance.ipo', 'invalid_state');
+    else {
+      out.finance.ipo = true;
+      net += terms.proceeds;
+    }
+  }
+  return net;
+}
 
 /**
  * Tech R&D: projects are staffed with developers (whole people, among those

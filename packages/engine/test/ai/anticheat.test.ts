@@ -17,9 +17,12 @@ const COMPETITOR_KEYS = [
   'products',
   'published',
   'sector',
+  'shares',
   'sites',
   'status',
 ];
+/** Public facts of the shareholder register (controller, its block, the premium it asks). */
+const OPTIONAL_COMPETITOR_KEYS = ['askedPremium', 'blockShares', 'controllerId'];
 
 /** Changes everything a rival keeps private: books not yet published, staff, stocks, debt, plans. */
 function scramble(state: GameState, observerCompanyId: string): GameState {
@@ -48,8 +51,14 @@ function scramble(state: GameState, observerCompanyId: string): GameState {
     c.employerBrand = 1;
     if (c.lastDecisions) c.lastDecisions.marketing = { x: 1e9 };
   }
-  for (const [actorId, memory] of Object.entries(s.aiMemory)) {
-    if (s.actors[actorId]?.rootCompanyId !== observerCompanyId) memory.demandForecast = 1;
+  // Private M&A facts: actual figures and liabilities of listings, others' due diligences.
+  for (const l of s.mna.listings) {
+    l.actual.ebitda *= 3;
+    l.hiddenLiability += 1e6;
+  }
+  for (const d of s.mna.diligence) if (d.buyerId !== observerCompanyId) d.figures.ebitda *= 3;
+  for (const [companyId, memory] of Object.entries(s.aiMemory)) {
+    if (companyId !== observerCompanyId) memory.demandForecast = 1;
   }
   return s;
 }
@@ -71,7 +80,17 @@ describe('anti-cheat', () => {
       expect(Object.keys(obs)).not.toContain('aiMemory');
       expect(Object.keys(obs)).not.toContain('meta');
       for (const c of obs.competitors) {
-        expect(Object.keys(c).sort()).toEqual(COMPETITOR_KEYS);
+        expect(
+          Object.keys(c)
+            .filter((k) => !OPTIONAL_COMPETITOR_KEYS.includes(k))
+            .sort(),
+        ).toEqual(COMPETITOR_KEYS);
+        // Listings show their estimate, never their actual figures nor hidden liability.
+        for (const l of obs.mna.listings) {
+          expect(l).not.toHaveProperty('actual');
+          expect(l).not.toHaveProperty('hiddenLiability');
+        }
+        expect(obs.mna.diligence.every((d) => d.buyerId === obs.companyId)).toBe(true);
         const lag = state.config.stockMarket.publicationLagQuarters;
         for (const s of c.published)
           expect(s.quarter).toBeLessThanOrEqual(state.meta.turn - 1 - lag);
@@ -113,7 +132,7 @@ describe('anti-cheat', () => {
       expect(b).toEqual(a);
       // Not vacuous: the same changes on the observer's own company are seen.
       expect(observe(scramble(state, 'nobody'), actor.id)).not.toEqual(a);
-      const memory = state.aiMemory[actor.id] as AiMemory;
+      const memory = state.aiMemory[actor.rootCompanyId] as AiMemory;
       const rng = () => createRng({ a: 1, b: 2, c: 3, d: 4 });
       expect(planDecisions(b, memory, rng())).toEqual(planDecisions(a, memory, rng()));
     }

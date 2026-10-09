@@ -1,6 +1,7 @@
 import type { Company, ProductionLine, Site, Staff, StaffFlows } from '../model/company';
 import type { Id } from '../model/ids';
 import type { GameState } from '../model/state';
+import { controlledBy } from './control';
 import { sum } from './math';
 
 /** Companies that still operate (active or distressed), in id order. */
@@ -45,12 +46,9 @@ export const newStaff = (regionId: Id, occupationId: Id, wage: number): Staff =>
 /** Staff in training (counted in headcount, not producing). */
 export const trainees = (staff: Staff): number => sum(staff.inTraining.map((b) => b.count));
 
-/** Companies the actor runs. MVP: its root company (control chains arrive in phase 2). */
+/** Companies the actor runs: every company it controls, directly or through its subsidiaries. */
 export function controlledCompanyIds(state: GameState, actorId: Id): Set<Id> {
-  const actor = state.actors[actorId];
-  const out = new Set<Id>();
-  if (actor && state.companies[actor.rootCompanyId]) out.add(actor.rootCompanyId);
-  return out;
+  return new Set(controlledBy(state, actorId));
 }
 
 /** Reference price of a product market, indexed on the price level. */

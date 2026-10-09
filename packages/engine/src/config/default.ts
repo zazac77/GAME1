@@ -684,6 +684,53 @@ export const defaultConfig: GameConfig = {
     },
     indexBase: 1000,
     publicationLagQuarters: 1,
+    capital: {
+      maxIssueShare: 0.2,
+      issueDiscount: 0.08,
+      issueFeeShare: 0.03,
+      maxBuybackShare: 0.05,
+      buybackPremium: 0.02,
+    },
+    // A subsidiary goes public with 30 % of its capital sold to new shareholders.
+    ipo: { floatShare: 0.3, discount: 0.1, feeShare: 0.04, minQuarters: 2 },
+    // Most investors tender between 10 and 30 % of premium.
+    tenderPremiumDist: { tranches: 10, mean: 0.2, std: 0.1 },
+  },
+
+  mna: {
+    controlThreshold: 0.5,
+    listings: {
+      maxOpen: 3,
+      arrivalProbability: 0.3,
+      durationQuarters: 6,
+      // A third to two thirds of a starting company.
+      scale: { min: 0.35, max: 0.65 },
+      profiles: ['premium', 'innovator', 'low_cost', 'opportunist'],
+      estimateNoise: 0.25,
+      performanceSpread: 0.25,
+      askPremium: { min: 0.05, max: 0.4 },
+      hiddenLiability: { probability: 0.3, min: 0.05, max: 0.3 },
+    },
+    dueDiligence: { costShareOfValue: 0.005, minCost: 150_000, validQuarters: 4 },
+    valuation: {
+      controlPremium: 0.3,
+      equityRiskPremium: 0.07,
+      fcfShareOfEbitda: 0.5,
+      terminalGrowth: 0.02,
+      horizonYears: 5,
+      rangeWidth: 0.2,
+    },
+    financing: { maxDebtToEbitda: 3, spreadPremium: 0.01 },
+    distressedSellFactor: 0.4,
+    squeezeOutThreshold: 0.9,
+    integration: {
+      quarters: 4,
+      costShareOfRevenue: 0.02,
+      attritionMultiplier: 1.6,
+      productivityMultiplier: 0.95,
+    },
+    delegatedProfileId: 'conglomerate',
+    dealHistory: 20,
   },
 
   ai: {
@@ -710,6 +757,9 @@ export const defaultConfig: GameConfig = {
         brandDefense: 0,
         counterLaunch: 0.1,
         opportunism: 0,
+        // Premium asked to back a friendly offer or sell its block.
+        sellPremium: 0.25,
+        acquisitiveness: 0,
       },
       premium: {
         priceMarkup: 0.35,
@@ -730,6 +780,8 @@ export const defaultConfig: GameConfig = {
         brandDefense: 0.5,
         counterLaunch: 0.6,
         opportunism: 0,
+        sellPremium: 0.45,
+        acquisitiveness: 0,
       },
       // Technology race: high R&D, talent hunting (skilled wages, outbidding), risk taker.
       innovator: {
@@ -750,6 +802,8 @@ export const defaultConfig: GameConfig = {
         brandDefense: 0.2,
         counterLaunch: 0.9,
         opportunism: 0,
+        sellPremium: 0.5,
+        acquisitiveness: 0,
       },
       opportunist: {
         priceMarkup: 0.2,
@@ -770,8 +824,11 @@ export const defaultConfig: GameConfig = {
         counterLaunch: 0.3,
         // Preys on rivals in difficulty: undercuts them and plans for their customers.
         opportunism: 1,
+        sellPremium: 0.3,
+        // Buys rivals in difficulty when they come cheap.
+        acquisitiveness: 0.25,
       },
-      // Middle of the road, moderate risk; watches weak rivals (takeovers: lot 2.4).
+      // Middle of the road, moderate risk; watches weak rivals and buys companies.
       conglomerate: {
         priceMarkup: 0.15,
         qualityTarget: 55,
@@ -790,6 +847,9 @@ export const defaultConfig: GameConfig = {
         brandDefense: 0.1,
         counterLaunch: 0.3,
         opportunism: 0.4,
+        sellPremium: 0.35,
+        // Buys companies (listings, rivals in difficulty) to diversify.
+        acquisitiveness: 0.5,
       },
     },
     // Agrifood runs on thin margins (3 to 8 % net): smaller markups, tighter positioning.
@@ -901,6 +961,18 @@ export const defaultConfig: GameConfig = {
       churnPriceResponse: 0.3,
     },
     finance: { cashBufferQuarters: 0.3, repayAboveQuarters: 1.5 },
+    // Listed AI companies with little debt pay a quarter of their published earnings.
+    dividends: { payout: 0.25, maxLeverage: 1.5, minCashQuarters: 1.5 },
+    mna: {
+      cooldownQuarters: 6,
+      valueMargin: 0.1,
+      extraPremium: 0.03,
+      maxShareOfEquity: 0.6,
+      cashAfterQuarters: 1,
+      maxLeverage: 2.5,
+      debtShare: 0.5,
+      stockShare: 0.5,
+    },
   },
 
   views: {

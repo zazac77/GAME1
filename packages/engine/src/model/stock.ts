@@ -23,14 +23,25 @@ export interface StockOrder {
   limitPrice?: Money;
 }
 
+/** A takeover bid. Friendly offers (phase 2) are settled in the quarter they are launched. */
 export interface TenderOffer {
   id: Id;
   bidderId: Id;
   targetId: Id;
   pricePerShare: Money;
+  /** Premium over the target's price at the start of the quarter. */
+  premium: number;
+  /** Share of the price paid in new shares of the bidder (exchange of shares). */
+  stockShare: number;
   launchedAt: Quarter;
   expiresAt: Quarter;
-  status: 'open' | 'succeeded' | 'failed' | 'withdrawn';
+  /**
+   * rejected: the target's board (its controlling shareholder) turned it
+   * down; failed: the bidder would not get control, or could not pay.
+   */
+  status: 'open' | 'succeeded' | 'failed' | 'rejected' | 'withdrawn';
+  /** Shares bought (0 unless succeeded). */
+  acquired: number;
 }
 
 export interface StockMarketState {
@@ -41,5 +52,6 @@ export interface StockMarketState {
   registry: Record<Id, Record<HolderId, number>>;
   /** Orders of the current quarter (executed at the end of the turn). */
   orders: StockOrder[];
+  /** Recent tender offers, oldest first (bounded by mna.dealHistory). */
   tenderOffers: TenderOffer[];
 }

@@ -83,7 +83,8 @@ describe('rnd', () => {
   });
 
   it('process R&D raises productivity, product R&D raises the reachable quality', () => {
-    const { state, id, company } = setup();
+    // Enough cash for the costly materials of quality 100 (no distress on the way).
+    const { state, id, company } = setup({ finance: { startingCash: 20_000_000 } });
     const cfg = state.config.sectors.industry;
     const base = operatorProductivity(state, company, company.hqRegionId);
     const better = structuredClone(state);

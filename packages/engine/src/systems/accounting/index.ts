@@ -142,8 +142,9 @@ function goBankrupt(ctx: TurnContext, company: Company): void {
  * Step 10: closes the quarter of every operating company. Income statement
  * (storage, depreciation, interest, tax with loss carryforward), debt
  * service, automatic overdraft, cash flow and balance sheet. Equity only
- * moves with the net income, so assets = liabilities + equity is a real
- * check of every flow booked during the turn. Then rating, covenant,
+ * moves with the net income and the equity transactions (issues, dividends,
+ * buybacks), so assets = liabilities + equity is a real check of every flow
+ * booked during the turn. Then rating, covenant,
  * distress and bankruptcy.
  */
 export const accountingSystem: System = {
@@ -178,7 +179,8 @@ export const accountingSystem: System = {
       } else {
         company.books.taxLossCarryforward -= preTax;
       }
-      const netIncome = preTax - tax;
+      // Dividends received are untaxed (participation exemption).
+      const netIncome = preTax - tax + ledger.dividendsReceived;
 
       const installments = payInstallments(company, turn);
       const operating =
@@ -191,8 +193,14 @@ export const accountingSystem: System = {
         ledger.other -
         interest -
         tax;
-      const investing = ledger.disposals - ledger.capex;
-      let financing = ledger.borrowed - ledger.repaid - installments;
+      const investing = ledger.disposals - ledger.capex + ledger.dividendsReceived;
+      let financing =
+        ledger.borrowed -
+        ledger.repaid -
+        installments +
+        ledger.equityIssued -
+        ledger.dividendsPaid -
+        ledger.buybacks;
       let cash = opening.cash + operating + investing + financing;
       // Lands exactly on 0 when the overdraft covers the shortfall (no float residue).
       const settled = Math.max(0, cash + settleOverdraft(ctx, company, cash));
@@ -201,6 +209,7 @@ export const accountingSystem: System = {
 
       const statements: Statements = {
         quarter: turn,
+        shares: company.sharesOutstanding,
         pnl: {
           revenue: ledger.revenue,
           cogs: ledger.cogs,
@@ -213,7 +222,7 @@ export const accountingSystem: System = {
           depreciation,
           ebit,
           interest,
-          financial: 0, // fair value of financial assets: stock market step
+          financial: ledger.dividendsReceived, // + fair value of financial assets: stock market step
           tax,
           netIncome,
         },
@@ -224,7 +233,13 @@ export const accountingSystem: System = {
           fixedAssets: fixedAssetValue(company),
           financialAssets: opening.financialAssets, // revalued by the stock market step
           debt: totalDebt(company),
-          equity: opening.equity + netIncome,
+          // Equity moves with the net income and the equity transactions only.
+          equity:
+            opening.equity +
+            netIncome +
+            ledger.equityIssued -
+            ledger.dividendsPaid -
+            ledger.buybacks,
           minorityInterests: 0,
         },
       };

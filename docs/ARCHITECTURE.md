@@ -298,7 +298,7 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | 0 | `ai` | Chaque acteur IA reçoit `Observation(S_t)` et produit ses `CompanyDecisions` |
 | 1 | `validation` | Borne et normalise toutes les décisions (budget, crédit, stocks, effectifs) |
 | 2 | `macro` + `events` + `weather` | Avance le cycle, l'inflation et le taux directeur ; tire les événements ; applique ou expire les modificateurs ; tire la météo de chaque région (rendements agricoles) |
-| 3 | `finance (pré)` | Emprunts, remboursements, augmentations de capital, dividendes, rachats d'actions |
+| 3 | `finance (pré)` + `mna (pré)` | Emprunts, remboursements, dividendes, augmentations de capital, rachats d'actions, introductions en bourse ; audits d'acquisition commandés, coûts d'intégration |
 | 4 | `capex` | Avancement des chantiers, mise en service, cessions d'actifs |
 | 5 | `labor` | Licenciements → appariement des embauches → attrition → formation → mise à jour des salaires de marché |
 | 6 | `commodities` | Livraisons des contrats → compensation du spot (prix fonction de la demande agrégée) → stocks |
@@ -307,7 +307,7 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | 9 | `rnd` | Avance la frontière technologique (tech) ; avancement des projets (budget, ou développeurs en tech), niveau technologique, obsolescence |
 | 10 | `accounting` | Compte de résultat, impôt, intérêts, amortissements, stockage → trésorerie → bilan ; contrôle de solvabilité |
 | 11 | `stockmarket` | Valeur fondamentale → cours (avec impact des ordres) → exécution des ordres → registre → seuils et OPA |
-| 12 | `mna` / `conglomerate` | Rachats conclus, changements de contrôle, synergies, coûts de complexité, consolidation |
+| 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs, OPA amicales), changements de contrôle, réévaluation des participations, sociétés mises en vente ; synergies, coûts de complexité, consolidation (phase 3) |
 | 13 | `victory` + `reporting` | KPI, historique, journal, rapport de tour, conditions de fin |
 
 ## 8. Configuration et équilibrage

@@ -17,6 +17,7 @@ import {
   techTeam,
 } from '../sectors/tech/team';
 import { disposalValue } from '../systems/capex';
+import { capitalQuotes } from './mna';
 
 /** Cash a disposal would bring, by line id and by site id. */
 function saleValues(state: GameState, company: Company): PlayerCosts['saleValue'] {
@@ -37,6 +38,11 @@ function saleValues(state: GameState, company: Company): PlayerCosts['saleValue'
 /** Quotes of the quarter, at the start-of-quarter price level (as validation charges them). */
 export function playerCosts(state: GameState, company: Company): PlayerCosts | undefined {
   if (!isOperating(company)) return undefined;
+  const costs = sectorCosts(state, company);
+  return costs ? { ...costs, capital: capitalQuotes(state, company) } : undefined;
+}
+
+function sectorCosts(state: GameState, company: Company): Omit<PlayerCosts, 'capital'> | undefined {
   const tech = techConfigOf(state.config, company.sector);
   if (tech) return techCosts(state, company, tech);
   const cfg = plantConfigOf(state.config, company.sector);
@@ -62,7 +68,7 @@ export function playerCosts(state: GameState, company: Company): PlayerCosts | u
     if (project) q.projectId = project.id;
     return q;
   };
-  const costs: PlayerCosts = {
+  const costs: Omit<PlayerCosts, 'capital'> = {
     buildSite,
     addLine: addLineCost(cfg, priceLevel),
     modernizeLine: modernizeLineCost(cfg, priceLevel),
@@ -90,7 +96,11 @@ export function playerCosts(state: GameState, company: Company): PlayerCosts | u
  * developer-quarters and developers (no cash budget: maxBudget is 0). The
  * product's "level" is its tech level and its ceiling the frontier + maxLead.
  */
-function techCosts(state: GameState, company: Company, tech: TechConfig): PlayerCosts {
+function techCosts(
+  state: GameState,
+  company: Company,
+  tech: TechConfig,
+): Omit<PlayerCosts, 'capital'> {
   const { priceLevel } = state.macro;
   const buildSite: PlayerCosts['buildSite'] = {};
   for (const region of Object.values(state.regions)) {

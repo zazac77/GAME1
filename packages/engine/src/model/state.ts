@@ -3,6 +3,7 @@ import type { AiMemory } from './ai';
 import type { Actor, Company } from './company';
 import type { GameEvent, Modifier, ScheduledEffect } from './events';
 import type { GameMode, Id, LaborPoolKey, Quarter } from './ids';
+import type { MnaState } from './mna';
 import type { CommodityMarket, LaborPool, MacroState, ProductMarket, Region } from './markets';
 import type { StockMarketState } from './stock';
 
@@ -45,8 +46,11 @@ export interface GameState {
   actors: Record<Id, Actor>;
   companies: Record<Id, Company>;
   stock: StockMarketState;
+  /** Companies for sale, due diligences, integrations. */
+  mna: MnaState;
   modifiers: Modifier[];
   pendingEvents: ScheduledEffect[];
+  /** Memory of the planner of each AI-run company, by company id. */
   aiMemory: Record<Id, AiMemory>;
   /** Bounded journal. */
   log: GameEvent[];

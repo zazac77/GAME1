@@ -9,6 +9,7 @@ import saveV3 from '../fixtures/save-v3.json';
 import saveV4 from '../fixtures/save-v4.json';
 import saveV5 from '../fixtures/save-v5.json';
 import saveV6 from '../fixtures/save-v6.json';
+import saveV7 from '../fixtures/save-v7.json';
 
 // A v1 save written by the lot 1.1 engine (seed 1234, after 2 quarters).
 const v1 = JSON.stringify(saveV1);
@@ -22,6 +23,9 @@ const v4 = JSON.stringify(saveV4);
 const v5 = JSON.stringify(saveV5);
 // A v6 save written by the lot 2.2 engine (seed 1240, after 4 quarters, one AI at price war).
 const v6 = JSON.stringify(saveV6);
+// A v7 save written by the lot 2.3 engine (seed 1234, after 4 quarters, the player holding
+// 20 000 shares of an AI company).
+const v7 = JSON.stringify(saveV7);
 
 describe('migrations', () => {
   it('loads a v1 save into the current schema', () => {
@@ -84,7 +88,7 @@ describe('migrations', () => {
     }
     expect(state.meta.turn).toBe(6);
     for (const actor of Object.values(state.actors).filter((a) => a.kind === 'ai')) {
-      expect(state.aiMemory[actor.id]?.demandForecast).toBeGreaterThan(0);
+      expect(state.aiMemory[actor.rootCompanyId]?.demandForecast).toBeGreaterThan(0);
     }
     expect(Object.values(state.stock.quotes).every((q) => q.publishedQuarter >= 0)).toBe(true);
     assertJsonSafe(state);
@@ -164,7 +168,8 @@ describe('migrations', () => {
     ) ?? ['', undefined];
     let state = deserializeGame(v6);
     expect(state.meta.schemaVersion).toBe(SCHEMA_VERSION);
-    const memory = state.aiMemory[warriorId];
+    // The memory now follows the company the actor runs.
+    const memory = state.aiMemory[state.actors[warriorId]?.rootCompanyId ?? ''];
     expect(memory?.priceWar?.discount).toBe(old?.priceWarDiscount);
     expect(memory?.priceWar?.rivalIds).toEqual(Object.keys(old?.grudges ?? {}));
     for (const m of Object.values(state.aiMemory)) {
@@ -190,6 +195,40 @@ describe('migrations', () => {
       state = resolveTurn(state, [steadyDecisions(state, playerCompanyId(state))]).state;
     }
     expect(state.meta.turn).toBe(7);
+    assertJsonSafe(state);
+  });
+
+  it('loads a v7 save: memory by company, M&A market, shares in the accounts', () => {
+    const raw = JSON.parse(v7) as {
+      schemaVersion: number;
+      state: {
+        aiMemory: Record<string, unknown>;
+        actors: Record<string, { rootCompanyId: string }>;
+      };
+    };
+    expect(raw.schemaVersion).toBe(7);
+    let state = deserializeGame(v7);
+    expect(state.meta.schemaVersion).toBe(SCHEMA_VERSION);
+    const expected = Object.keys(raw.state.aiMemory)
+      .map((actorId) => raw.state.actors[actorId]?.rootCompanyId)
+      .sort();
+    expect(Object.keys(state.aiMemory).sort()).toEqual(expected);
+    expect(state.mna).toEqual({ listings: [], diligence: [], integrations: [] });
+    for (const c of Object.values(state.companies)) {
+      expect(c.participations).toEqual({});
+      expect(c.books.current.shares).toBe(c.sharesOutstanding);
+      for (const s of c.books.history) expect(s.shares).toBe(c.sharesOutstanding);
+    }
+    expect(state.config.mna.controlThreshold).toBe(0.5);
+    expect(state.config.ai.profiles.conglomerate?.acquisitiveness).toBeGreaterThan(0);
+    expect(state.config.stockMarket.ipo.floatShare).toBeLessThan(0.5);
+    // The minority stake stays at fair value; the game goes on with the new systems.
+    const id = playerCompanyId(state);
+    for (let i = 0; i < 3; i++) {
+      state = resolveTurn(state, [steadyDecisions(state, id)]).state;
+    }
+    expect(state.meta.turn).toBe(7);
+    expect(state.companies[id]?.books.current.balance.financialAssets).toBeGreaterThan(0);
     assertJsonSafe(state);
   });
 });

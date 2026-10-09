@@ -594,7 +594,7 @@ const stockMarketSchema = z.strictObject({
   initialPriceToBookBySector: z.partialRecord(sectorId, pos),
   /** Max share of a float one holder can trade per quarter. */
   maxFloatPerQuarter: share,
-  /** Phase 1: a company holds at most this share of another one (no control). */
+  /** Stock orders: a group holds at most this share of another company (control needs a takeover). */
   maxMinorityStake: share,
   /** Price floor, and price of a bankrupt (delisted) company. */
   minPrice: pos,
@@ -638,6 +638,36 @@ const stockMarketSchema = z.strictObject({
   indexBase: pos,
   /** Listed companies publish their results with this lag. */
   publicationLagQuarters: nonNegInt,
+  /** Equity transactions of a listed company, at the start of the quarter. */
+  capital: z.strictObject({
+    /** New shares per quarter, as a share of the shares outstanding. */
+    maxIssueShare: share,
+    /** New shares are sold at the price × (1 − issueDiscount)… */
+    issueDiscount: share,
+    /** …less fees (share of the gross proceeds). */
+    issueFeeShare: share,
+    /** Buybacks per quarter, as a share of the shares outstanding (and within maxFloatPerQuarter of the float). */
+    maxBuybackShare: share,
+    /** Buybacks are paid at the price × (1 + buybackPremium). */
+    buybackPremium: nonNeg,
+  }),
+  /** Initial public offering of an unlisted company (a subsidiary). */
+  ipo: z.strictObject({
+    /** Share of the capital the public holds after the offering (new shares). */
+    floatShare: share,
+    /** Offering price = fundamental value per share × (1 − discount). */
+    discount: share,
+    /** Fees, as a share of the gross proceeds. */
+    feeShare: share,
+    /** Closed quarters needed before the offering. */
+    minQuarters: posInt,
+  }),
+  /**
+   * Tender offers: the float is split into `tranches` of investors, each
+   * asking a premium drawn from N(mean, std) (floored at 0); a tranche tenders
+   * its shares when the premium offered is at least the premium it asks.
+   */
+  tenderPremiumDist: z.strictObject({ tranches: posInt, mean: nonNeg, std: nonNeg }),
 });
 
 const aiProfileSchema = z.strictObject({
@@ -673,6 +703,13 @@ const aiProfileSchema = z.strictObject({
   counterLaunch: share,
   /** Appetite for rivals in difficulty (predatory discount, demand capture); 0: none. */
   opportunism: share,
+  /**
+   * Premium over the share price the controlling shareholder of a company run
+   * by this profile asks to back a friendly offer or sell its block.
+   */
+  sellPremium: nonNeg,
+  /** Probability per quarter of looking for a takeover (0: never buys companies). */
+  acquisitiveness: share,
 });
 
 const aiSchema = z.strictObject({
@@ -822,6 +859,97 @@ const aiSchema = z.strictObject({
     /** Term debt is repaid with the cash above this many quarters of cash costs. */
     repayAboveQuarters: nonNeg,
   }),
+  /**
+   * Dividends of a listed AI company: payout × the last published net income,
+   * when net debt / EBITDA is below maxLeverage and the cash stays above
+   * minCashQuarters of cash costs.
+   */
+  dividends: z.strictObject({ payout: share, maxLeverage: nonNeg, minCashQuarters: nonNeg }),
+  /** Takeovers by the group heads whose profile has some acquisitiveness. */
+  mna: z.strictObject({
+    /** Quarters between two attempts. */
+    cooldownQuarters: nonNegInt,
+    /** A deal is made only if the valuation mid-point × (1 + this) covers the price. */
+    valueMargin: z.number(),
+    /** Premium offered on top of the board's asking premium (tender offers and blocks). */
+    extraPremium: nonNeg,
+    /** Price at most this share of the buyer's equity. */
+    maxShareOfEquity: pos,
+    /** Cash kept after the deal, in quarters of cash costs. */
+    cashAfterQuarters: nonNeg,
+    /** No deal above this net debt / EBITDA of the buyer. */
+    maxLeverage: nonNeg,
+    /** Share of the price financed by an acquisition loan (within the bank's limit)… */
+    debtShare: share,
+    /** …and at most this share paid in new shares (listed buyers, within their control). */
+    stockShare: share,
+  }),
+});
+
+const mnaSchema = z.strictObject({
+  /** A holder controls a company above this share of its capital (with its group). */
+  controlThreshold: z.number().min(0.5).max(1),
+  /** Unlisted companies for sale ("pépites"), generated over the game. */
+  listings: z.strictObject({
+    /** At most this many listings at a time… */
+    maxOpen: nonNegInt,
+    /** …a new one arriving with this probability per quarter… */
+    arrivalProbability: share,
+    /** …for sale this many quarters. */
+    durationQuarters: posInt,
+    /** Size relative to a starting company of the sector. */
+    scale: z.strictObject({ min: pos, max: pos }),
+    /** Profiles of the management in place, drawn at random. */
+    profiles: z.array(aiProfileId).min(1),
+    /** Public estimates = actual figures × U[1 − noise, 1 + noise]. */
+    estimateNoise: share,
+    /** Actual performance = sector average × U[1 − spread, 1 + spread]. */
+    performanceSpread: share,
+    /** Asking price = valuation mid-point × (1 + U[min, max]). */
+    askPremium: z.strictObject({ min: z.number(), max: z.number() }),
+    /** Undeclared liability with this probability, worth U[min, max] × the asking price. */
+    hiddenLiability: z.strictObject({ probability: share, min: nonNeg, max: nonNeg }),
+  }),
+  dueDiligence: z.strictObject({
+    /** Cost = max(minCost × price level, costShareOfValue × the target's value). */
+    costShareOfValue: share,
+    minCost: nonNeg,
+    /** Quarters the results stay valid. */
+    validQuarters: posInt,
+  }),
+  valuation: z.strictObject({
+    /** Control premium a buyer can expect to pay; controlled stakes are impaired below value × (1 + this). */
+    controlPremium: nonNeg,
+    /** DCF: discount rate = policy rate + equityRiskPremium. */
+    equityRiskPremium: pos,
+    /** Free cash flow = EBITDA × fcfShareOfEbitda; growth fades to terminalGrowth over horizonYears. */
+    fcfShareOfEbitda: share,
+    terminalGrowth: z.number(),
+    horizonYears: posInt,
+    /** The range shown spans the two methods, widened by ± rangeWidth / 2. */
+    rangeWidth: share,
+  }),
+  financing: z.strictObject({
+    /** Acquisition loan ≤ this × the target's annual EBITDA (light LBO). */
+    maxDebtToEbitda: nonNeg,
+    /** Extra annual spread of an acquisition loan. */
+    spreadPremium: nonNeg,
+  }),
+  /** A controlling shareholder of a distressed company asks its sellPremium × this. */
+  distressedSellFactor: share,
+  /** Above this share after a tender offer, the rest is bought at the offer price and the target delisted. */
+  squeezeOutThreshold: z.number().min(0.5).max(1),
+  /** After a takeover: costs, talent departures and a productivity dip for `quarters` quarters. */
+  integration: z.strictObject({
+    quarters: nonNegInt,
+    costShareOfRevenue: share,
+    attritionMultiplier: z.number().min(1),
+    productivityMultiplier: pos,
+  }),
+  /** Profile of the management running a subsidiary that its group does not decide for. */
+  delegatedProfileId: aiProfileId,
+  /** Tender offers kept in stock.tenderOffers. */
+  dealHistory: posInt,
 });
 
 const viewsSchema = z.strictObject({
@@ -915,6 +1043,7 @@ export const gameConfigSchema = z
     }),
     finance: financeSchema,
     stockMarket: stockMarketSchema,
+    mna: mnaSchema,
     ai: aiSchema,
     views: viewsSchema,
     events: eventsSchema,
@@ -1085,6 +1214,21 @@ export const gameConfigSchema = z
       }
     });
 
+    const L = cfg.mna.listings;
+    if (L.scale.min > L.scale.max) issue(['mna', 'listings', 'scale'], 'min > max');
+    if (L.askPremium.min > L.askPremium.max) issue(['mna', 'listings', 'askPremium'], 'min > max');
+    if (L.hiddenLiability.min > L.hiddenLiability.max) {
+      issue(['mna', 'listings', 'hiddenLiability'], 'min > max');
+    }
+    for (const [i, profileId] of L.profiles.entries()) {
+      if (!cfg.ai.profiles[profileId]) issue(['mna', 'listings', 'profiles', i], 'unknown profile');
+    }
+    if (!cfg.ai.profiles[cfg.mna.delegatedProfileId]) {
+      issue(['mna', 'delegatedProfileId'], 'profile missing from ai.profiles');
+    }
+    if (cfg.stockMarket.ipo.floatShare >= 1 - cfg.mna.controlThreshold) {
+      issue(['stockMarket', 'ipo', 'floatShare'], 'an offering would cost the parent its control');
+    }
     if (cfg.ai.hr.fireTo > cfg.ai.hr.fireAbove) issue(['ai', 'hr'], 'fireTo > fireAbove');
     if (cfg.ai.priceWar.maxDiscount < cfg.ai.priceWar.discount) {
       issue(['ai', 'priceWar', 'maxDiscount'], 'maxDiscount < discount');
@@ -1101,6 +1245,7 @@ export type AiProfileConfig = z.infer<typeof aiProfileSchema>;
 export type PlantSectorConfig = z.infer<typeof plantSectorSchema>;
 export type AgriConfig = z.infer<typeof agriSchema>;
 export type TechConfig = z.infer<typeof techSchema>;
+export type MnaConfig = z.infer<typeof mnaSchema>;
 export type EventDefinition = z.infer<typeof eventDefinitionSchema>;
 export type ModifierKey = (typeof MODIFIER_KEYS)[number];
 

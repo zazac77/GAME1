@@ -173,6 +173,13 @@ export interface Company {
   credit: CreditStatus;
   books: Books;
   /**
+   * Stakes held in companies of the same group, carried at their cost
+   * (impaired below their recoverable value): target id → shares and cost.
+   */
+  participations: Record<Id, { shares: number; cost: Money }>;
+  /** Profile of the management in place of a company bought without its founder (listings). */
+  managementProfileId?: AiProfileId;
+  /**
    * Normalized decisions of the last resolved quarter (private: never shown
    * to competitors). Base of defaultDecisions.
    */

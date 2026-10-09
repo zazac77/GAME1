@@ -1,0 +1,177 @@
+import { isOperating } from '../core/companies';
+import { controlledBy } from '../core/control';
+import { sum } from '../core/math';
+import { valueEquity } from '../core/valuation';
+import type { Company } from '../model/company';
+import type { HolderId, Id } from '../model/ids';
+import type { AnnualFigures } from '../model/mna';
+import type { GameState } from '../model/state';
+import type { CapitalQuotes, DealQuote, GroupCompanyView } from '../model/views';
+import {
+  buybackPrice,
+  ipoTerms,
+  issuePrice,
+  maxBuyback,
+  maxDividend,
+  maxNewShares,
+} from '../systems/finance/equity';
+import {
+  acquisitionDebtCapacity,
+  blockSeller,
+  boardPremium,
+  canTarget,
+  dueDiligenceCost,
+  heldByGroup,
+  listingPrice,
+  pendingOrUsableDiligence,
+  usableDiligence,
+} from '../systems/mna/rules';
+import { publishedStatements, shareValue } from '../systems/stockmarket';
+
+/** Equity transactions the company can make this quarter (as validation bounds them). */
+export function capitalQuotes(state: GameState, company: Company): CapitalQuotes {
+  const blocked = company.status === 'distressed' || company.credit.covenantBreached;
+  const quotes: CapitalQuotes = {
+    maxDividend: blocked ? 0 : maxDividend(company),
+    issuePrice: company.listed ? issuePrice(state, company) : 0,
+    maxIssue: company.listed ? maxNewShares(state, company) : 0,
+    buybackPrice: company.listed ? buybackPrice(state, company) : 0,
+    maxBuyback: company.listed ? maxBuyback(state, company) : 0,
+  };
+  const ipo = ipoTerms(state, company);
+  if (ipo) quotes.ipo = ipo;
+  return quotes;
+}
+
+/** Annual figures of the last four published quarters. */
+function publishedAnnual(state: GameState, company: Company): AnnualFigures | undefined {
+  const last = publishedStatements(state, company, state.meta.turn - 1).slice(-4);
+  if (last.length === 0) return undefined;
+  const scale = 4 / last.length;
+  return {
+    revenue: sum(last.map((s) => s.pnl.revenue)) * scale,
+    ebitda: sum(last.map((s) => s.pnl.ebitda)) * scale,
+  };
+}
+
+/**
+ * What the viewed company could buy, valued on what it knows: its due
+ * diligence if usable, else the public estimate of a listing or the
+ * published accounts of a listed company. Unlisted companies of other
+ * groups are valued only after a due diligence.
+ */
+export function dealQuotes(state: GameState, buyer: Company): DealQuote[] {
+  const { config, macro } = state;
+  const status = (targetId: Id): DealQuote['diligence'] =>
+    usableDiligence(state, buyer.id, targetId)
+      ? 'done'
+      : pendingOrUsableDiligence(state, buyer.id, targetId)
+        ? 'pending'
+        : 'none';
+  const out: DealQuote[] = [];
+  for (const l of state.mna.listings.filter((x) => x.expiresAt > state.meta.turn)) {
+    const dd = usableDiligence(state, buyer.id, l.id);
+    const figures = dd ? { ...dd.figures } : { ...l.estimate };
+    const netDebt = dd?.netDebt ?? l.netDebt;
+    const quote: DealQuote = {
+      targetId: l.id,
+      kind: 'listing',
+      name: l.name,
+      sector: l.sector,
+      figures,
+      netDebt,
+      diligence: status(l.id),
+      valuation: valueEquity(config, macro.policyRate, l.sector, figures, 0, netDebt, 0),
+      price: listingPrice(state, buyer.id, l),
+      dueDiligenceCost: dueDiligenceCost(state, l.id),
+      debtCapacity: acquisitionDebtCapacity(state, buyer, l.id),
+    };
+    if (dd) quote.hiddenLiability = dd.hiddenLiability;
+    out.push(quote);
+  }
+  for (const id of Object.keys(state.companies).sort()) {
+    const target = state.companies[id] as Company;
+    if (!canTarget(state, buyer, target)) continue;
+    const dd = usableDiligence(state, buyer.id, id);
+    const published = publishedStatements(state, target, state.meta.turn - 1).at(-1);
+    const figures = dd
+      ? { ...dd.figures }
+      : target.listed
+        ? publishedAnnual(state, target)
+        : undefined;
+    if (!figures) continue;
+    const b = published?.balance ?? target.books.current.balance;
+    const netDebt = dd?.netDebt ?? b.debt - b.cash;
+    const quote: DealQuote = {
+      targetId: id,
+      kind: 'company',
+      name: target.name,
+      sector: target.sector,
+      figures,
+      netDebt,
+      diligence: status(id),
+      valuation: valueEquity(
+        config,
+        macro.policyRate,
+        target.sector,
+        figures,
+        0,
+        netDebt,
+        b.financialAssets,
+      ),
+      referencePrice: target.listed
+        ? (state.stock.quotes[id]?.referencePrice ?? 0)
+        : shareValue(state, target),
+      dueDiligenceCost: dueDiligenceCost(state, id),
+      debtCapacity: acquisitionDebtCapacity(state, buyer, id),
+    };
+    const asked = boardPremium(state, target);
+    if (asked !== undefined) quote.askedPremium = asked;
+    const seller = blockSeller(state, target);
+    if (seller) quote.blockShares = state.stock.registry[id]?.[seller] ?? 0;
+    if (target.listed) {
+      quote.tenderShares = target.sharesOutstanding - heldByGroup(state, buyer.id, id);
+    }
+    out.push(quote);
+  }
+  return out;
+}
+
+/** Companies of the actor's group: root first, then by id. */
+export function groupView(state: GameState, actorId: Id): GroupCompanyView[] {
+  const root = state.actors[actorId]?.rootCompanyId;
+  const ids = controlledBy(state, actorId).sort((a, b) =>
+    a === root ? -1 : b === root ? 1 : a.localeCompare(b),
+  );
+  const members = new Set<HolderId>([actorId, ...ids]);
+  return ids.flatMap((id) => {
+    const c = state.companies[id];
+    if (!c) return [];
+    const register = state.stock.registry[id] ?? {};
+    const holders = Object.keys(register)
+      .filter((h) => members.has(h))
+      .sort((a, b) => (register[b] ?? 0) - (register[a] ?? 0) || a.localeCompare(b));
+    const held = sum(holders.map((h) => register[h] ?? 0));
+    const cost = sum(ids.map((h) => state.companies[h]?.participations[id]?.cost ?? 0));
+    const { pnl, balance } = c.books.current;
+    const view: GroupCompanyView = {
+      companyId: id,
+      name: c.name,
+      sector: c.sector,
+      status: c.status,
+      listed: c.listed,
+      isRoot: id === root,
+      parentId: holders[0] ?? actorId,
+      stake: held / Math.max(1, c.sharesOutstanding),
+      value: held * shareValue(state, c),
+      revenue: pnl.revenue,
+      netIncome: pnl.netIncome,
+      cash: balance.cash,
+      equity: balance.equity,
+    };
+    if (id !== root) view.cost = cost;
+    const integration = state.mna.integrations.find((i) => i.companyId === id);
+    if (integration && isOperating(c)) view.integrationUntil = integration.until;
+    return [view];
+  });
+}

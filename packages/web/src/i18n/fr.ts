@@ -495,6 +495,11 @@ const SECTIONS: Record<string, string> = {
   type: 'type',
   projectId: 'projet',
   developers: 'développeurs',
+  targetId: 'cible',
+  kind: 'type',
+  pricePerShare: 'prix par action',
+  stockShare: 'part en actions',
+  debt: 'dette d’acquisition',
 };
 
 /** "hr[0].wageOffer" → "RH n°1 · salaire proposé". Ids in the path are kept as is. */
@@ -651,6 +656,48 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
       return `${who} vend ${str(d, 'order') !== 'sell_site' ? 'une ligne' : (SITE_KINDS[str(d, 'siteKind')] ?? 'une usine')} pour ${fmtMoney(num(d, 'proceeds'))}.`;
     case 'rnd_started':
       return `${who} lance un projet de R&D ${fr.rndTypes[str(d, 'type') as RndType]?.toLowerCase() ?? ''}.`;
+    case 'dividend_paid':
+      return `${who} verse un dividende de ${fmtMoney(num(d, 'amount'))} (${fmtPrice(num(d, 'perShare'))} par action).`;
+    case 'shares_issued':
+      return `${who} augmente son capital : ${fmtInt(num(d, 'shares'))} actions nouvelles à ${fmtPrice(num(d, 'price'))}.`;
+    case 'shares_bought_back':
+      return `${who} rachète et annule ${fmtInt(num(d, 'shares'))} de ses actions à ${fmtPrice(num(d, 'price'))}.`;
+    case 'ipo':
+      return `${who} entre en bourse : ${fmtInt(num(d, 'shares'))} actions offertes à ${fmtPrice(num(d, 'price'))}.`;
+    case 'company_for_sale':
+      return `${str(d, 'name')} (${fr.sectors[str(d, 'sector')] ?? str(d, 'sector')}) est à vendre.`;
+    case 'due_diligence':
+      return `${who} mène un audit d’acquisition sur ${companyName(str(d, 'targetId'))} (${fmtMoney(num(d, 'cost'))}) : résultats au trimestre prochain.`;
+    case 'hidden_liability':
+      return `${who} découvre un passif caché : ${fmtMoney(num(d, 'amount'))}.`;
+    case 'integration_completed':
+      return `${who} achève son intégration dans son nouveau groupe.`;
+    case 'takeover': {
+      const mode = str(d, 'mode');
+      const how =
+        mode === 'tender_offer'
+          ? 'par une OPA amicale'
+          : mode === 'block'
+            ? 'en rachetant le bloc de contrôle'
+            : 'de gré à gré';
+      return `${who} prend le contrôle de ${companyName(str(d, 'targetId'))} ${how} (${fmtMoney(num(d, 'price'))}).`;
+    }
+    case 'tender_offer_rejected':
+      return `Le conseil de ${companyName(str(d, 'targetId'))} rejette l’offre de ${who} (prime de ${fmtPct(num(d, 'premium'))}).`;
+    case 'block_purchase_rejected':
+      return `L’actionnaire de contrôle de ${companyName(str(d, 'targetId'))} refuse de vendre son bloc à ${who} (prime de ${fmtPct(num(d, 'premium'))}).`;
+    case 'deal_failed': {
+      const reason = str(d, 'reason');
+      const why =
+        reason === 'financing'
+          ? 'financement insuffisant'
+          : reason === 'no_control'
+            ? 'trop peu d’actions apportées pour prendre le contrôle'
+            : reason === 'outbid'
+              ? 'une offre plus élevée l’emporte'
+              : 'cible indisponible';
+      return `${who} : le rachat de ${companyName(str(d, 'targetId'))} échoue (${why}).`;
+    }
     case 'rnd_completed':
       return `${who} achève un projet de R&D ${fr.rndTypes[str(d, 'type') as RndType]?.toLowerCase() ?? ''} : niveau ${fmtDec(num(d, 'level'))}.`;
     default:
@@ -685,6 +732,18 @@ export const KNOWN_EVENT_KINDS = [
   'asset_sold',
   'rnd_started',
   'rnd_completed',
+  'dividend_paid',
+  'shares_issued',
+  'shares_bought_back',
+  'ipo',
+  'company_for_sale',
+  'due_diligence',
+  'hidden_liability',
+  'integration_completed',
+  'takeover',
+  'tender_offer_rejected',
+  'block_purchase_rejected',
+  'deal_failed',
 ] as const;
 
 /** "+50 %", "×0,7" for a modifier effect. */

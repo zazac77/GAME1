@@ -786,3 +786,150 @@ Limites connues, pour le lot 2.5 :
   parts (1 partie sur 50 en agro) ;
 - le taux global de faillite des IA reste sous la cible (aucune faillite en
   tech, presque aucune en agro).
+
+## 20. Choix d'implémentation (lot 2.4 : rachats et bourse v2)
+
+- **Contrôle** (`core/control.ts`) : un détenteur (acteur ou société) contrôle
+  une société dont il détient, avec les sociétés qu'il contrôle déjà, plus de
+  `mna.controlThreshold` (50 %) du capital. Le joueur décide pour toutes les
+  sociétés de son groupe (`controlledCompanyIds`). Une société sans décision
+  soumise est menée par sa **direction en place** : le profil de son
+  fondateur IA (même après un rachat), celui d'une pépite rachetée, sinon
+  `mna.delegatedProfileId`. La société de tête du joueur n'est jouée par le
+  planner qu'en pilote automatique ; ses filiales le sont tant que le joueur
+  ne décide pas pour elles. La mémoire de l'IA est tenue par société.
+- **Opérations sur capital** (étape 3, sociétés cotées) : dividende (dans la
+  trésorerie et les fonds propres ; interdit en difficulté ou en bris de
+  covenant ; versé au prorata du registre, les sociétés actionnaires le
+  comptent en résultat financier non imposé ; le cours baisse du dividende par
+  action), augmentation de capital (au plus `capital.maxIssueShare` du capital
+  par trimestre, au cours × (1 − `issueDiscount`), frais déduits, et jamais au
+  point de faire perdre le contrôle à l'acteur qui contrôle la société),
+  rachat d'actions (au plus `maxBuybackShare` du capital et `maxFloatPerQuarter`
+  du flottant, au cours × (1 + `buybackPremium`), actions annulées). Le cours
+  passe à la moyenne pondérée avec le prix de l'opération. Les fonds propres
+  bougent avec le résultat et ces opérations : actif = passif reste vérifié.
+- **Introduction en bourse** d'une société non cotée (une filiale) après
+  `ipo.minQuarters` trimestres clos : actions nouvelles vendues au public pour
+  qu'il détienne `ipo.floatShare` (30 %) du capital, au prix de la valeur
+  fondamentale de ses propres comptes × (1 − `ipo.discount`), frais déduits ;
+  la société mère garde le contrôle.
+- **Valeur fondamentale par action** : divisée par les actions en circulation
+  à la clôture du dernier trimestre publié (`Statements.shares`), pour qu'une
+  émission ne soit pas comptée dans le cours avant d'apparaître dans les
+  comptes publiés.
+- **Pépites** (`systems/mna/listings.ts`) : en fin de trimestre, avec la
+  probabilité `listings.arrivalProbability` et au plus `maxOpen` à la fois,
+  une société non cotée est mise en vente pour `durationQuarters` : secteur
+  (parmi ceux qui ont des sociétés actives), région, taille (× `scale` d'une
+  société de départ) et profil de direction tirés au hasard. Ses chiffres
+  annuels réels = moyennes par unité de taille du secteur × sa taille ×
+  performance tirée (± `performanceSpread`) ; le public n'en voit qu'une
+  estimation bruitée (± `estimateNoise`). Prix demandé = milieu de la
+  valorisation (au moins 80 % de ses fonds propres comptables) × (1 + prime
+  tirée dans `askPremium`). Un passif caché (litige, dette sociale) existe avec
+  la probabilité `hiddenLiability.probability`. Elle ne devient une société
+  simulée qu'une fois achetée : construite à sa taille, non cotée, détenue à
+  100 %, ses salariés pris à l'emploi hors simulation.
+- **Audit d'acquisition** : payé au début du trimestre
+  (max(`minCost` × niveau des prix, `costShareOfValue` × valeur de la cible)),
+  résultats utilisables dès le trimestre suivant et pendant `validQuarters` :
+  chiffres annuels réels (pour une société existante, ses quatre derniers
+  trimestres sans décalage de publication), dette nette et passif caché. Un
+  passif révélé est déduit du prix de la pépite (garantie de passif) ; révélé
+  ou non, il frappe les comptes de la société au premier trimestre après
+  l'achat. Les sociétés existantes n'ont pas de passif caché.
+- **Valorisation** (`core/valuation.ts`, montrée au joueur et utilisée par
+  l'IA) : multiples boursiers (même formule que la valeur fondamentale) et DCF
+  simplifié (flux = EBITDA × `fcfShareOfEbitda`, croissance qui rejoint
+  `terminalGrowth` sur `horizonYears` ans, actualisation au taux directeur +
+  `equityRiskPremium`, valeur terminale de Gordon), fourchette de ± `rangeWidth`
+  / 2 autour des deux méthodes, prime de contrôle attendue `controlPremium`.
+- **Rachats** (étape 12, sur la trésorerie disponible après la clôture) : une
+  opération par société et par trimestre ; sur une même cible, la meilleure
+  offre par action l'emporte. Rachat de gré à gré du **bloc** de l'actionnaire
+  qui détient seul le contrôle, s'il obtient la prime qu'il demande
+  (`sellPremium` de son profil, × `distressedSellFactor` si la société est en
+  difficulté) ; **OPA amicale** sur une société cotée : il faut l'accord du
+  conseil (même règle), puis le fondateur apporte ses titres, chaque autre
+  actionnaire selon sa propre prime et le flottant par tranches
+  (`tenderPremiumDist`) ; l'offre ne réussit que si le groupe acheteur passe le
+  seuil de contrôle, et au-delà de `squeezeOutThreshold` le reste est racheté
+  au même prix et la société radiée. **Financement** : numéraire, dette
+  d'acquisition (au plus `financing.maxDebtToEbitda` × l'EBITDA connu de la
+  cible, avec une marge majorée de `spreadPremium`, aucune en bris de
+  covenant), et actions nouvelles de l'acheteur (`stockShare`, au cours
+  d'ouverture, dans la limite qui préserve son contrôle ; les vendeurs les
+  revendent au public). Pas d'offre de l'IA sur une société du joueur
+  (OPA hostiles et négociation : phase 3) ; le joueur n'est pas consulté
+  quand une offre vise un titre qu'il détient en minoritaire.
+- **Participations** : une participation dans une société du même groupe est
+  inscrite à son coût (`Company.participations`), dépréciée sous sa valeur
+  recouvrable (valeur de marché, ou valeur privée d'une société non cotée, ×
+  (1 + `controlPremium`)) et reprise jusqu'au coût ; payer plus que la prime
+  de contrôle se voit donc aussitôt en résultat financier. Une pépite reste au
+  coût jusqu'à son premier trimestre clos. Les participations minoritaires
+  restent à la juste valeur. Pas de consolidation avant le lot 3.1.
+- **Intégration** après un changement de contrôle : `integration.quarters`
+  trimestres de coûts (`costShareOfRevenue` du CA), de départs de talents
+  (modificateur `labor.attrition` × `attritionMultiplier`) et de baisse de
+  productivité (`labor.productivity` × `productivityMultiplier`).
+- **IA** (`ai/modules/mna.ts`) : la tête de groupe d'un profil
+  `acquisitiveness` > 0 (conglomérat 0,5, opportuniste 0,25), hors délai
+  `ai.mna.cooldownQuarters` et sous `maxLeverage`, cherche avec cette
+  probabilité par trimestre l'opération dont la valorisation × (1 +
+  `valueMargin`) couvre le mieux le prix (pépites au prix demandé, rivaux à la
+  prime de leur conseil + `extraPremium`, bloc de préférence à l'OPA), payable
+  avec sa trésorerie, `debtShare` de dette et jusqu'à `stockShare` en actions.
+  Elle commande un audit, puis enchérit au trimestre suivant si les chiffres
+  révélés confirment l'affaire. Elle ne voit que l'`Observation` : estimations
+  publiques, ses propres audits, registre public (contrôleur, bloc, prime
+  demandée). Dividendes de l'IA cotée : `ai.dividends.payout` du résultat du
+  dernier trimestre, sans emprunt, sous `maxLeverage` et avec
+  `minCashQuarters` de trésorerie restante. L'IA ne fait ni augmentation de
+  capital, ni rachat d'actions, ni introduction en bourse.
+- **Vues** : `PlayerView.groupCompanies` (sociétés du groupe : part détenue,
+  valeur, coût, intégration en cours), `PlayerView.deals` (chaque cible :
+  chiffres connus, valorisation, prime demandée, bloc, coût d'audit, dette
+  d'acquisition possible), `PlayerCosts.capital` (dividende maximal, prix et
+  plafonds d'émission et de rachat, conditions d'introduction) ;
+  `getPlayerView(state, companyId)` montre une filiale. `previewDecisions`
+  compte les opérations sur capital, les audits et la partie en numéraire des
+  rachats. Nouvelles entrées du journal : `dividend_paid`, `shares_issued`,
+  `shares_bought_back`, `ipo`, `company_for_sale`, `takeover`,
+  `tender_offer_rejected`, `integration_completed` (publiques),
+  `due_diligence`, `hidden_liability`, `block_purchase_rejected`,
+  `deal_failed` (privées).
+- **Sauvegardes** : `schemaVersion` 8. La migration v7 → v8 ajoute le marché
+  des rachats, les coûts de participation, les actions à la clôture de chaque
+  trimestre, réindexe la mémoire de l'IA par société et ajoute les sections de
+  configuration (les vieilles parties ont donc des pépites et des rachats).
+
+Équilibrage mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50) :
+
+| Indicateur (50 parties) | Lot 2.3 | Lot 2.4 |
+|---|---|---|
+| Faillite des IA (toutes) | 3,6 % | 3,8 % |
+| Faillite du low-cost industriel | 30 % | 28 % |
+| Marge nette médiane industrie / agro / tech | 7,2 / 5,6 / 8,1 % | 6,4 / 5,4 / 7,6 % |
+| Part de marché max (max / médiane des parties) | 64,1 / 43,2 % | 55,1 / 42,9 % |
+| Volatilité des matières / des cours | 12,4 / 13,4 % | 12,3 / 13,2 % |
+| Dérive des salaires réels | +6,8 % | +6,9 % |
+| Joueur opportuniste (pilote) 1er / rang médian | 0/50, 3 | 0/50, 3 |
+| Joueur passif 1er | 0/50 | 0/50 |
+| Joueur « premium » en tête (`--player premium`) | 19/50, tour 19 | 19/50, tour 13 |
+
+Par partie : 0,8 prise de contrôle (0,5 pépite, 0,3 bloc ; dont 0,3 par le
+joueur opportuniste en pilote automatique), 0,2 échec, ~100 dividendes versés. Les sociétés rachetées en cours de partie apparaissent sous le type
+`acquired` de `sim-cli`. Les marges médianes baissent un peu : coûts
+d'intégration, passifs cachés, dépréciations, et pépites rachetées souvent
+déficitaires leur premier trimestre.
+
+Limites connues, pour le lot 2.5 :
+- l'IA préfère le bloc à l'OPA (moins cher) : aucune OPA de l'IA en 50 parties ;
+  elle rachète surtout le low-cost industriel quand il fragilise (prime
+  demandée réduite), ce qui le sauve rarement (la mère ne le recapitalise pas :
+  prêts intra-groupe au lot 3.1) ;
+- les pépites rachetées par l'IA perdent souvent de l'argent (marge médiane
+  négative pour les profils innovateurs, petite taille et coûts fixes) ;
+- le taux global de faillite des IA reste sous la cible de 5 %.

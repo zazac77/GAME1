@@ -21,7 +21,8 @@ export const SANITY = {
 export interface CompanyMetrics {
   companyId: string;
   name: string;
-  kind: 'player' | 'ai';
+  /** acquired: a listing bought during the game (not a starting competitor). */
+  kind: 'player' | 'ai' | 'acquired';
   sector: string;
   profileId: string;
   status: string;
@@ -61,6 +62,19 @@ export interface GameMetrics {
   playerLeadTurn: number | null;
   /** Competitive moves of the AI journaled (ai_* kinds), and how many target another AI. */
   aiMoves: Record<string, { count: number; againstAi: number }>;
+  /** Takeovers (by mode and by buyer), equity transactions and deals that failed. */
+  deals: {
+    takeovers: number;
+    byPlayer: number;
+    listings: number;
+    blocks: number;
+    tenderOffers: number;
+    failed: number;
+    dividends: number;
+    issues: number;
+    buybacks: number;
+    ipos: number;
+  };
 }
 
 /** Quarters the player must stay ahead for the lead to count. */
@@ -166,9 +180,9 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     return {
       companyId: c.id,
       name: c.name,
-      kind: c.id === record.playerCompanyId ? 'player' : 'ai',
+      kind: c.id === record.playerCompanyId ? 'player' : first.companies[c.id] ? 'ai' : 'acquired',
       sector: c.sector,
-      profileId: actor?.profileId ?? 'passive',
+      profileId: actor?.profileId ?? c.managementProfileId ?? 'passive',
       status: c.status,
       revenue,
       netIncome,
@@ -212,6 +226,40 @@ export function gameMetrics(record: GameRecord): GameMetrics {
       if (isAi(e.data?.rivalId)) m.againstAi += 1;
     }
   });
+  const deals: GameMetrics['deals'] = {
+    takeovers: 0,
+    byPlayer: 0,
+    listings: 0,
+    blocks: 0,
+    tenderOffers: 0,
+    failed: 0,
+    dividends: 0,
+    issues: 0,
+    buybacks: 0,
+    ipos: 0,
+  };
+  record.states.slice(1).forEach((s, i) => {
+    const turn = record.states[i]?.meta.turn;
+    for (const e of s.log) {
+      if (e.turn !== turn) continue;
+      if (e.kind === 'takeover') {
+        deals.takeovers += 1;
+        if (e.companyId === pid) deals.byPlayer += 1;
+        if (e.data?.mode === 'listing') deals.listings += 1;
+        else if (e.data?.mode === 'block') deals.blocks += 1;
+        else deals.tenderOffers += 1;
+      } else if (
+        e.kind === 'deal_failed' ||
+        e.kind === 'tender_offer_rejected' ||
+        e.kind === 'block_purchase_rejected'
+      ) {
+        deals.failed += 1;
+      } else if (e.kind === 'dividend_paid') deals.dividends += 1;
+      else if (e.kind === 'shares_issued') deals.issues += 1;
+      else if (e.kind === 'shares_bought_back') deals.buybacks += 1;
+      else if (e.kind === 'ipo') deals.ipos += 1;
+    }
+  });
   const playerActor = last.actors[last.meta.playerActorId];
   const held = last.stock.registry[record.playerCompanyId]?.[playerActor?.id ?? ''] ?? 0;
 
@@ -232,6 +280,7 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     playerRank,
     playerLeadTurn: lead === null ? null : lead + 1,
     aiMoves,
+    deals,
   };
   if (record.error) metrics.error = record.error;
   return metrics;
@@ -269,6 +318,8 @@ export interface Summary {
   byProfile: Record<string, { companies: number; bankruptcyRate: number; medianNetMargin: number }>;
   /** By kind of AI move: mean count per game, share aimed at another AI. */
   aiMoves: Record<string, { perGame: number; againstAiShare: number }>;
+  /** Mean per game of each kind of deal and equity transaction. */
+  deals: Record<keyof GameMetrics['deals'], number>;
 }
 
 export function summarize(games: readonly GameMetrics[]): Summary {
@@ -305,6 +356,10 @@ export function summarize(games: readonly GameMetrics[]): Summary {
       againstAiShare: count > 0 ? againstAi / count : 0,
     };
   }
+  const dealKeys = Object.keys(games[0]?.deals ?? {}) as (keyof GameMetrics['deals'])[];
+  const deals = Object.fromEntries(
+    dealKeys.map((k) => [k, games.reduce((s, g) => s + g.deals[k], 0) / Math.max(1, games.length)]),
+  ) as Summary['deals'];
   return {
     games: games.length,
     errors: games.filter((g) => g.error).length,
@@ -328,5 +383,6 @@ export function summarize(games: readonly GameMetrics[]): Summary {
     bySector,
     byProfile,
     aiMoves,
+    deals,
   };
 }

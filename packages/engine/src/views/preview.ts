@@ -27,6 +27,7 @@ import { mainProductLine, siteCeilings } from '../sectors/plant';
 import { interestCharge, storageCost } from '../systems/accounting';
 import { capexSystem } from '../systems/capex';
 import { financePreSystem } from '../systems/finance';
+import { blockSeller, heldByGroup, listingPrice, mnaPreSystem, openListing } from '../systems/mna';
 import { unemployed } from '../systems/labor/pools';
 import { nextDistribution } from '../systems/products';
 import { marketShares } from '../systems/products/logit';
@@ -119,6 +120,9 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   const draft = structuredClone(state);
   const ctx = createTurnContext(draft, [d]);
   financePreSystem.run(ctx);
+  mnaPreSystem.run(ctx);
+  // Due diligences, integration costs and liabilities coming due (before any other cost).
+  const mnaCosts = ctx.ledger(companyId).other;
   capexSystem.run(ctx);
   const company = draft.companies[companyId] as Company;
   const ledger = ctx.ledger(companyId);
@@ -185,8 +189,12 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   const overdraft = sum(
     company.loans.filter((l) => l.kind === 'overdraft').map((l) => l.principal),
   );
-  const expectedCashEnd =
+  const equity =
+    ledger.equityIssued + ledger.dividendsReceived - ledger.dividendsPaid - ledger.buybacks;
+  const beforeDeals =
     company.books.current.balance.cash +
+    equity -
+    mnaCosts +
     ledger.borrowed -
     ledger.repaid -
     installments +
@@ -201,6 +209,9 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     other -
     interest -
     overdraft;
+  const deals = dealCash(state, companyId, d);
+  const acquisitionDebt = Math.min(deals.debt, Math.max(0, deals.cash - Math.max(0, beforeDeals)));
+  const expectedCashEnd = beforeDeals - deals.cash + acquisitionDebt;
 
   return {
     companyId,
@@ -229,10 +240,39 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     borrowing: ledger.borrowed,
     repayment: ledger.repaid,
     installments,
+    equity,
+    mnaCosts,
+    acquisitions: deals.cash,
+    acquisitionDebt,
     expectedEbitda,
     expectedCashEnd,
     overdraftRisk: expectedCashEnd < 0,
   };
+}
+
+/** Cash part of the deals submitted (at the asked size) and the acquisition loans allowed. */
+function dealCash(state: GameState, companyId: string, d: CompanyDecisions) {
+  let cash = 0;
+  let debt = 0;
+  for (const a of d.mna) {
+    if (a.kind === 'due_diligence') continue;
+    const listing = openListing(state, a.targetId);
+    const target = state.companies[a.targetId];
+    let total = 0;
+    if (listing) total = listingPrice(state, companyId, listing);
+    else if (target && a.kind === 'tender_offer') {
+      total =
+        (target.sharesOutstanding - heldByGroup(state, companyId, target.id)) *
+        (a.pricePerShare ?? 0);
+    } else if (target) {
+      const seller = blockSeller(state, target);
+      total =
+        (seller ? (state.stock.registry[target.id]?.[seller] ?? 0) : 0) * (a.pricePerShare ?? 0);
+    }
+    cash += total * (1 - (a.stockShare ?? 0));
+    debt += a.debt ?? 0;
+  }
+  return { cash, debt };
 }
 
 interface SalesInput {

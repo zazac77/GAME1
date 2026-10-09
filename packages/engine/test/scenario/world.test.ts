@@ -59,7 +59,7 @@ describe('world generation', () => {
     }
     expect(new Set(ai.map((a) => a.profileId)).size).toBe(5);
     expect(player && state.companies[player.rootCompanyId]?.sector).toBe('industry');
-    expect(Object.keys(state.aiMemory).sort()).toEqual(ai.map((a) => a.id).sort());
+    expect(Object.keys(state.aiMemory).sort()).toEqual(ai.map((a) => a.rootCompanyId).sort());
     expect(new Set(companies.map((c) => c.name)).size).toBe(10);
   });
 

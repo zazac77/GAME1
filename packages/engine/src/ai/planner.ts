@@ -9,6 +9,7 @@ import { marketingAndFinance } from './modules/finance';
 import { forecast } from './modules/forecast';
 import { hiring } from './modules/hiring';
 import { listing } from './modules/listing';
+import { dividends, takeovers } from './modules/mna';
 import type { Plan, PlanSignal } from './modules/plan';
 import { pricing } from './modules/pricing';
 import { production } from './modules/production';
@@ -24,9 +25,9 @@ export type { PlanSignal } from './modules/plan';
  * GameState) and the actor's memory: rival watch (grudges, rivals in
  * difficulty, counter-launches) → forecast → production → HR (wage
  * outbidding) → listing → price (price war) → purchasing → capex →
- * marketing, R&D and finance (tech: rival watch → subscriber forecast →
- * staffing and R&D developers → price → purchasing → offices → marketing and
- * finance). Heuristics with a little randomness (ripostes, counter-launches),
+ * marketing, R&D and finance → dividends → takeovers (tech: rival watch →
+ * subscriber forecast → staffing and R&D developers → price → purchasing →
+ * offices → marketing and finance → dividends → takeovers). Heuristics with a little randomness (ripostes, counter-launches),
  * no optimizer. Every rival, player or AI, is watched the same way. The decisions then go
  * through the same validation as the player's. Pure: returns a new memory.
  */
@@ -80,6 +81,8 @@ export function planDecisions(
     purchasing(plan);
     techCapex(plan);
     marketingAndFinance(plan);
+    dividends(plan);
+    takeovers(plan);
     return { decisions, memory: nextMemory, signals: plan.signals };
   }
   forecast(plan);
@@ -90,5 +93,7 @@ export function planDecisions(
   purchasing(plan);
   capex(plan);
   marketingAndFinance(plan);
+  dividends(plan);
+  takeovers(plan);
   return { decisions, memory: nextMemory, signals: plan.signals };
 }

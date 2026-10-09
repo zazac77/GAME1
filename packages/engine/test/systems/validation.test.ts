@@ -80,8 +80,10 @@ describe('validation', () => {
       },
       capex: [{ kind: 'build_site', regionId: 'reg_atlantide' }],
       rnd: [{ type: 'process', budget: Number.NaN }],
-      finance: { dividend: 1000, borrow: -5 },
+      finance: { dividend: -1000, borrow: -5 },
       stockOrders: [{ targetId: 'co_999', side: 'buy', shares: 10 }],
+      mna: [{ kind: 'due_diligence', targetId: 'co_999' }],
+      intraGroup: [{ kind: 'loan', fromId: company.id, toId: 'co_999', amount: 1 }],
     };
     const { decisions, issues } = normalizeDecisions(state, company, d);
     expect(decisions).toEqual(emptyDecisions(company.id));
@@ -94,10 +96,12 @@ describe('validation', () => {
       'purchasing.spot[2]:invalid_value', // energy is bought at consumption
       'purchasing.newContracts[0].qtyPerQuarter:invalid_value',
       'rnd[0].budget:invalid_value',
-      'finance.dividend:not_available',
+      'intraGroup:not_available',
       'finance.borrow:invalid_value',
+      'finance.dividend:invalid_value',
       'capex[0]:unknown_id',
       'stockOrders[0]:unknown_id',
+      'mna[0].targetId:unknown_id',
     ]);
   });
 

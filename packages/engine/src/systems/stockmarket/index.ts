@@ -6,8 +6,10 @@ import type { Company } from '../../model/company';
 import type { Id, Money } from '../../model/ids';
 import type { Quote } from '../../model/stock';
 import { fundamentalValue, publishedStatements } from './fundamental';
+import { holdings } from './holdings';
 
 export { fundamentalValue, publishedStatements } from './fundamental';
+export { holdings, holdingsCarrying, shareValue } from './holdings';
 
 interface Fill {
   buyerId: Id;
@@ -191,17 +193,14 @@ export const stockMarketSystem: System = {
       pushBounded(quote.history, quote.price, config.reporting.historyMaxLength);
     }
 
-    // Financial assets at fair value; the change and the trades go through the statements
-    // of every company that closed this quarter (one that just went bankrupt included).
+    // Financial assets (minority stakes at fair value, the group's at cost less impairment);
+    // the change and the trades go through the statements of every company that closed this
+    // quarter (one that just went bankrupt included).
     for (const id of targets) {
       const company = draft.companies[id] as Company;
       const statements = company.books.current;
       if (statements.quarter !== turn) continue;
-      let fairValue = 0;
-      for (const [targetId, register] of Object.entries(draft.stock.registry)) {
-        const held = register[company.id] ?? 0;
-        if (held > 0) fairValue += held * (draft.stock.quotes[targetId]?.price ?? 0);
-      }
+      const fairValue = sum(Object.values(holdings(draft, company, true)).map((h) => h.carrying));
       const t = traded[company.id] ?? { bought: 0, sold: 0 };
       const b = statements.balance;
       const result = fairValue - b.financialAssets - t.bought + t.sold;

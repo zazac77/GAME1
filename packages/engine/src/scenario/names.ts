@@ -21,3 +21,19 @@ export const EXECUTIVE_NAMES: readonly string[] = [
   'Nadia Benali',
   'Thomas Girard',
 ];
+
+/** Unlisted companies for sale ("pépites"), drawn by the M&A market. */
+export const TARGET_NAMES: readonly string[] = [
+  'Atelier Morvan',
+  'Fermes du Val',
+  'Logiciels Iroise',
+  'Comptoir Duval',
+  'Delta Systèmes',
+  'Maison Peyrac',
+  'Vergers de Loire',
+  'Cyclone Data',
+  'Forges Aubertin',
+  'Laiterie Clément',
+  'Opale Numérique',
+  'Mécanique Rivière',
+];

@@ -31,17 +31,24 @@ export interface NewGameOptions {
   playerProfileId?: AiProfileId;
 }
 
-interface Participant {
+export interface Participant {
   kind: 'player' | 'ai';
   sector: SectorId;
   profileId?: AiProfileId;
   regionId: Id;
   actorName: string;
   companyName: string;
+  /** Size relative to a starting company of the sector (listings: below 1). */
+  scale?: number;
 }
 
-const zeroStatements = (balance: BalanceSheet): Statements => ({
-  quarter: -1, // opening balance: end of the quarter before the game starts
+export const zeroStatements = (
+  balance: BalanceSheet,
+  shares: number,
+  quarter = -1,
+): Statements => ({
+  quarter, // opening balance: end of the quarter before the game starts (or before a listing is bought)
+  shares,
   pnl: {
     revenue: 0,
     cogs: 0,
@@ -112,6 +119,7 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
       orders: [],
       tenderOffers: [],
     },
+    mna: { listings: [], diligence: [], integrations: [] },
     modifiers: [],
     pendingEvents: [],
     aiMemory: {},
@@ -194,8 +202,7 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
   ];
 
   for (const p of participants) {
-    const company =
-      p.sector === 'tech' ? createTechCompany(state, p, jitter) : createCompany(state, p, jitter);
+    const company = buildCompany(state, p, jitter);
     const actorId = newId(state.meta, 'act');
     const actor: Actor = {
       id: actorId,
@@ -207,7 +214,7 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
     state.actors[actorId] = actor;
     state.companies[company.id] = company;
     if (p.kind === 'player') state.meta.playerActorId = actorId;
-    if (p.profileId) state.aiMemory[actorId] = newAiMemory();
+    if (p.profileId) state.aiMemory[company.id] = newAiMemory();
     listCompany(state, company, actorId);
   }
 
@@ -289,6 +296,21 @@ function nominalOutput(config: GameConfig, company: Company): number {
   return Math.min(lineCapacity, operators * industry.operatorProductivity);
 }
 
+/** A starting company of the participant's sector (scaled down for a listing). */
+export function buildCompany(
+  state: GameState,
+  p: Participant,
+  jitter: (x: number) => number,
+): Company {
+  return p.sector === 'tech'
+    ? createTechCompany(state, p, jitter)
+    : createCompany(state, p, jitter);
+}
+
+/** Headcount of a starting staff group at a scale (at least one person if the group exists). */
+const scaledStaff = (headcount: number, scale: number): number =>
+  headcount > 0 ? Math.max(1, Math.round(headcount * scale)) : 0;
+
 function createCompany(state: GameState, p: Participant, jitter: (x: number) => number): Company {
   const { config } = state;
   const industry = plantConfig(config, p.sector);
@@ -301,10 +323,12 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
   if (!market) throw new Error(`Unknown product market ${industry.productMarketId}`);
 
   const companyId = newId(state.meta, 'co');
+  const lineCount = Math.max(1, Math.round(start.lines * (p.scale ?? 1)));
+  const scale = lineCount / start.lines;
 
   // Factory with its production lines.
   const lines: Record<Id, ProductionLine> = {};
-  for (let i = 0; i < start.lines; i++) {
+  for (let i = 0; i < lineCount; i++) {
     const lineId = newId(state.meta, 'line');
     lines[lineId] = {
       id: lineId,
@@ -336,7 +360,8 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
   const sites: Record<Id, Site> = { [siteId]: site };
 
   // Agri: farms in the HQ region, bought at today's land price (land is not depreciated).
-  for (let i = 0; agri && i < agri.startingFarms; i++) {
+  const farms = agri ? Math.max(1, Math.round(agri.startingFarms * scale)) : 0;
+  for (let i = 0; agri && i < farms; i++) {
     const F = agri.farm;
     const taken = sum(Object.values(sites).map((s) => s.hectares ?? 0));
     if (farmlandLeft(state, region.id) - taken < F.hectares) break;
@@ -368,7 +393,7 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
     if (!pool) throw new Error(`Unknown labor pool ${key}`);
     workforce[key] = {
       ...newStaff(region.id, occupationId, pool.marketWage * (1 + (profile?.wagePremium ?? 0))),
-      headcount,
+      headcount: scaledStaff(headcount, scale),
     };
   }
 
@@ -410,7 +435,12 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
     rnd: [],
     loans: [],
     credit: { rating: config.finance.initialRating, covenantBreached: false, distressQuarters: 0 },
-    books: { current: zeroStatements(emptyBalance()), history: [], taxLossCarryforward: 0 },
+    books: {
+      current: zeroStatements(emptyBalance(), config.stockMarket.sharesOutstanding),
+      history: [],
+      taxLossCarryforward: 0,
+    },
+    participations: {},
   };
 
   // Opening inventories: materials and finished goods at estimated cost.
@@ -442,12 +472,16 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
     company.loans.push({
       id: newId(state.meta, 'loan'),
       kind: 'term',
-      principal: config.finance.startingDebt,
+      principal: config.finance.startingDebt * scale,
       spread: rating?.spread ?? 0,
-      maturity: config.finance.loanTermQuarters,
+      maturity: state.meta.turn + config.finance.loanTermQuarters,
     });
   }
-  company.books.current = zeroStatements(openingBalance(company, config.finance.startingCash));
+  company.books.current = zeroStatements(
+    openingBalance(company, config.finance.startingCash * scale),
+    company.sharesOutstanding,
+    state.meta.turn - 1,
+  );
   return company;
 }
 
@@ -472,9 +506,11 @@ function createTechCompany(
   if (!market) throw new Error(`Unknown product market ${tech.productMarketId}`);
 
   const companyId = newId(state.meta, 'co');
+  const scale = p.scale ?? 1;
   const sites: Record<Id, Site> = {};
   const fitOut = tech.office.buildCost * region.landCostIndex;
-  for (let i = 0; i < start.offices; i++) {
+  const offices = Math.max(1, Math.round(start.offices * scale));
+  for (let i = 0; i < offices; i++) {
     const siteId = newId(state.meta, 'site');
     sites[siteId] = {
       id: siteId,
@@ -498,12 +534,12 @@ function createTechCompany(
     if (!pool) throw new Error(`Unknown labor pool ${key}`);
     workforce[key] = {
       ...newStaff(region.id, occupationId, pool.marketWage * (1 + (profile?.wagePremium ?? 0))),
-      headcount,
+      headcount: scaledStaff(headcount, scale),
     };
   }
 
   const priceIndex = profile?.startPriceIndex ?? config.scenario.playerStart.priceIndex;
-  const users = Math.max(0, jitter(start.users));
+  const users = Math.max(0, jitter(start.users * scale));
   const frontier = market.techFrontier ?? tech.frontier.initial;
   const productLineId = newId(state.meta, 'pl');
   const company: Company = {
@@ -538,7 +574,12 @@ function createTechCompany(
     rnd: [],
     loans: [],
     credit: { rating: config.finance.initialRating, covenantBreached: false, distressQuarters: 0 },
-    books: { current: zeroStatements(emptyBalance()), history: [], taxLossCarryforward: 0 },
+    books: {
+      current: zeroStatements(emptyBalance(), config.stockMarket.sharesOutstanding),
+      history: [],
+      taxLossCarryforward: 0,
+    },
+    participations: {},
   };
   const line = company.productLines[productLineId];
   if (line) {
@@ -552,12 +593,16 @@ function createTechCompany(
     company.loans.push({
       id: newId(state.meta, 'loan'),
       kind: 'term',
-      principal: start.debt,
+      principal: start.debt * scale,
       spread: rating?.spread ?? 0,
-      maturity: config.finance.loanTermQuarters,
+      maturity: state.meta.turn + config.finance.loanTermQuarters,
     });
   }
-  company.books.current = zeroStatements(openingBalance(company, start.cash));
+  company.books.current = zeroStatements(
+    openingBalance(company, start.cash * scale),
+    company.sharesOutstanding,
+    state.meta.turn - 1,
+  );
   return company;
 }
 

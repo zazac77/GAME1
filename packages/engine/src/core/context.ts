@@ -30,6 +30,14 @@ export interface TurnLedger {
   borrowed: Money;
   /** Voluntary repayments of term loans. */
   repaid: Money;
+  /** Dividends paid to the shareholders (financing). */
+  dividendsPaid: Money;
+  /** Dividends received from stakes in other companies (financial result, investing). */
+  dividendsReceived: Money;
+  /** Net cash raised by share issues and public offerings (financing). */
+  equityIssued: Money;
+  /** Cash paid to buy back own shares (financing). */
+  buybacks: Money;
   unitsProduced: number;
   unitsSold: number;
   /** Finished units thrown away (perishables). */
@@ -50,6 +58,10 @@ export const emptyLedger = (): TurnLedger => ({
   capex: 0,
   borrowed: 0,
   repaid: 0,
+  dividendsPaid: 0,
+  dividendsReceived: 0,
+  equityIssued: 0,
+  buybacks: 0,
   unitsProduced: 0,
   unitsSold: 0,
   unitsSpoiled: 0,
@@ -66,6 +78,8 @@ export interface TurnContext {
   readonly turn: Quarter;
   /** Price level at the start of the quarter, before the macro step (prices quoted to decisions). */
   readonly openingPriceLevel: number;
+  /** Share prices at the start of the quarter (takeover premiums are measured on them). */
+  readonly openingPrices: Readonly<Record<Id, Money>>;
   /**
    * Decisions of every company (player and AI), by company id. After the
    * validation step, every active company has normalized decisions.
@@ -92,6 +106,9 @@ export function createTurnContext(draft: GameState, decisions: CompanyDecisions[
     rng: createRng(draft.meta.rng),
     turn,
     openingPriceLevel: draft.macro.priceLevel,
+    openingPrices: Object.fromEntries(
+      Object.entries(draft.stock.quotes).map(([id, q]) => [id, q.referencePrice]),
+    ),
     decisions: byCompany,
     issues: [],
     events,

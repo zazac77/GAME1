@@ -1,4 +1,4 @@
-import type { Actor } from './company';
+import type { Actor, RndType } from './company';
 import type { Observation } from './ai';
 import type { ValidationIssue } from './decisions';
 import type { GameEvent, GameEventSeverity, ModifierTargetKind } from './events';
@@ -23,6 +23,31 @@ export interface Alert {
   data?: Record<string, number | string | boolean>;
 }
 
+/** What an R&D budget of the given type would fund this quarter. */
+export interface RndQuote {
+  /** Current level (process: company, product: main product line). */
+  level: number;
+  maxLevel: number;
+  /** Project in progress, if any. */
+  projectId?: Id;
+  progress: number;
+  /** Cost of the project in progress, or of the next one. */
+  cost: Money;
+  /** Most the project can absorb this quarter (0 when the level is maxed out). */
+  maxBudget: Money;
+}
+
+/** Prices the player is quoted for this quarter's one-shot decisions. */
+export interface PlayerCosts {
+  /** Cost of a new factory, by region. */
+  buildSite: Record<Id, Money>;
+  addLine: Money;
+  modernizeLine: Money;
+  /** Cash a disposal would bring, by line id and by site id. */
+  saleValue: Record<Id, Money>;
+  rnd: Record<RndType, RndQuote>;
+}
+
 /** What the UI shows: the player's Observation plus journal, history and alerts. */
 export interface PlayerView extends Observation {
   status: 'running' | 'won' | 'lost';
@@ -35,6 +60,8 @@ export interface PlayerView extends Observation {
   history: HistoryStore;
   /** Value of the player's stake in its root company (price × shares held). */
   score: Money;
+  /** Quotes for investments, disposals and R&D (absent once the company is gone). */
+  costs?: PlayerCosts;
 }
 
 /** Deterministic estimate of a quarter under the submitted decisions. */
@@ -44,6 +71,8 @@ export interface CompanyPreview {
   outputCeiling: number;
   /** Output after production targets and available materials. */
   plannedOutput: number;
+  /** Material units the production targets need, by commodity (before material limits). */
+  materialNeeds: Record<Id, number>;
   expectedDemand: number;
   expectedUnitsSold: number;
   expectedRevenue: Money;

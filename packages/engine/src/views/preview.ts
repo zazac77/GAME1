@@ -134,6 +134,8 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   const line = mainProductLine(draft, company);
   const outputCeiling = Math.floor(sum(siteCeilings(draft, company).map((c) => c.ceiling)));
   let plannedOutput = industryModule.plannedOutput(draft, company, d);
+  const targetOutput = plannedOutput;
+  const materialNeeds: Record<string, number> = {};
   let materials = 0;
   const commodities = config.commodities;
   if (line) {
@@ -144,6 +146,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
       const market = draft.commodities[commodityId];
       const spec = commodities.markets[commodityId];
       if (!market || !spec || q <= 0) continue;
+      materialNeeds[commodityId] = targetOutput * q;
       const contracts = company.contracts.filter(
         (k) => k.commodityId === commodityId && k.startsAt <= turn && turn < k.endsAt,
       );
@@ -228,6 +231,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     companyId,
     outputCeiling,
     plannedOutput: Math.max(0, plannedOutput),
+    materialNeeds,
     expectedDemand,
     expectedUnitsSold,
     expectedRevenue,

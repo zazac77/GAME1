@@ -481,7 +481,11 @@ Précisions retenues en codant les systèmes ; les coefficients sont dans
   marketing et R&D.
 - **Vues** : `defaultDecisions` reconduit aussi les budgets de R&D (un
   budget dont le projet s'est achevé lance le suivant) ; `previewDecisions`
-  compte la R&D dans l'EBITDA et la trésorerie estimés. Le journal
+  compte la R&D dans l'EBITDA et la trésorerie estimés et donne les besoins
+  en matières de l'objectif de production (`materialNeeds`). `PlayerView.costs`
+  chiffre les décisions ponctuelles du trimestre (usine par région, ligne,
+  modernisation, valeur de cession de chaque actif, projet de R&D et budget
+  maximal), pour que l'UI n'ait aucun calcul de règle à refaire. Le journal
   (`rnd_started`, `rnd_completed`) reste privé.
 - **UI** (`packages/web`) : React + Vite, état `zustand`, graphiques
   `recharts`, Tailwind. Le brouillon de décisions part de

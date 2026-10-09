@@ -36,6 +36,39 @@ describe('getPlayerView', () => {
     expect(view.score).toBeCloseTo(held * (state.stock.quotes[id]?.price ?? 0), 6);
     expect(view.actor.id).toBe(state.meta.playerActorId);
   });
+
+  it('quotes the one-shot decisions at the prices validation charges', () => {
+    const state = playTurns(newGame(13), 2);
+    const id = playerCompanyId(state);
+    const company = player(state);
+    const costs = getPlayerView(state).costs;
+    const cfg = state.config.sectors.industry;
+    const site = Object.values(company.sites)[0];
+    const line = Object.values(site?.lines ?? {})[0];
+    expect(costs?.addLine).toBeCloseTo(cfg.line.buildCost * state.macro.priceLevel, 6);
+    expect(costs?.buildSite.reg_nord).toBeCloseTo(
+      cfg.factory.buildCost * (state.regions.reg_nord?.landCostIndex ?? 0) * state.macro.priceLevel,
+      6,
+    );
+    expect(costs?.saleValue[line?.id ?? '']).toBeCloseTo(
+      (line?.bookValue ?? 0) * (1 - cfg.assetResaleDiscount),
+      6,
+    );
+    // An R&D budget at the quoted maximum goes through validation untouched.
+    const quote = costs?.rnd.product;
+    expect(quote?.level).toBe(0);
+    const d = {
+      ...steadyDecisions(state, id),
+      rnd: [{ type: 'product' as const, budget: quote?.maxBudget ?? 0 }],
+    };
+    const preview = previewDecisions(state, [d]);
+    expect(preview.issues.filter((i) => i.path.startsWith('rnd'))).toEqual([]);
+    expect(preview.companies[id]?.costs.rnd).toBeCloseTo(quote?.maxBudget ?? 0, 6);
+    // Material needs follow the production target.
+    const needs = preview.companies[id]?.materialNeeds ?? {};
+    expect(Object.keys(needs).sort()).toEqual(Object.keys(cfg.recipe).sort());
+    expect(needs.com_electronics).toBeGreaterThan(0);
+  });
 });
 
 describe('defaultDecisions', () => {

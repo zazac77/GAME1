@@ -9,6 +9,8 @@
     "node": ">=22"
   },
   "scripts": {
+    "dev": "npm run dev -w @game/web",
+    "build": "npm run build -w @game/web",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "npm run typecheck --workspaces --if-present",

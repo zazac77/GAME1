@@ -6,10 +6,23 @@ import type { CompanyDecisions } from '../../model/decisions';
 import type { Id, Money } from '../../model/ids';
 import type { ProductMarket } from '../../model/markets';
 
-/** Something worth a journal entry (a riposte is public news). */
+/** Something worth a journal entry: every competitive move of the AI is public news. */
 export interface PlanSignal {
-  kind: 'ai_price_war';
+  kind:
+    'ai_price_war' | 'ai_price_truce' | 'ai_wage_outbid' | 'ai_counter_launch' | 'ai_targets_rival';
   rivalId: Id;
+  data?: Record<string, string | number | boolean>;
+}
+
+/** This quarter's competitive stance, set by the rival watch and the price war. */
+export interface Tactics {
+  /** Quality aimed at (the profile's, raised by a counter-launch). */
+  qualityTarget: number;
+  /** Shares added to the marketing and to the product R&D. */
+  marketingBoost: number;
+  rndBoost: number;
+  /** Watched rivals in difficulty selling in the own market. */
+  prey: Id[];
 }
 
 /** Working state of one planning, filled module after module. */
@@ -25,6 +38,7 @@ export interface Plan {
   market: ProductMarket;
   decisions: CompanyDecisions;
   signals: PlanSignal[];
+  tactics: Tactics;
   /** Expected demand this quarter and next quarter (units). */
   forecast: number;
   nextForecast: number;

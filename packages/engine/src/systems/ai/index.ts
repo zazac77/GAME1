@@ -26,9 +26,9 @@ export const aiSystem: System = {
       for (const signal of plan.signals) {
         ctx.log({
           kind: signal.kind,
-          severity: 'warning',
+          severity: signal.kind === 'ai_price_truce' ? 'info' : 'warning',
           companyId: company.id,
-          data: { rivalId: signal.rivalId },
+          data: { rivalId: signal.rivalId, ...signal.data },
         });
       }
     }

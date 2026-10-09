@@ -1,7 +1,7 @@
 import { PALETTE, SeriesChart } from '../charts/SeriesChart';
 import { Card, Notice, Stat, Table, Td } from '../components/ui';
 import { fmtDec, fmtMoney, fmtPct, fmtPrice, quarterLabel } from '../i18n/format';
-import { fr, regionName } from '../i18n/fr';
+import { fr, occupationName, regionName } from '../i18n/fr';
 import { useGame } from '../store/game';
 
 export function Competitors() {
@@ -54,6 +54,17 @@ export function Competitors() {
                           `${regionName(s.regionId)} (${s.lines} ${t.lines}${s.status === 'under_construction' ? ', ' + fr.status.under_construction.toLowerCase() : ''})`,
                       )
                       .join(', ')}
+                  />
+                  <Stat
+                    label={t.jobOffers}
+                    value={
+                      c.jobOffers
+                        .map(
+                          (o) =>
+                            `${occupationName(o.occupationId)} (${regionName(o.regionId)}) ${fmtMoney(o.wage)}`,
+                        )
+                        .join(', ') || t.noJobOffers
+                    }
                   />
                   <h4 className="mt-3 text-sm font-semibold">
                     {t.published}

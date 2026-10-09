@@ -13,6 +13,7 @@ import type { Plan, PlanSignal } from './modules/plan';
 import { pricing } from './modules/pricing';
 import { production } from './modules/production';
 import { purchasing } from './modules/purchasing';
+import { watchRivals } from './modules/rivals';
 import { techCapex, techForecast, techPricing, techStaffing } from './modules/tech';
 import { profileOf } from './profiles';
 
@@ -20,10 +21,13 @@ export type { PlanSignal } from './modules/plan';
 
 /**
  * Plans the decisions of one company from its Observation only (never the
- * GameState) and the actor's memory: forecast → production → HR → listing → price →
- * purchasing → capex → marketing, R&D and finance (tech: subscriber forecast →
- * staffing and R&D developers → price → purchasing → offices → marketing and finance). Heuristics with a little
- * randomness (price war ripostes), no optimizer. The decisions then go
+ * GameState) and the actor's memory: rival watch (grudges, rivals in
+ * difficulty, counter-launches) → forecast → production → HR (wage
+ * outbidding) → listing → price (price war) → purchasing → capex →
+ * marketing, R&D and finance (tech: rival watch → subscriber forecast →
+ * staffing and R&D developers → price → purchasing → offices → marketing and
+ * finance). Heuristics with a little randomness (ripostes, counter-launches),
+ * no optimizer. Every rival, player or AI, is watched the same way. The decisions then go
  * through the same validation as the player's. Pure: returns a new memory.
  */
 export function planDecisions(
@@ -42,10 +46,11 @@ export function planDecisions(
   const market = obs.productMarkets[marketId];
   if (!line || !market) return { decisions, memory: nextMemory, signals: [] };
 
+  const profile = profileOf(obs.config, obs.profileId, company.sector);
   const plan: Plan = {
     obs,
     config: obs.config,
-    profile: profileOf(obs.config, obs.profileId, company.sector),
+    profile,
     memory: nextMemory,
     rng,
     company,
@@ -53,6 +58,7 @@ export function planDecisions(
     market,
     decisions,
     signals: [],
+    tactics: { qualityTarget: profile.qualityTarget, marketingBoost: 0, rndBoost: 0, prey: [] },
     forecast: 0,
     nextForecast: 0,
     output: 0,
@@ -65,6 +71,7 @@ export function planDecisions(
     listingFees: 0,
     spend: { discretionary: 0, capex: 0, other: 0 },
   };
+  watchRivals(plan);
   if (techConfigOf(obs.config, company.sector)) {
     // SaaS: subscribers instead of stock, developers instead of lines.
     techForecast(plan);

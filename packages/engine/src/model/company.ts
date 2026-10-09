@@ -67,6 +67,8 @@ export interface StaffFlows {
   /** Voluntary departures (trainees included). */
   quits: number;
   dismissed: number;
+  /** Wage offered with the hires (a public job ad; 0 without hires asked for). */
+  offered: Money;
 }
 
 export interface Staff {

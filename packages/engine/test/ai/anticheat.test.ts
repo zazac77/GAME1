@@ -11,6 +11,7 @@ const COMPETITOR_KEYS = [
   'companyId',
   'creditRating',
   'hqRegionId',
+  'jobOffers',
   'listed',
   'name',
   'products',
@@ -53,6 +54,9 @@ function scramble(state: GameState, observerCompanyId: string): GameState {
   return s;
 }
 
+const byPool = (a: { regionId: string; occupationId: string }, b: typeof a) =>
+  `${a.regionId}:${a.occupationId}`.localeCompare(`${b.regionId}:${b.occupationId}`);
+
 describe('anti-cheat', () => {
   it('the planner only takes an Observation (types)', () => {
     expectTypeOf(planDecisions).parameter(0).toEqualTypeOf<Observation>();
@@ -78,6 +82,18 @@ describe('anti-cheat', () => {
             ['lineId', 'marketId', 'marketShare', 'price', 'quality', 'stockout', ...tech].sort(),
           );
         }
+      }
+      // Job ads are public: the wage offered with the hires asked for, nothing else.
+      for (const c of obs.competitors) {
+        const company = state.companies[c.companyId] as Company;
+        const ads = Object.values(company.workforce)
+          .filter((x) => x.lastQuarter.requested > 0 && x.lastQuarter.offered > 0)
+          .map((x) => ({
+            regionId: x.regionId,
+            occupationId: x.occupationId,
+            wage: x.lastQuarter.offered,
+          }));
+        expect([...c.jobOffers].sort(byPool)).toEqual(ads.sort(byPool));
       }
       // Demand addressed to each rival line stays private.
       const own = new Set(Object.keys(obs.self.company.productLines));

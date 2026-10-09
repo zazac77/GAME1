@@ -59,6 +59,8 @@ export interface GameMetrics {
    * sector for LEAD_HOLD_QUARTERS quarters in a row (or until the end); null if never.
    */
   playerLeadTurn: number | null;
+  /** Competitive moves of the AI journaled (ai_* kinds), and how many target another AI. */
+  aiMoves: Record<string, { count: number; againstAi: number }>;
 }
 
 /** Quarters the player must stay ahead for the lead to count. */
@@ -198,6 +200,18 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     .map((s) => ids.every((id) => id === pid || gain(s, pid) > gain(s, id)));
   const lead = firstSustained(ahead, LEAD_HOLD_QUARTERS);
   const playerRank = 1 + ids.filter((id) => id !== pid && gain(last, id) >= gain(last, pid)).length;
+  const aiMoves: GameMetrics['aiMoves'] = {};
+  const isAi = (id: unknown) =>
+    typeof id === 'string' && id !== pid && first.companies[id] !== undefined;
+  record.states.slice(1).forEach((s, i) => {
+    const turn = record.states[i]?.meta.turn;
+    for (const e of s.log) {
+      if (e.turn !== turn || !e.kind.startsWith('ai_')) continue;
+      const m = (aiMoves[e.kind] ??= { count: 0, againstAi: 0 });
+      m.count += 1;
+      if (isAi(e.data?.rivalId)) m.againstAi += 1;
+    }
+  });
   const playerActor = last.actors[last.meta.playerActorId];
   const held = last.stock.registry[record.playerCompanyId]?.[playerActor?.id ?? ''] ?? 0;
 
@@ -217,6 +231,7 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     playerScore: held * (last.stock.quotes[record.playerCompanyId]?.price ?? 0),
     playerRank,
     playerLeadTurn: lead === null ? null : lead + 1,
+    aiMoves,
   };
   if (record.error) metrics.error = record.error;
   return metrics;
@@ -252,6 +267,8 @@ export interface Summary {
   playerLeads: number;
   medianPlayerLeadTurn: number;
   byProfile: Record<string, { companies: number; bankruptcyRate: number; medianNetMargin: number }>;
+  /** By kind of AI move: mean count per game, share aimed at another AI. */
+  aiMoves: Record<string, { perGame: number; againstAiShare: number }>;
 }
 
 export function summarize(games: readonly GameMetrics[]): Summary {
@@ -279,6 +296,15 @@ export function summarize(games: readonly GameMetrics[]): Summary {
       maxMarketShare: Math.max(0, ...cs.map((c) => c.maxMarketShare)),
     };
   }
+  const aiMoves: Summary['aiMoves'] = {};
+  for (const kind of [...new Set(games.flatMap((g) => Object.keys(g.aiMoves)))].sort()) {
+    const count = games.reduce((s, g) => s + (g.aiMoves[kind]?.count ?? 0), 0);
+    const againstAi = games.reduce((s, g) => s + (g.aiMoves[kind]?.againstAi ?? 0), 0);
+    aiMoves[kind] = {
+      perGame: count / Math.max(1, games.length),
+      againstAiShare: count > 0 ? againstAi / count : 0,
+    };
+  }
   return {
     games: games.length,
     errors: games.filter((g) => g.error).length,
@@ -301,5 +327,6 @@ export function summarize(games: readonly GameMetrics[]): Summary {
     ),
     bySector,
     byProfile,
+    aiMoves,
   };
 }

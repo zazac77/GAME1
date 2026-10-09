@@ -416,7 +416,8 @@ describe('tech: player views', () => {
     const preview = previewDecisions(state, [d]).companies[id];
     const { state: next } = resolveAll(state, [d]);
     const actual = next.companies[id]?.books.current.pnl;
-    expect(preview?.expectedUsers).toBeCloseTo(lineIn(next, id)?.users ?? 0, -3);
+    const users = lineIn(next, id)?.users ?? 1;
+    expect(Math.abs((preview?.expectedUsers ?? 0) / users - 1)).toBeLessThan(0.02);
     expect(Math.abs((preview?.expectedRevenue ?? 0) / (actual?.revenue ?? 1) - 1)).toBeLessThan(
       0.05,
     );

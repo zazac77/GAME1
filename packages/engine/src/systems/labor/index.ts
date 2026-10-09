@@ -126,6 +126,7 @@ export const laborSystem: System = {
         }
         staff.wage = h.wageOffer;
         staff.lastQuarter.requested = h.hire;
+        if (h.hire > 0) staff.lastQuarter.offered = h.wageOffer;
         const f = Math.min(h.fire, staff.headcount - trainees(staff));
         if (f <= 0) continue;
         staff.headcount -= f;

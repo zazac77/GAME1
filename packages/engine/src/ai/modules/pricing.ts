@@ -1,70 +1,22 @@
 import { clamp } from '../../core/math';
 import { plantConfig } from '../../sectors/config';
-import { rivalsOutOfStock } from './production';
 import type { Plan } from './plan';
-
-/**
- * Price war: when a rival cuts its price by more than priceCutTrigger and
- * the own share falls by more than shareLossTrigger, the planner ripostes
- * with probability = aggressiveness (one draw per planning, used or not).
- * The riposte discount fades linearly; grudges fade too.
- */
-export function priceWar(plan: Plan): void {
-  const { obs, config, profile, memory, market, line, rng } = plan;
-  const W = config.ai.priceWar;
-  const roll = rng.next();
-  memory.priceWarDiscount = Math.max(0, memory.priceWarDiscount - W.discount / W.durationQuarters);
-  const grudges: Record<string, number> = {};
-  for (const [id, g] of Object.entries(memory.grudges)) {
-    const next = g * (1 - W.grudgeDecay);
-    if (next > 1e-3) grudges[id] = next;
-  }
-  memory.grudges = grudges;
-
-  const ownShare = market.lastResult.shares[line.id];
-  const cutters: string[] = [];
-  const prices: Record<string, number> = {};
-  for (const c of obs.competitors) {
-    if (c.status === 'bankrupt' || c.status === 'absorbed') continue;
-    for (const p of c.products) {
-      if (p.marketId !== market.id) continue;
-      prices[p.lineId] = p.price;
-      const before = memory.rivalPrices[p.lineId];
-      if (before !== undefined && p.price < before * (1 - W.priceCutTrigger))
-        cutters.push(c.companyId);
-    }
-  }
-  const lostShare =
-    ownShare !== undefined &&
-    memory.lastShare >= 0 &&
-    memory.lastShare - ownShare > W.shareLossTrigger;
-  const cooled =
-    memory.lastRetaliationAt === undefined ||
-    obs.turn - memory.lastRetaliationAt >= W.cooldownQuarters;
-  if (cutters.length > 0 && lostShare && cooled && roll < profile.aggressiveness) {
-    memory.priceWarDiscount = W.discount;
-    memory.lastRetaliationAt = obs.turn;
-    for (const rivalId of [...new Set(cutters)]) {
-      memory.grudges[rivalId] = Math.min(1, (memory.grudges[rivalId] ?? 0) + W.grudgeGain);
-      plan.signals.push({ kind: 'ai_price_war', rivalId });
-    }
-  }
-  memory.rivalPrices = prices;
-  if (ownShare !== undefined) memory.lastShare = ownShare;
-}
+import { priceWar } from './priceWar';
+import { rivalsOutOfStock } from './production';
 
 /**
  * 3. Price: full cost (fixed costs spread over at least costingUtilization
  * of the capacity) + profile markup (marketing and R&D taken out of the revenue),
  * blended geometrically with the rivals' average price × the profile
- * positioning; + premium while rivals are out of stock; − price war
- * discount; never below the variable cost floor; moves by at most
- * ai.maxPriceChange per quarter. Quality aimed at: the profile's.
+ * positioning; + premium while rivals are out of stock; − price war and
+ * predatory discounts; never below the variable cost floor; moves by at most
+ * ai.maxPriceChange per quarter. Quality aimed at: the profile's, raised
+ * during a counter-launch.
  */
 export function pricing(plan: Plan): void {
   const { obs, config, profile, company, market, line } = plan;
   const cfg = plantConfig(config, company.sector);
-  priceWar(plan);
+  const discount = priceWar(plan);
 
   const { priceLevel } = obs.macro;
   let materials = 0;
@@ -105,7 +57,7 @@ export function pricing(plan: Plan): void {
   const w = profile.competitorPriceWeight;
   let target = Math.exp((1 - w) * Math.log(costPrice) + w * Math.log(anchor));
   if (profile.stockoutPremium > 0 && rivalsOutOfStock(plan)) target *= 1 + profile.stockoutPremium;
-  target *= 1 - plan.memory.priceWarDiscount;
+  target *= 1 - discount;
 
   const m = config.ai.maxPriceChange;
   const { min, max } = config.products.priceBounds;
@@ -115,5 +67,8 @@ export function pricing(plan: Plan): void {
     min * ref,
     max * ref,
   );
-  plan.decisions.pricing[line.id] = { price: plan.price, qualityTarget: profile.qualityTarget };
+  plan.decisions.pricing[line.id] = {
+    price: plan.price,
+    qualityTarget: plan.tactics.qualityTarget,
+  };
 }

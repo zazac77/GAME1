@@ -14,6 +14,10 @@ const PUBLIC_COMPANY_EVENTS: ReadonlySet<string> = new Set([
   'line_modernized',
   'asset_sold',
   'ai_price_war',
+  'ai_price_truce',
+  'ai_wage_outbid',
+  'ai_counter_launch',
+  'ai_targets_rival',
 ]);
 
 /** Whether an observer controlling `own` may see a journal entry. */

@@ -32,16 +32,11 @@ describe('config', () => {
     expect(() =>
       resolveConfig({ sectors: { industry: { recipe: { com_unobtainium: 1 } } } }),
     ).toThrow(/unknown commodity/);
+    // The default line-up has an innovator in tech.
+    const { innovator, ...others } = defaultConfig.ai.profiles;
+    expect(innovator).toBeDefined();
     expect(() =>
-      resolveConfig({
-        scenario: {
-          aiCompetitors: [
-            { profileId: 'innovator', sector: 'industry' },
-            { profileId: 'premium', sector: 'industry' },
-            { profileId: 'premium', sector: 'industry' },
-          ],
-        },
-      }),
+      parseConfig({ ...defaultConfig, ai: { ...defaultConfig.ai, profiles: others } }),
     ).toThrow(/profile missing/);
   });
 

@@ -2,11 +2,10 @@ import type { AiMemory } from '../model/ai';
 
 /** Memory of a planner that has not observed anything yet. */
 export const newAiMemory = (): AiMemory => ({
-  grudges: {},
+  rivals: {},
   watchlist: [],
   rivalPrices: {},
   lastShare: -1,
-  priceWarDiscount: 0,
   wageBoost: {},
   demandForecast: -1,
   priceForecast: {},

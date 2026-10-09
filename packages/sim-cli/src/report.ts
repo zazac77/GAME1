@@ -23,6 +23,11 @@ export function formatSummary(s: Summary, turns: number): string {
       ([p, v]) =>
         `  ${p.padEnd(18)} ${String(v.companies).padStart(4)} sociétés, faillite ${pct(v.bankruptcyRate).padStart(7)}, marge médiane ${pct(v.medianNetMargin)}`,
     ),
+    'Coups de l’IA (par partie, part visant une autre IA) :',
+    ...Object.entries(s.aiMoves).map(
+      ([kind, v]) =>
+        `  ${kind.padEnd(18)} ${v.perGame.toFixed(1).padStart(6)}  (${pct(v.againstAiShare)} contre une IA)`,
+    ),
   ];
   return lines.join('\n');
 }

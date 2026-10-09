@@ -661,6 +661,18 @@ const aiProfileSchema = z.strictObject({
   rndShareOfRevenue: share,
   /** Share of the R&D budget spent on process projects (the rest on product projects). */
   rndProcessShare: share,
+  /** Extra wage premium on the skilled occupations (level ≥ ai.wageOutbid.skilledLevel): talent hunting. */
+  skilledWagePremium: z.number(),
+  /** Max outbidding boost on top of the wage premium. */
+  wageOutbidMax: nonNeg,
+  /** Depth of the price war ripostes: × ai.priceWar.discount, escalationStep and maxDiscount. */
+  priceWarDepth: nonNeg,
+  /** Marketing raised by this share in a quarter a rival's price cut costs market share. */
+  brandDefense: nonNeg,
+  /** Probability of a counter-launch when a rival's product leaps ahead. */
+  counterLaunch: share,
+  /** Appetite for rivals in difficulty (predatory discount, demand capture); 0: none. */
+  opportunism: share,
 });
 
 const aiSchema = z.strictObject({
@@ -698,17 +710,66 @@ const aiSchema = z.strictObject({
     /** Grudge gained against the rival per riposte; grudges fade by grudgeDecay per quarter. */
     grudgeGain: share,
     grudgeDecay: share,
+    /** Riposte probability = aggressiveness + grudgeAggression × grudge against the cutter. */
+    grudgeAggression: nonNeg,
+    /** A rival still cutting during the war: discount + escalationStep (× depth), up to maxDiscount (× depth). */
+    escalationStep: share,
+    maxDiscount: share,
+    /** Below this EBITDA margin (last quarter), the war ends at once (truce) and none starts. */
+    truceMargin: z.number(),
   }),
   wageOutbid: z.strictObject({
     /** A quit rate above base attrition × this… */
     attritionTrigger: pos,
     /** …or this share of the requested hires not obtained raises the wage boost by `step`. */
     hiringShortfallTrigger: share,
+    /**
+     * Raise of the boost under pressure; when a rival's public job offer in the
+     * pool beats the own offer, the boost goes at once to that offer + step
+     * (up to the profile's wageOutbidMax).
+     */
     step: nonNeg,
-    /** Max boost on top of the profile wage premium. */
-    max: nonNeg,
     /** Boost lost per quarter without pressure. */
     decay: nonNeg,
+    /** No raise when the last EBITDA margin is below this. */
+    minMargin: z.number(),
+    /** Grudge gained against the rival whose job offer is outbid (and public news)… */
+    poachGrudge: share,
+    /** …at most once per rival in this many quarters. */
+    cooldownQuarters: nonNegInt,
+    /** Occupations of this qualification level and above get the profile's skilledWagePremium. */
+    skilledLevel: z.number().int().min(1).max(4),
+  }),
+  counterLaunch: z.strictObject({
+    /**
+     * A rival whose product gains more than qualityJumpTrigger quality points
+     * (or techJumpTrigger tech levels) in a quarter and overtakes the own
+     * product triggers a counter-launch with probability = profile.counterLaunch.
+     */
+    qualityJumpTrigger: nonNeg,
+    techJumpTrigger: nonNeg,
+    durationQuarters: posInt,
+    /** Quarters between the starts of two counter-launches. */
+    cooldownQuarters: nonNegInt,
+    /** Quality aimed at: the rival's + qualityMargin, at most the profile's + maxQualityBoost. */
+    qualityMargin: nonNeg,
+    maxQualityBoost: nonNeg,
+    /** Product R&D (budget, or developers in tech) and marketing raised by these shares. */
+    rndBoost: nonNeg,
+    marketingBoost: nonNeg,
+  }),
+  /** Rivals in difficulty, as seen from public facts (status, rating, published accounts). */
+  opportunism: z.strictObject({
+    /** A rival with one of these ratings… */
+    weakRatings: z.array(z.enum(CREDIT_RATINGS)),
+    /** …or this many published quarters of net loss in a row, or distressed, looks weak. */
+    lossQuarters: posInt,
+    /** Quarters in a row a rival must look weak to go on the watchlist. */
+    watchQuarters: posInt,
+    /** Price discount × opportunism while a watched rival sells in the own market. */
+    predatoryDiscount: share,
+    /** Extra demand planned: captureShare × opportunism × the watched rivals' market share. */
+    captureShare: share,
   }),
   hr: z.strictObject({
     /** Dismissals when headcount exceeds the need × fireAbove, down to need × fireTo. */
@@ -1025,6 +1086,9 @@ export const gameConfigSchema = z
     });
 
     if (cfg.ai.hr.fireTo > cfg.ai.hr.fireAbove) issue(['ai', 'hr'], 'fireTo > fireAbove');
+    if (cfg.ai.priceWar.maxDiscount < cfg.ai.priceWar.discount) {
+      issue(['ai', 'priceWar', 'maxDiscount'], 'maxDiscount < discount');
+    }
   });
 
 /** Effective, validated configuration. Copied into every GameState. */

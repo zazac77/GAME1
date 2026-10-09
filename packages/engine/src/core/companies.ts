@@ -23,7 +23,13 @@ export const producingLines = (site: Site): ProductionLine[] =>
     ? Object.values(site.lines).filter((l) => l.status === 'operational')
     : [];
 
-export const emptyFlows = (): StaffFlows => ({ requested: 0, hired: 0, quits: 0, dismissed: 0 });
+export const emptyFlows = (): StaffFlows => ({
+  requested: 0,
+  hired: 0,
+  quits: 0,
+  dismissed: 0,
+  offered: 0,
+});
 
 /** A staff group with nobody in it yet. */
 export const newStaff = (regionId: Id, occupationId: Id, wage: number): Staff => ({

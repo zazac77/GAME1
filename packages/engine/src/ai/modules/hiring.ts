@@ -1,31 +1,94 @@
 import { laborPoolKey } from '../../core/keys';
 import { clamp } from '../../core/math';
 import type { HrDecision } from '../../model/decisions';
-import type { Id } from '../../model/ids';
+import type { Id, LaborPoolKey } from '../../model/ids';
 import { agriConfigOf, plantConfig } from '../../sectors/config';
 import type { Plan } from './plan';
+import { lastEbitdaMargin } from './rivals';
+
+/** Wage premium of the profile for an occupation (skilled talent gets skilledWagePremium on top). */
+export function wagePremiumOf(plan: Plan, occupationId: Id): number {
+  const { config, profile } = plan;
+  const level = config.labor.occupations[occupationId]?.level ?? 1;
+  return (
+    profile.wagePremium +
+    (level >= config.ai.wageOutbid.skilledLevel ? profile.skilledWagePremium : 0)
+  );
+}
+
+/** Highest public job offer of an operating rival in a labor pool. */
+function bestRivalOffer(
+  plan: Plan,
+  regionId: Id,
+  occupationId: Id,
+): { rivalId: Id; wage: number } | undefined {
+  let best: { rivalId: Id; wage: number } | undefined;
+  for (const c of plan.obs.competitors) {
+    if (c.status !== 'active' && c.status !== 'distressed') continue;
+    for (const o of c.jobOffers) {
+      if (o.regionId !== regionId || o.occupationId !== occupationId) continue;
+      if (!best || o.wage > best.wage) best = { rivalId: c.companyId, wage: o.wage };
+    }
+  }
+  return best;
+}
 
 /**
  * Wage outbidding: a group that loses people faster than usual, or does not
- * get the hires it asked for, raises its boost by `step` (up to `max`);
- * otherwise the boost fades by `decay`.
+ * get the hires it asked for, raises its boost by `step`; when a rival's
+ * public job offer in the same pool beats the own offer, the boost goes at
+ * once to that offer + step, with a grudge against the poacher (public
+ * news, at most every cooldownQuarters per rival). Capped at the profile's wageOutbidMax; no raise while the last
+ * EBITDA margin is below minMargin. Otherwise the boost fades by `decay`.
  */
 export function updateWageBoosts(plan: Plan): void {
-  const { config, company, memory } = plan;
+  const { obs, config, profile, company, memory } = plan;
   const W = config.ai.wageOutbid;
   const base = config.labor.attrition.baseRate;
+  const margin = lastEbitdaMargin(plan);
+  const affordable = margin === undefined || margin >= W.minMargin;
   const boosts: typeof memory.wageBoost = {};
-  for (const [key, staff] of Object.entries(company.workforce)) {
+  const poached: Record<Id, LaborPoolKey[]> = {};
+  for (const key of Object.keys(company.workforce).sort() as LaborPoolKey[]) {
+    const staff = company.workforce[key];
+    if (!staff) continue;
     const f = staff.lastQuarter;
     const start = staff.headcount + f.quits + f.dismissed - f.hired;
     const quitRate = start > 0 ? f.quits / start : 0;
     const shortfall = f.requested > 0 ? 1 - f.hired / f.requested : 0;
     const pressure = quitRate > base * W.attritionTrigger || shortfall > W.hiringShortfallTrigger;
-    const boost = memory.wageBoost[key as keyof typeof boosts] ?? 0;
-    const next = clamp(pressure ? boost + W.step : boost - W.decay, 0, W.max);
-    if (next > 0) boosts[key as keyof typeof boosts] = next;
+    const boost = memory.wageBoost[key] ?? 0;
+    let next = boost - W.decay;
+    let poacher: Id | undefined;
+    if (pressure && affordable) {
+      next = boost + W.step;
+      const pool = obs.labor[key];
+      const premium = wagePremiumOf(plan, staff.occupationId);
+      const best = bestRivalOffer(plan, staff.regionId, staff.occupationId);
+      if (pool && best && best.wage > pool.marketWage * (1 + premium + boost)) {
+        next = Math.max(next, best.wage / pool.marketWage - 1 - premium + W.step);
+        poacher = best.rivalId;
+      }
+    }
+    next = clamp(next, 0, profile.wageOutbidMax);
+    if (next > 0) boosts[key] = next;
+    if (poacher && next > boost + 1e-9) (poached[poacher] ??= []).push(key);
   }
   memory.wageBoost = boosts;
+  for (const rivalId of Object.keys(poached).sort()) {
+    const rival = (memory.rivals[rivalId] ??= { grudge: 0, weakQuarters: 0 });
+    if (rival.lastOutbidAt !== undefined && obs.turn - rival.lastOutbidAt < W.cooldownQuarters) {
+      continue;
+    }
+    rival.lastOutbidAt = obs.turn;
+    rival.grudge = Math.min(1, rival.grudge + W.poachGrudge);
+    const staff = company.workforce[(poached[rivalId] ?? [])[0] as LaborPoolKey];
+    plan.signals.push({
+      kind: 'ai_wage_outbid',
+      rivalId,
+      data: { regionId: staff?.regionId ?? '', occupationId: staff?.occupationId ?? '' },
+    });
+  }
 }
 
 /**
@@ -37,7 +100,7 @@ export function updateWageBoosts(plan: Plan): void {
  * = market wage × (1 + profile premium + outbidding boost).
  */
 export function hiring(plan: Plan): void {
-  const { obs, config, profile, company } = plan;
+  const { obs, config, company } = plan;
   const cfg = plantConfig(config, company.sector);
   const farm = agriConfigOf(config, company.sector)?.farm;
   const L = config.labor;
@@ -84,7 +147,7 @@ export function hiring(plan: Plan): void {
       : cfg.line.initialTechLevel;
   // Engineers are also support staff (productivity): never below their target ratio.
   const engineerRatio = clamp(
-    (profile.qualityTarget - q.base - q.techLevelWeight * (techLevel - 1)) /
+    (plan.tactics.qualityTarget - q.base - q.techLevelWeight * (techLevel - 1)) /
       Math.max(1e-9, q.engineerWeight),
     1,
     Math.max(1, q.maxEngineerRatio),
@@ -120,10 +183,10 @@ export function hiring(plan: Plan): void {
  * Hires and dismissals towards the headcount needed by labor pool: hires
  * cover the expected attrition, dismissals beyond a tolerance; staff left
  * in a pool without need (a region without site) is let go. Wage offer =
- * market wage × (1 + profile premium + outbidding boost).
+ * market wage × (1 + profile premium (skilled talent: more) + outbidding boost).
  */
 export function staffTo(plan: Plan, needs: Record<string, number>): void {
-  const { obs, config, profile, company, memory } = plan;
+  const { obs, config, company, memory } = plan;
   const L = config.labor;
   for (const key of Object.keys(company.workforce)) needs[key] ??= 0;
 
@@ -139,7 +202,7 @@ export function staffTo(plan: Plan, needs: Record<string, number>): void {
       occupationId: pool.occupationId,
       hire: 0,
       fire: 0,
-      wageOffer: pool.marketWage * (1 + profile.wagePremium + boost),
+      wageOffer: pool.marketWage * (1 + wagePremiumOf(plan, pool.occupationId) + boost),
     };
     const expectedQuits = Math.round(headcount * L.attrition.baseRate);
     if (need > 0 && headcount - expectedQuits < need) {

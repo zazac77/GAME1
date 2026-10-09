@@ -7,7 +7,7 @@ import type {
   SelfView,
   SiteView,
 } from '../model/ai';
-import type { Company } from '../model/company';
+import type { Company, Staff } from '../model/company';
 import type { Id, LaborPoolKey } from '../model/ids';
 import type { ProductMarket } from '../model/markets';
 import type { GameState } from '../model/state';
@@ -20,7 +20,7 @@ import { publishedStatements } from '../systems/stockmarket/fundamental';
 /**
  * The only door from GameState to a planner (and to the PlayerView): the
  * actor's own company in full, the markets, and what is public about the
- * others (shelf prices, factories, published accounts, quotes). Returns a
+ * others (shelf prices, job ads, factories, published accounts, quotes). Returns a
  * deep copy: nothing the observer does can touch the state.
  */
 export function observe(state: GameState, actorId: Id): Observation {
@@ -160,6 +160,15 @@ function competitorView(state: GameState, company: Company, lastClosed: number):
         }
         return view;
       }),
+    jobOffers: Object.keys(company.workforce)
+      .sort()
+      .map((key) => company.workforce[key as keyof Company['workforce']] as Staff)
+      .filter((staff) => staff.lastQuarter.requested > 0 && staff.lastQuarter.offered > 0)
+      .map((staff) => ({
+        regionId: staff.regionId,
+        occupationId: staff.occupationId,
+        wage: staff.lastQuarter.offered,
+      })),
     sites: Object.keys(company.sites)
       .sort()
       .map((id) => {

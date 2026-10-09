@@ -259,6 +259,8 @@ export const fr = {
     rating: 'Notation',
     sites: 'Usines',
     lines: 'lignes',
+    jobOffers: 'Offres d’emploi (dernier trimestre)',
+    noJobOffers: 'aucune',
     published: 'Comptes publiés',
     noPublished: 'Pas encore de comptes publiés.',
     revenue: 'CA',
@@ -268,7 +270,8 @@ export const fr = {
     debt: 'Dette',
     equity: 'Fonds propres',
     sharePrice: 'Cours',
-    partialView: 'Vue partielle : seuls les faits publics et les comptes publiés sont visibles.',
+    partialView:
+      'Vue partielle : seuls les faits publics (prix, offres d’emploi, usines) et les comptes publiés sont visibles.',
     yes: 'oui',
     no: 'non',
   },
@@ -588,7 +591,20 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
     case 'dismissals':
       return `${who} licencie ${fmtInt(num(d, 'count'))} salarié(s).`;
     case 'ai_price_war':
-      return `${who} riposte par une baisse de prix contre ${companyName(str(d, 'rivalId'))}.`;
+      return d?.escalation
+        ? `${who} durcit sa guerre des prix contre ${companyName(str(d, 'rivalId'))}.`
+        : `${who} riposte par une baisse de prix contre ${companyName(str(d, 'rivalId'))}.`;
+    case 'ai_price_truce':
+      return `${who} met fin à sa guerre des prix contre ${companyName(str(d, 'rivalId'))} : elle lui coûte trop cher.`;
+    case 'ai_wage_outbid': {
+      const job = occupationName(str(d, 'occupationId')).toLowerCase();
+      const where = regionName(str(d, 'regionId'));
+      return `${who} surenchérit sur les salaires${job ? ` (${job}${where ? `, ${where}` : ''})` : ''} face à ${companyName(str(d, 'rivalId'))}.`;
+    }
+    case 'ai_counter_launch':
+      return `${who} lance une contre-offensive produit (qualité, R&D, marketing) face à ${companyName(str(d, 'rivalId'))}.`;
+    case 'ai_targets_rival':
+      return `${who} part à la conquête des clients de ${companyName(str(d, 'rivalId'))}, en difficulté.`;
     case 'overdraft':
       return `${who} est à découvert : ${fmtMoney(num(d, 'amount'))}.`;
     case 'company_bankrupt':
@@ -649,6 +665,10 @@ export const KNOWN_EVENT_KINDS = [
   'training_completed',
   'dismissals',
   'ai_price_war',
+  'ai_price_truce',
+  'ai_wage_outbid',
+  'ai_counter_launch',
+  'ai_targets_rival',
   'overdraft',
   'company_bankrupt',
   'game_lost',

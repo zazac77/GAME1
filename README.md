@@ -16,7 +16,7 @@ npm install
 npm run dev                            # jeu dans le navigateur (http://localhost:5173)
 npm run build                          # version statique dans packages/web/dist
 npm run lint && npm run typecheck && npm test
-npm run sim -- --games 50 --turns 40   # options : --player passive|low_cost|premium|opportunist, --seed, --overrides f.json, --out f.json, --csv f.csv
+npm run sim -- --games 50 --turns 40   # options : --player passive|low_cost|premium|innovator|opportunist|conglomerate, --sector industry|agri|tech, --seed, --overrides f.json, --out f.json, --csv f.csv
 ```
 
 - [Architecture technique](docs/ARCHITECTURE.md)

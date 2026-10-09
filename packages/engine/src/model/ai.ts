@@ -15,18 +15,48 @@ import type {
 import type { CommodityMarket, LaborPool, MacroState, ProductMarket, Region } from './markets';
 import type { Quote } from './stock';
 
+/** What a planner remembers about one rival company. */
+export interface RivalMemory {
+  /** Resentment (0..1) after its price cuts or its poaching; fades every quarter. */
+  grudge: number;
+  /** Quality and tech level of its product in the own market at the last planning. */
+  quality?: number;
+  techLevel?: number;
+  /** Plannings in a row it looked weak (distressed, junk rating, published losses). */
+  weakQuarters: number;
+  /** Last quarter its job offer was outbid (grudge and news at most every cooldownQuarters). */
+  lastOutbidAt?: Quarter;
+}
+
+/** A price war under way: discount on the target price, fading unless the rivals keep cutting. */
+export interface PriceWarState {
+  rivalIds: Id[];
+  discount: number;
+  startedAt: Quarter;
+  escalations: number;
+}
+
+/** A counter-launch under way against a rival whose product leapt ahead. */
+export interface CounterLaunchState {
+  rivalId: Id;
+  /** Last quarter of the campaign. */
+  until: Quarter;
+}
+
 /** What a planner remembers from one quarter to the next (its own brain, per actor). */
 export interface AiMemory {
-  /** Rival company id → grudge level (0..1). */
-  grudges: Record<Id, number>;
+  /** By rival company id (operating rivals only). */
+  rivals: Record<Id, RivalMemory>;
+  priceWar?: PriceWarState;
   lastRetaliationAt?: Quarter;
+  counterLaunch?: CounterLaunchState;
+  lastCounterLaunchAt?: Quarter;
+  /** Rivals in difficulty under watch (opportunism), sorted. */
   watchlist: Id[];
   /** Rival product line → price seen at the last planning. */
   rivalPrices: Record<Id, Money>;
   /** Own share of its main market seen at the last planning (−1: none yet). */
   lastShare: number;
-  /** Price war discount on the profile price, fading to 0. */
-  priceWarDiscount: number;
   /** Extra wage premium won by outbidding, by labor pool. */
   wageBoost: Record<LaborPoolKey, number>;
   /** Smoothed, deseasonalized demand for the main product line (−1: none yet). */
@@ -96,6 +126,8 @@ export interface CompetitorView {
   brand: number;
   creditRating: CreditRating;
   products: CompetitorProductView[];
+  /** Job offers posted last quarter (public ads): wage offered by labor pool. */
+  jobOffers: { regionId: Id; occupationId: Id; wage: Money }[];
   /** Factories are visible from the street. */
   sites: { regionId: Id; status: 'operational' | 'under_construction'; lines: number }[];
   /** Published statements (listed companies, with the publication lag), oldest first. */

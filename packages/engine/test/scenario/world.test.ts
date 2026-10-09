@@ -40,7 +40,7 @@ describe('world generation', () => {
     expect(state.meta).toMatchObject({ turn: 0, status: 'running', mode: 'standard', seed: 42 });
   });
 
-  it('creates the player and 3 AI competitors with distinct profiles in each sector', () => {
+  it('creates the player and 3 AI competitors with distinct profiles in each sector, 5 in all', () => {
     expect(actors).toHaveLength(10);
     expect(companies).toHaveLength(10);
     const player = state.actors[state.meta.playerActorId];
@@ -51,8 +51,13 @@ describe('world generation', () => {
       const profiles = ai
         .filter((a) => state.companies[a.rootCompanyId]?.sector === sector)
         .map((a) => a.profileId);
-      expect(profiles.sort()).toEqual(['low_cost', 'opportunist', 'premium']);
+      const lineUp = state.config.scenario.aiCompetitors
+        .filter((c) => c.sector === sector)
+        .map((c) => c.profileId);
+      expect(profiles.sort()).toEqual(lineUp.sort());
+      expect(new Set(profiles).size).toBe(3);
     }
+    expect(new Set(ai.map((a) => a.profileId)).size).toBe(5);
     expect(player && state.companies[player.rootCompanyId]?.sector).toBe('industry');
     expect(Object.keys(state.aiMemory).sort()).toEqual(ai.map((a) => a.id).sort());
     expect(new Set(companies.map((c) => c.name)).size).toBe(10);

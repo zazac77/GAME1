@@ -24,10 +24,13 @@ function engineEventKinds(): Set<string> {
         for (const m of src.matchAll(/\blog\('([a-z_]+)'/g)) kinds.add(m[1] ?? '');
         for (const m of src.matchAll(/'(line_modernized|line_commissioned)'/g))
           kinds.add(m[1] ?? '');
+        // Signals of the AI planner, journaled by the ai system.
+        for (const m of src.matchAll(/kind: '(ai_[a-z_]+)'/g)) kinds.add(m[1] ?? '');
       }
     }
   };
   walk(join(engineSrc, 'systems'));
+  walk(join(engineSrc, 'ai'));
   return kinds;
 }
 

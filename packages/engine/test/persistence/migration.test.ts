@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deserializeGame, resolveTurn } from '../../src';
+import { AI_PROFILE_IDS } from '../../src/config/schema';
 import { SCHEMA_VERSION } from '../../src/core/version';
 import { assertJsonSafe, playerCompanyId, steadyDecisions } from '../helpers';
 import saveV1 from '../fixtures/save-v1.json';
@@ -7,6 +8,7 @@ import saveV2 from '../fixtures/save-v2.json';
 import saveV3 from '../fixtures/save-v3.json';
 import saveV4 from '../fixtures/save-v4.json';
 import saveV5 from '../fixtures/save-v5.json';
+import saveV6 from '../fixtures/save-v6.json';
 
 // A v1 save written by the lot 1.1 engine (seed 1234, after 2 quarters).
 const v1 = JSON.stringify(saveV1);
@@ -18,6 +20,8 @@ const v3 = JSON.stringify(saveV3);
 const v4 = JSON.stringify(saveV4);
 // A v5 save written by the lot 2.1 engine (seed 1234, after 2 quarters).
 const v5 = JSON.stringify(saveV5);
+// A v6 save written by the lot 2.2 engine (seed 1240, after 4 quarters, one AI at price war).
+const v6 = JSON.stringify(saveV6);
 
 describe('migrations', () => {
   it('loads a v1 save into the current schema', () => {
@@ -146,6 +150,46 @@ describe('migrations', () => {
     expect(state.meta.turn).toBe(5);
     expect(Object.values(state.companies).some((c) => c.sector === 'agri')).toBe(true);
     expect(Object.values(state.companies).every((c) => c.sector !== 'tech')).toBe(true);
+    assertJsonSafe(state);
+  });
+
+  it('loads a v6 save: AI memory per rival, price war state, job ads and tactics filled in', () => {
+    const raw = JSON.parse(v6) as {
+      schemaVersion: number;
+      state: { aiMemory: Record<string, { priceWarDiscount: number; grudges: object }> };
+    };
+    expect(raw.schemaVersion).toBe(6);
+    const [warriorId, old] = Object.entries(raw.state.aiMemory).find(
+      ([, m]) => m.priceWarDiscount > 0,
+    ) ?? ['', undefined];
+    let state = deserializeGame(v6);
+    expect(state.meta.schemaVersion).toBe(SCHEMA_VERSION);
+    const memory = state.aiMemory[warriorId];
+    expect(memory?.priceWar?.discount).toBe(old?.priceWarDiscount);
+    expect(memory?.priceWar?.rivalIds).toEqual(Object.keys(old?.grudges ?? {}));
+    for (const m of Object.values(state.aiMemory)) {
+      expect(m).not.toHaveProperty('grudges');
+      expect(m).not.toHaveProperty('priceWarDiscount');
+      expect(m.rivals).toBeDefined();
+    }
+    for (const c of Object.values(state.companies)) {
+      for (const staff of Object.values(c.workforce)) {
+        expect(staff.lastQuarter.offered).toBe(staff.lastQuarter.requested > 0 ? staff.wage : 0);
+      }
+    }
+    const { ai } = state.config;
+    expect(Object.keys(ai.profiles).sort()).toEqual([...AI_PROFILE_IDS].sort());
+    expect(ai.profiles.low_cost?.wageOutbidMax).toBe(0.15);
+    expect(ai.wageOutbid).not.toHaveProperty('max');
+    expect(ai.counterLaunch.durationQuarters).toBeGreaterThan(0);
+    expect(ai.opportunism.weakRatings).toContain('CCC');
+    // The line-up of the old game is kept.
+    const profiles = Object.values(state.actors).map((a) => a.profileId);
+    expect(profiles).not.toContain('innovator');
+    for (let i = 0; i < 3; i++) {
+      state = resolveTurn(state, [steadyDecisions(state, playerCompanyId(state))]).state;
+    }
+    expect(state.meta.turn).toBe(7);
     assertJsonSafe(state);
   });
 });

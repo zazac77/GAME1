@@ -17,7 +17,7 @@ import { ownLeverage } from './capex';
 import { forecastCommodityPrices } from './forecast';
 import { staffTo, updateWageBoosts } from './hiring';
 import type { Plan } from './plan';
-import { priceWar } from './pricing';
+import { priceWar } from './priceWar';
 
 // Planner modules of a SaaS company: a "unit" is a subscriber billed for a quarter.
 
@@ -67,7 +67,8 @@ export function techForecast(plan: Plan): void {
  * the projects absorb, never at the expense of maintenance); seniors at the
  * ratio the profile's quality calls for, support by subscribers, product
  * managers by developers, the other occupations as in the starting
- * structure. Needs are spread over the regions with offices by seats.
+ * structure; quality and product releases raised by a counter-launch.
+ * Needs are spread over the regions with offices by seats.
  */
 export function techStaffing(plan: Plan): void {
   const { obs, config, profile, company, market, line } = plan;
@@ -106,7 +107,9 @@ export function techStaffing(plan: Plan): void {
   let spare = Math.max(0, Math.floor(team.developers + 1e-9) - maintainedNow);
   const rndDevelopers: Record<RndType, number> = { process: 0, product: 0 };
   const split: Record<RndType, number> = {
-    product: product + Math.floor((catchUp * revenue) / wage),
+    // A counter-launch adds developers on the product release.
+    product:
+      Math.round(product * (1 + plan.tactics.rndBoost)) + Math.floor((catchUp * revenue) / wage),
     process: planned - product,
   };
   for (const type of ['product', 'process'] as const) {
@@ -127,7 +130,7 @@ export function techStaffing(plan: Plan): void {
   const developers = maintainers + split.product + split.process;
   const q = cfg.quality;
   const seniorRatio = clamp(
-    (profile.qualityTarget - q.base - cfg.rnd.process.qualityPerLevel * company.processLevel) /
+    (plan.tactics.qualityTarget - q.base - cfg.rnd.process.qualityPerLevel * company.processLevel) /
       Math.max(1e-9, q.seniorWeight),
     0.5,
     q.maxSeniorRatio,
@@ -178,7 +181,7 @@ export function techStaffing(plan: Plan): void {
  * subscribers the maintenance team can serve (a shrinking base does not
  * raise the price: no death spiral), marketing and R&D taken out of the
  * revenue; blended geometrically with the rivals' average price ×
- * positioning; price war discount; lowered by (base churn / own churn)^
+ * positioning; price war and predatory discounts; lowered by (base churn / own churn)^
  * churnPriceResponse when subscribers leave a dearer-than-average product
  * faster than usual; never below
  * the cloud cost floor; at most ai.maxPriceChange a quarter.
@@ -186,7 +189,7 @@ export function techStaffing(plan: Plan): void {
 export function techPricing(plan: Plan): void {
   const { obs, config, profile, company, market, line } = plan;
   const cfg = techOf(plan);
-  priceWar(plan);
+  const discount = priceWar(plan);
   const { priceLevel } = obs.macro;
   const cloud = sum(
     Object.entries(plan.perUnit).map(
@@ -223,7 +226,7 @@ export function techPricing(plan: Plan): void {
   let target = Math.exp(
     (1 - w) * Math.log(costPrice) + w * Math.log(average * profile.startPriceIndex),
   );
-  target *= 1 - plan.memory.priceWarDiscount;
+  target *= 1 - discount;
   // Subscribers leaving faster than usual from a dearer product: the price comes down.
   const churn = line.churn ?? cfg.subscription.baseChurn;
   if (line.price > average) {

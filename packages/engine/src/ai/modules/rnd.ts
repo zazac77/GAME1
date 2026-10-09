@@ -6,8 +6,9 @@ import { techRnd } from './tech';
 
 /**
  * 7b. R&D: rndShareOfRevenue of the expected revenue, split between process
- * and product projects by rndProcessShare, each within what its project can
- * absorb this quarter (as validation will cap it).
+ * and product projects by rndProcessShare (product raised by a
+ * counter-launch), each within what its project can absorb this quarter (as
+ * validation will cap it).
  */
 export function rnd(plan: Plan, revenue: number): void {
   const { obs, config, profile, company, line } = plan;
@@ -17,7 +18,7 @@ export function rnd(plan: Plan, revenue: number): void {
   if (total <= 0) return;
   const split: Record<RndType, number> = {
     process: profile.rndProcessShare,
-    product: 1 - profile.rndProcessShare,
+    product: (1 - profile.rndProcessShare) * (1 + plan.tactics.rndBoost),
   };
   for (const type of ['process', 'product'] as const) {
     const current = company.rnd.find((p) => p.type === type);

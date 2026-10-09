@@ -682,3 +682,107 @@ faillite du low-cost industriel varie de 23 à 36 % selon la séquence d'aléa
 mesure « prend la tête » de sim-cli compte l'avance des premiers trimestres :
 un joueur tech passif (qui ne dépense rien en R&D) mène au début avant de
 s'effondrer.
+
+## 19. Choix d'implémentation (lot 2.3 : IA avancée)
+
+- **5 profils** (`ai.profiles`) : low-cost, premium, opportuniste, plus
+  **innovateur** (R&D élevée, prime `skilledWagePremium` de 12 % sur les
+  métiers N3 et N4, surenchère jusqu'à 30 %, contre-lancements quasi
+  systématiques) et **conglomérat** (profil médian, risque modéré, surveille
+  les sociétés en difficulté ; rachats au lot 2.4). Chaque profil porte ses
+  réactions : `priceWarDepth` (profondeur des ripostes), `brandDefense`
+  (marketing en plus quand une baisse de prix rivale coûte des parts),
+  `counterLaunch` (probabilité de contre-lancement), `wageOutbidMax`
+  (plafond de surenchère), `opportunism` (appétit pour les cibles en
+  difficulté). Répartition par défaut, 3 IA par secteur : industrie
+  low-cost / premium / opportuniste, agro low-cost / premium / conglomérat,
+  tech low-cost / premium / innovateur.
+- **Veille des rivaux** (premier module du planner, `ai/modules/rivals.ts`) :
+  la mémoire (`AiMemory.rivals`) garde pour chaque rival en activité, joueur
+  ou IA, sa rancune (qui s'éteint de `grudgeDecay` par trimestre), la qualité
+  et le niveau technologique de son produit et le nombre de trimestres où il
+  paraît fragile. Toutes les réactions s'appliquent de la même façon entre IA
+  et contre le joueur, et chacune est une nouvelle publique du journal.
+- **Guerre des prix** (`ai/modules/priceWar.ts`, état `AiMemory.priceWar`) :
+  déclenchement inchangé (baisse > `priceCutTrigger` et part perdue >
+  `shareLossTrigger`), avec une probabilité `agressivité + grudgeAggression ×
+  rancune` ; remise `discount × profondeur`, qui s'éteint en
+  `durationQuarters`. Un rival qui baisse encore pendant la guerre la fait
+  **escalader** (+`escalationStep`, jusqu'à `maxDiscount`, × profondeur) et
+  la rejoint. Sous `truceMargin` de marge d'EBITDA, l'IA signe une **trêve**
+  (fin immédiate, aucune nouvelle guerre tant qu'elle saigne). Le premium
+  répond surtout par la marque (profondeur 0,5, marketing +50 % quand il est
+  attaqué). Une profondeur de 1,25 pour le low-cost le menait à 50 % de
+  faillites : sa riposte reste à 1, son agressivité (0,7) suffit à le rendre
+  réactif.
+- **Surenchère salariale** : les offres d'emploi sont publiques
+  (`CompetitorView.jobOffers` : salaire proposé avec les embauches du
+  trimestre, gardé dans `StaffFlows.offered`). Sous pression (départs ou
+  embauches manquées, comme au lot 1.3), si un rival affiche plus dans le même
+  vivier, l'IA s'aligne d'un coup sur son offre + `step`, dans la limite de
+  `wageOutbidMax`, et lui en garde rancune (`poachGrudge`) ; jamais sous
+  `minMargin` de marge d'EBITDA. La nouvelle n'est publiée qu'une fois par
+  rival tous les `cooldownQuarters` (8) : à 4, le journal en recevait plus
+  d'une par trimestre.
+- **Contre-lancements** : un rival dont la qualité gagne plus de
+  `qualityJumpTrigger` points (ou le niveau technologique plus de
+  `techJumpTrigger`) en un trimestre et dépasse le produit de l'IA déclenche,
+  avec la probabilité `counterLaunch` du profil et hors délai
+  `cooldownQuarters`, une campagne de `durationQuarters` : qualité visée juste
+  au-dessus du rival (bornée à +`maxQualityBoost`), R&D produit +50 % (en
+  tech : développeurs sur la version, dans la limite de ce que le projet
+  absorbe) et marketing +30 %.
+- **Opportunisme** : un rival paraît fragile s'il est en difficulté, noté B
+  ou CCC, ou en perte sur ses `lossQuarters` derniers trimestres publiés ;
+  au bout de `watchQuarters`, il entre dans la liste de surveillance
+  (`AiMemory.watchlist`, réutilisée par les rachats du lot 2.4). S'il vend
+  sur le même marché, il devient une proie : remise `predatoryDiscount ×
+  opportunism` (sauf si l'IA saigne elle-même) et production prévue pour
+  `captureShare × opportunism` de ses ventes. Avec 4 % et 30 %, le low-cost
+  industriel, chassé par deux opportunistes (l'IA et le joueur en pilote
+  automatique), faisait faillite une fois sur deux ; à 2 % et 15 %, 30 %
+  (36 % avant ce lot).
+- **Tension de trésorerie** : le planner compte ses dépenses discrétionnaires
+  comme la validation (tous les achats spot, y compris ceux du plan de
+  production) ; s'il ne peut pas les financer, il coupe d'abord marketing,
+  référencement et R&D, puis les achats spot et les embauches, au lieu de
+  subir la réduction proportionnelle de la validation.
+- **Mémoire et sauvegardes** : `schemaVersion` 7. La migration v6 → v7
+  transforme les rancunes en `rivals`, la remise de guerre en état de guerre,
+  complète `StaffFlows.offered`, ajoute les paramètres des profils (le
+  plafond de surenchère passe de `ai.wageOutbid.max` aux profils), les deux
+  nouveaux profils et les sections `counterLaunch` et `opportunism`. Une
+  ancienne partie garde ses concurrents.
+- **sim-cli** compte les coups de l'IA par partie et la part qui vise une
+  autre IA.
+
+Équilibrage mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50,
+joueur industriel en pilote automatique opportuniste, sauf mention) :
+
+| Indicateur (50 parties) | Lot 2.2 | Lot 2.3 |
+|---|---|---|
+| Faillite des IA (toutes) | 4,0 % | 3,6 % |
+| Faillite du low-cost industriel | 36 % | 30 % |
+| Marge nette médiane industrie / agro / tech | 8,5 / 5,9 / 7,5 % | 7,2 / 5,6 / 8,1 % |
+| Marge nette médiane innovateur tech / conglomérat agro | — | 8,2 / 6,1 % |
+| Part de marché max (médiane des parties) | 46,1 % | 43,2 % |
+| Volatilité des matières / des cours | 12,5 / 13,5 % | 12,4 / 13,4 % |
+| Dérive des salaires réels | +6,9 % | +6,8 % |
+| Joueur passif 1er | 0/50 | 0/50 |
+| Joueur « premium » en tête (`--player premium`) | 15/50, tour 15 | 19/50, tour 19 |
+
+Coups de l'IA par partie : 11 ripostes ou escalades de guerre des prix,
+2 trêves, 32 surenchères salariales, 6 contre-lancements, 8 offensives
+contre une cible en difficulté ; 60 à 100 % visent une autre IA selon le type.
+
+Limites connues, pour le lot 2.5 :
+- un joueur tech en pilote automatique opportuniste (`--sector tech`) finit
+  premier dans 29 parties sur 50 (rang médian 2 au lot 2.2) : le profil
+  opportuniste, le plus rentable en tech, n'a plus de pendant chez les IA du
+  secteur. Sans low-cost en tech, les marges montent à 14 % ; sans premium,
+  elles tombent à 2 %. Le profil opportuniste tech est à revoir avec
+  l'équilibrage croisé ;
+- comme au lot 1.5, une faillite peut laisser un duopole au-dessus de 60 % de
+  parts (1 partie sur 50 en agro) ;
+- le taux global de faillite des IA reste sous la cible (aucune faillite en
+  tech, presque aucune en agro).

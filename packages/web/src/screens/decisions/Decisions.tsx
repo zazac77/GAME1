@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Notice, Tabs } from '../../components/ui';
+import { Button, Notice, TabPanel, Tabs } from '../../components/ui';
 import { fr } from '../../i18n/fr';
 import { useGame } from '../../store/game';
 import { CapexTab } from './CapexTab';
@@ -57,15 +57,20 @@ export function Decisions() {
           tabs={holding ? TABS.filter((t) => t.id === 'finance') : TABS}
           active={current}
           onChange={setTab}
+          idPrefix="decisions"
         />
-        <div className="rounded-b-lg border border-t-0 border-slate-200 bg-white p-4">
+        <TabPanel
+          idPrefix="decisions"
+          active={current}
+          className="rounded-b-lg border border-t-0 border-slate-200 bg-white p-4"
+        >
           {current === 'production' && <ProductionTab />}
           {current === 'hr' && <HrTab />}
           {current === 'purchasing' && <PurchasingTab />}
           {current === 'capex' && <CapexTab />}
           {current === 'marketing' && <MarketingTab />}
           {current === 'finance' && <FinanceTab />}
-        </div>
+        </TabPanel>
       </div>
       <PreviewPanel />
     </div>

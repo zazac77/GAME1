@@ -17,19 +17,24 @@ import {
   type TurnReport,
 } from '@game/engine';
 import { create } from 'zustand';
+import { guideSeen, markGuideSeen } from '../persistence/prefs';
 import { indexedDbBackend, SaveStore } from '../persistence/saves';
+import { fr } from '../i18n/fr';
 import { omit } from './draft';
 
-export type ScreenId =
-  | 'dashboard'
-  | 'decisions'
-  | 'markets'
-  | 'competitors'
-  | 'bourse'
-  | 'deals'
-  | 'group'
-  | 'report'
-  | 'saves';
+export const SCREEN_IDS = [
+  'dashboard',
+  'decisions',
+  'markets',
+  'competitors',
+  'bourse',
+  'deals',
+  'group',
+  'report',
+  'saves',
+  'glossary',
+] as const;
+export type ScreenId = (typeof SCREEN_IDS)[number];
 
 export interface NewGameInput {
   playerName: string;
@@ -75,6 +80,8 @@ export interface GameStore {
   screen: ScreenId;
   /** Last persistence error (autosave), shown in the UI. */
   storageError: string | null;
+  /** Step of the first-steps guide on screen, null when closed. */
+  guideStep: number | null;
   saves: SaveStore;
 
   newGame(input: NewGameInput): void;
@@ -82,6 +89,10 @@ export interface GameStore {
   loadGame(state: GameState): void;
   quit(): void;
   navigate(screen: ScreenId): void;
+  /** Opens the first-steps guide at a step (0 by default) and shows that step's screen. */
+  openGuide(step?: number): void;
+  /** Closes the guide; it no longer opens by itself with a new game. */
+  closeGuide(): void;
   /** Shows and edits another company of the player's group. */
   selectCompany(companyId: string): void;
   /** A subsidiary is run by the player (true) or left to its management (false). */
@@ -153,6 +164,7 @@ export const createGameStore = (saves: SaveStore) =>
     planned: null,
     screen: 'dashboard',
     storageError: null,
+    guideStep: null,
     saves,
 
     newGame(input) {
@@ -173,7 +185,14 @@ export const createGameStore = (saves: SaveStore) =>
             : {}),
         },
       );
-      set({ ...derive(game), report: null, planned: null, screen: 'dashboard' });
+      set({
+        ...derive(game),
+        report: null,
+        planned: null,
+        screen: 'dashboard',
+        // The guide opens with the first new game of this browser.
+        guideStep: guideSeen() ? null : 0,
+      });
     },
 
     loadGame(game) {
@@ -190,11 +209,23 @@ export const createGameStore = (saves: SaveStore) =>
         preview: null,
         report: null,
         planned: null,
+        guideStep: null,
       });
     },
 
     navigate(screen) {
       set({ screen });
+    },
+
+    openGuide(step = 0) {
+      const target = fr.onboarding.steps[step]?.screen;
+      const screen = SCREEN_IDS.find((id) => id === target);
+      set({ guideStep: step, ...(screen ? { screen } : {}) });
+    },
+
+    closeGuide() {
+      markGuideSeen();
+      set({ guideStep: null });
     },
 
     selectCompany(companyId) {

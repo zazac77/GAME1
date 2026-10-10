@@ -1,4 +1,5 @@
 import { IssueList } from '../../components/lists';
+import { Term } from '../../components/Term';
 import { Card, Notice, Stat } from '../../components/ui';
 import { fmtInt, fmtMoney } from '../../i18n/format';
 import { fr } from '../../i18n/fr';
@@ -23,14 +24,21 @@ export function PreviewPanel() {
               </>
             ) : (
               <>
-                <Stat label={t.outputCeiling} value={fmtInt(p.outputCeiling)} />
+                <Stat
+                  label={<Term id="capacity">{t.outputCeiling}</Term>}
+                  value={fmtInt(p.outputCeiling)}
+                />
                 <Stat label={t.plannedOutput} value={fmtInt(p.plannedOutput)} />
                 <Stat label={t.expectedDemand} value={fmtInt(p.expectedDemand)} />
                 <Stat label={t.expectedSold} value={fmtInt(p.expectedUnitsSold)} />
               </>
             )}
             <Stat label={t.expectedRevenue} value={fmtMoney(p.expectedRevenue)} strong />
-            <Stat label={t.expectedEbitda} value={fmtMoney(p.expectedEbitda)} strong />
+            <Stat
+              label={<Term id="ebitda">{t.expectedEbitda}</Term>}
+              value={fmtMoney(p.expectedEbitda)}
+              strong
+            />
             <details className="my-2 text-sm">
               <summary className="cursor-pointer text-slate-600">{t.costs}</summary>
               <div className="pl-2">
@@ -53,7 +61,11 @@ export function PreviewPanel() {
             {p.acquisitionDebt > 0 && (
               <Stat label={t.acquisitionDebt} value={fmtMoney(p.acquisitionDebt)} />
             )}
-            <Stat label={t.expectedCash} value={fmtMoney(p.expectedCashEnd)} strong />
+            <Stat
+              label={<Term id="cash">{t.expectedCash}</Term>}
+              value={fmtMoney(p.expectedCashEnd)}
+              strong
+            />
             {p.overdraftRisk && (
               <div className="mt-2">
                 <Notice severity="critical">{t.overdraftRisk}</Notice>

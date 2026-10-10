@@ -1404,7 +1404,8 @@ Limites connues, pour le lot 3.5 :
   - **Survie** : tenir jusqu'au bout, dans le scénario hostile
     `MODE_PRESETS.survival` : récession dès le départ, transitions de régime
     plus défavorables (12 % / 20 %), événements deux fois plus probables,
-    trésorerie de départ × 0,8. La faillite y termine toujours la partie.
+    trésorerie de départ × 0,8 (lot 3.5 : × 0,6 et dette de départ de 20 M€,
+    cf. §26). La faillite y termine toujours la partie.
   - **Bac à sable** : pas de fin ; la faillite ne la termine qu'avec
     `victory.sandbox.bankruptcyEndsGame` (case de l'écran de nouvelle partie).
     Ailleurs, `victory.bankruptcyEndsGame` (vrai) : la faillite est vérifiée à
@@ -1415,7 +1416,7 @@ Limites connues, pour le lot 3.5 :
   × 0,7, qualité 45, événements × 1,5, IA plus agressives). `createGame`
   applique la difficulté, puis le scénario du mode, puis les overrides de
   l'appelant ; les échelles se multiplient (survie difficile : événements × 3,
-  trésorerie × 0,56). Deux clés nouvelles : `events.probabilityScale` (toutes
+  trésorerie × 0,56, × 0,42 depuis le lot 3.5). Deux clés nouvelles : `events.probabilityScale` (toutes
   les probabilités, plafonnées à 1) et `scenario.playerStart.cashFactor`.
 - **Catalogue étendu** (en données, comme les autres) et trois clés de
   modificateur : `company.complianceCost` (part du CA du trimestre passée en
@@ -1492,3 +1493,93 @@ mesurés par sim-cli (l'IA du joueur ne diversifie pas assez pour le
 conglomérat) ; la cible de capitalisation et le seuil de domination seront
 recalés sur des parties jouées.
 
+
+## 26. Choix d'implémentation (lot 3.5 : équilibrage fin et finitions)
+
+- **sim-cli** : `--mode all` enchaîne une campagne par mode à objectif
+  (capitalisation, domination, survie, conglomérat) et termine par le tableau
+  des issues ; chaque résumé donne le nombre de parties par raison de fin
+  (objectif atteint, survie, temps écoulé, faillite). Avec `--sector all`, un
+  tableau croisé par mode.
+- **Survie recalée** (`MODE_PRESETS.survival`) : le joueur passif survivait
+  dans 36 parties sur 50, ce qui contredit « un joueur passif ne gagne pas ».
+  La trésorerie de départ seule ne suffisait pas (la banque prête dès le
+  2e trimestre) : le scénario hostile ajoute une dette de départ de 20 M€ pour
+  les sociétés à usines (`finance.startingDebt`, 16 M€ hors survie) et passe la
+  trésorerie du joueur de × 0,8 à × 0,6. Aucune clé nouvelle, aucune
+  migration : le preset ne joue qu'à la création ; les autres modes, et donc le
+  golden, sont inchangés.
+
+  | Survie, 50 parties (seeds 1 à 50) | Passif gagne | Pilote opportuniste gagne |
+  |---|---|---|
+  | Lot 3.4 (trésorerie × 0,8) | 36 | 48 |
+  | Trésorerie × 0,5 | 32 | 49 |
+  | Trésorerie × 0,3 | 27 | 50 |
+  | × 0,5 et régimes plus durs (20 % / 12 %) | 29 | 50 |
+  | Dette 20 M€ | 21 | 48 |
+  | Dette 22 M€ | 18 | 47 |
+  | **Dette 20 M€ et trésorerie × 0,6 (retenu)** | **14** | **48** |
+
+  Par difficulté (retenu) : facile, passif 34/50 ; difficile, pilote 38/50
+  (12 faillites). Le pilote premium gagnait déjà 50/50 au lot 3.4.
+
+Campagne multi-secteurs (`npm run sim -- --games 50 --turns 40 --sector all`,
+bac à sable, joueur en pilote opportuniste ; identique au lot 3.4, ce lot ne
+change pas ce mode) :
+
+| Secteur de départ | Faillite des IA | Marge médiane | Joueur 1er / rang médian | En tête (tour médian) | Part max ind. / agro / tech (médiane, parties > 60 %) |
+|---|---|---|---|---|---|
+| Industrie | 4,0 % | 6,2 % | 0/50, 3 | 5/50 (3) | 47,4 (38,0 ; 0) / 52,9 (42,3 ; 0) / 44,1 (40,9 ; 0) % |
+| Agroalimentaire | 4,9 % | 5,8 % | 13/50, 3 | 17/50 (12) | 75,5 (44,0 ; 6) / 44,6 (34,7 ; 0) / 46,8 (41,8 ; 0) % |
+| Technologie | 3,3 % | 6,0 % | 18/50, 2 | 44/50 (2) | 67,4 (44,8 ; 10) / 56,8 (42,1 ; 0) / 39,5 (34,1 ; 0) % |
+
+Salaires réels +7 à +8 %, volatilité des matières ≈ 12,5 %, des cours 13 à
+14 %, sans erreur ni violation des bornes.
+
+Objectifs (`--mode all`, normal, joueur industriel) :
+
+| Mode | Pilote opportuniste | Joueur passif | Autre pilote |
+|---|---|---|---|
+| Capitalisation | 1/50 | 0/50 | – |
+| Domination | 3/50 | – | – |
+| Survie | 48/50 (2 faillites) | 14/50 | premium 50/50 (avant recalage) |
+| Conglomérat | 0/50 | – | conglomérat 0/50 (0,38 rachat par partie) |
+
+Variantes essayées et écartées (seeds 1 à 50) :
+- **Faillite des IA sous 5 %** : low-cost agro à 1 % de marge (et prix de
+  départ 0,87) : 4,7 % avec un joueur industriel, mais 66 % de faillite du
+  low-cost agro quand le joueur démarre en agro ; avec en plus le low-cost
+  tech à 3 % : 5,8 %, mais une partie au-dessus de 60 % en agro et toujours
+  aucune faillite tech ; soutien de groupe plus faible
+  (`ai.group.rescueCashQuarters` 0,1, `targetCashQuarters` 0,5) : sans effet
+  (4,0 %).
+- **Pépite du secteur appauvri** (piste du lot 2.5) : prototype qui pondère
+  le secteur d'une pépite par ses faillites (poids 3 et 10). Aucun effet sur
+  l'électroménager au-dessus de 60 % (6 et 10 parties, comme sans) : les
+  pépites ne sont pas rachetées avant que le duopole ne s'installe. Retiré,
+  sans clé de configuration.
+
+Finitions (`packages/web`, aucune règle de jeu) :
+- **Guide de premiers pas** : six étapes (tableau de bord, décisions, aperçu,
+  marchés, fin du trimestre, glossaire), ouvert à la première partie du
+  navigateur (préférence `localStorage`, ignorée si indisponible), rouvrable
+  par le bouton « Guide » ; chaque étape affiche son écran.
+- **Glossaire** (≈ 55 termes en 6 catégories, `fr.glossary`) : écran dédié avec
+  recherche insensible aux accents ; infobulles (`Term`) sur les KPI, l'en-tête,
+  l'aperçu et les titres de cartes (bourse, groupe, marchés, rachats).
+- **Accessibilité** : voir `ARCHITECTURE.md` §11 ; le champ d'import de
+  sauvegarde devient atteignable au clavier, le texte gris clair passe au
+  contraste AA.
+- **Playwright** : `npm run test:e2e` (job CI `e2e`), scénario « jouer 3
+  tours ».
+
+Limites connues, pour la validation de la phase 3 :
+- la faillite des IA reste juste sous la cible (3,3 à 4,9 %) : une société
+  SaaS ne fait pas faillite, et pousser le low-cost agro à la faillite le tue
+  quand le joueur est dans son secteur ;
+- sans joueur en industrie, l'électroménager dépasse 60 % dans 6 à 10 parties
+  sur 50 après la faillite du low-cost ;
+- le conglomérat n'est atteint par aucun pilote (l'IA rachète trop peu hors de
+  son secteur) et la capitalisation et la domination restent rares en pilote :
+  ces cibles sont à recaler sur les parties jouées de la validation ;
+- l'IA ne lance toujours pas d'OPA hostile avec la configuration par défaut.

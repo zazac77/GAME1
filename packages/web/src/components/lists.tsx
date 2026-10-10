@@ -57,7 +57,7 @@ export function EventList(props: { events: GameEvent[]; view: PlayerView; showTu
         <li key={i} className="flex items-start gap-2">
           <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${DOT[e.severity]}`} />
           {props.showTurn && (
-            <span className="shrink-0 text-xs tabular-nums text-slate-400">
+            <span className="shrink-0 text-xs tabular-nums text-slate-500">
               {quarterLabel(e.turn)}
             </span>
           )}

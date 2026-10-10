@@ -96,13 +96,13 @@ export function SaveBrowser(props: { confirmLoad?: boolean; refreshKey?: number 
         list.filter((s) => s.kind === 'auto'),
       )}
       <div>
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 focus-within:ring-2 focus-within:ring-sky-600 hover:bg-slate-50">
           {fr.saves.import}
           <input
             ref={fileInput}
             type="file"
             accept="application/json,.json"
-            className="hidden"
+            className="sr-only"
             data-testid="import-file"
             onChange={(e) => void onImport(e.target.files?.[0])}
           />

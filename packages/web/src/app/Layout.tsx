@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Onboarding } from '../components/Onboarding';
+import { Term } from '../components/Term';
 import { Button, Notice, Select } from '../components/ui';
 import { fmtMoney, quarterLabel } from '../i18n/format';
 import { fr } from '../i18n/fr';
@@ -6,6 +8,7 @@ import { Bourse } from '../screens/Bourse';
 import { Competitors } from '../screens/Competitors';
 import { Dashboard } from '../screens/Dashboard';
 import { Deals } from '../screens/Deals';
+import { Glossary } from '../screens/Glossary';
 import { Group } from '../screens/Group';
 import { Decisions } from '../screens/decisions/Decisions';
 import { Markets } from '../screens/Markets';
@@ -23,6 +26,7 @@ const SCREENS: { id: ScreenId; label: string }[] = [
   { id: 'group', label: fr.nav.group },
   { id: 'report', label: fr.nav.report },
   { id: 'saves', label: fr.nav.saves },
+  { id: 'glossary', label: fr.nav.glossary },
 ];
 
 export function Layout() {
@@ -33,7 +37,21 @@ export function Layout() {
   const quit = useGame((s) => s.quit);
   const storageError = useGame((s) => s.storageError);
   const selectCompany = useGame((s) => s.selectCompany);
+  const openGuide = useGame((s) => s.openGuide);
   const [busy, setBusy] = useState(false);
+  // Announced to screen readers once a quarter is resolved.
+  const [announcement, setAnnouncement] = useState('');
+  const heading = useRef<HTMLHeadingElement>(null);
+  const firstScreen = useRef(true);
+  const screenLabel = SCREENS.find((s) => s.id === screen)?.label ?? '';
+  // A new screen: the tab title follows, and the focus moves to its heading
+  // (not on the first render: the player has not moved yet).
+  useEffect(() => {
+    document.title = `${screenLabel} · ${fr.app.title}`;
+    // The guide, when open, keeps the focus on its own step.
+    if (firstScreen.current) firstScreen.current = false;
+    else if (useGame.getState().guideStep === null) heading.current?.focus();
+  }, [screenLabel]);
   if (!view) return null;
 
   const running = view.status === 'running';
@@ -48,6 +66,8 @@ export function Layout() {
     await new Promise((r) => setTimeout(r, 0));
     try {
       await endTurn();
+      const after = useGame.getState().view;
+      if (after) setAnnouncement(fr.a11y.turnResolved(quarterLabel(after.turn)));
     } finally {
       setBusy(false);
     }
@@ -55,6 +75,15 @@ export function Layout() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      <a
+        href="#main"
+        className="sr-only z-50 rounded bg-white px-3 py-2 text-sm font-medium text-sky-800 shadow focus:not-sr-only focus:fixed focus:left-2 focus:top-2"
+      >
+        {fr.a11y.skipToContent}
+      </a>
+      <div className="sr-only" aria-live="polite" role="status">
+        {announcement}
+      </div>
       <header className="sticky top-0 z-10 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-4 py-2 shadow-sm">
         <div>
           <div className="text-xs uppercase tracking-wide text-slate-500">{fr.app.title}</div>
@@ -79,37 +108,49 @@ export function Layout() {
             {quarterLabel(view.turn)}
           </span>
           {lastTurn !== undefined && (
-            <span className="text-slate-400">
+            <span className="text-slate-500">
               {' '}
               ({fr.app.turnOf(Math.min(view.turn + 1, lastTurn + 1), lastTurn + 1)})
             </span>
           )}
         </div>
         <div className="text-sm">
-          <span className="text-slate-500">{fr.app.cash} </span>
+          <span className="text-slate-500">
+            <Term id="cash">{fr.app.cash}</Term>{' '}
+          </span>
           <span className="font-semibold tabular-nums">
             {fmtMoney(view.self.company.books.current.balance.cash)}
           </span>
         </div>
         <div className="text-sm">
-          <span className="text-slate-500">{fr.app.score} </span>
+          <span className="text-slate-500">
+            <Term id="score">{fr.app.score}</Term>{' '}
+          </span>
           <span className="font-semibold tabular-nums">{fmtMoney(view.score)}</span>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <Button variant="ghost" onClick={() => openGuide()}>
+            {fr.onboarding.open}
+          </Button>
           <Button variant="ghost" onClick={quit}>
             {fr.app.quit}
           </Button>
-          <Button variant="primary" onClick={onEndTurn} disabled={!running || busy}>
+          <Button variant="primary" onClick={onEndTurn} disabled={!running || busy} ariaBusy={busy}>
             {busy ? fr.app.resolving : fr.app.endTurn}
           </Button>
         </div>
       </header>
       <div className="flex flex-1">
-        <nav className="w-44 shrink-0 border-r border-slate-200 bg-white p-2">
+        <nav
+          aria-label={fr.a11y.mainNav}
+          className="w-44 shrink-0 border-r border-slate-200 bg-white p-2"
+        >
           <ul className="space-y-1">
             {SCREENS.map((s) => (
               <li key={s.id}>
                 <button
+                  type="button"
+                  aria-current={s.id === screen ? 'page' : undefined}
                   onClick={() => navigate(s.id)}
                   className={`w-full rounded px-3 py-2 text-left text-sm ${
                     s.id === screen
@@ -123,7 +164,10 @@ export function Layout() {
             ))}
           </ul>
         </nav>
-        <main className="min-w-0 flex-1 space-y-4 p-4">
+        <main id="main" tabIndex={-1} className="min-w-0 flex-1 space-y-4 p-4">
+          <h1 ref={heading} tabIndex={-1} className="sr-only">
+            {screenLabel}
+          </h1>
           {outcome && (
             <Notice severity={outcome.status === 'won' ? 'info' : 'critical'}>
               {fr.app.outcome[outcome.reason]}
@@ -147,8 +191,10 @@ export function Layout() {
           {screen === 'group' && <Group />}
           {screen === 'report' && <TurnReportScreen />}
           {screen === 'saves' && <Saves />}
+          {screen === 'glossary' && <Glossary />}
         </main>
       </div>
+      <Onboarding />
     </div>
   );
 }

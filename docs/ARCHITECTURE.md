@@ -37,7 +37,7 @@
 | Graphiques | `recharts` | Suffisant pour les séries temporelles et les parts de marché |
 | Style | Tailwind CSS | Pas de CSS à maintenir, cohérent |
 | Persistance | IndexedDB (`idb-keyval`) + export/import JSON | Slots de sauvegarde, autosave, partage de fichier |
-| Qualité | ESLint + Prettier, CI GitHub Actions (lint, typecheck, test) | |
+| Qualité | ESLint + Prettier, CI GitHub Actions (lint, typecheck, test, build ; scénario Playwright) | |
 
 Pas de backend : la résolution d'un tour (~20 entreprises, ~40 bassins
 d'emploi, ~10 matières premières) prend moins de 50 ms. Si elle devenait
@@ -96,11 +96,12 @@ GAME1/
 │  │  └─ src/
 │  │     ├─ app/                  # routing, layout, thème
 │  │     ├─ store/                # zustand : partie courante + brouillon de décisions
-│  │     ├─ screens/              # Dashboard, Decisions, Markets, Competitors, Bourse, Deals, Group, TurnReport, Saves
+│  │     ├─ screens/              # Dashboard, Decisions, Markets, Competitors, Bourse, Deals, Group, TurnReport, Saves, Glossary
 │  │     ├─ components/           # KPI tiles, tables, formulaires, alertes
 │  │     ├─ charts/
 │  │     ├─ persistence/          # IndexedDB, export/import
-│  │     └─ i18n/fr.ts            # tous les libellés
+│  │     └─ i18n/fr.ts            # tous les libellés (glossaire et guide de premiers pas compris)
+│  │  e2e/                        # scénario Playwright « jouer 3 tours » (lot 3.5)
 │  └─ sim-cli/                    # @game/sim : parties IA-only en lot, pour l'équilibrage
 │     └─ src/ (run.ts, metrics.ts, report.ts)  → CSV/JSON de statistiques
 └─ .github/workflows/ci.yml
@@ -381,7 +382,7 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | Golden | Snapshot d'une partie seedée de 8 tours ; toute dérive d'équilibrage est visible dans la revue |
 | Sérialisation | `deserialize(serialize(s))` équivaut à `s` ; migrations |
 | Smoke (sim-cli) | 50 parties × 40 tours sans exception, avec des bornes de sanité sur les prix et les salaires |
-| UI | Tests de composants minimaux ; un scénario Playwright « jouer 3 tours » en phase 3 |
+| UI | Tests du store et des libellés (Vitest) ; scénario Playwright « jouer 3 tours » (`npm run test:e2e`, lot 3.5) : nouvelle partie, guide, décision, 3 trimestres, autosaves, glossaire et infobulle, navigation au clavier |
 
 ## 11. UI : écrans et principes
 
@@ -394,7 +395,7 @@ premières, produits), **Concurrents** (vue partielle ; lot 3.4 : espionnage et 
 indice, portefeuille, ordres ; lot 3.3 : franchissements de seuil, campagnes activistes), **Rachats & OPA** (pépites et concurrents,
 valorisation, audits, rachat de bloc, OPA amicale, financement ; lot 3.3 : OPA hostile, offres en cours, surenchère, retrait, apport de ses titres), **Groupe**
 (phase 2 : filiales et qui les dirige ; lot 3.1 : holding, flux intra-groupe, comptes consolidés et reporting par filiale ; lot 3.2 : synergies et coûts de la complexité), **Rapport de tour** (récit de ce qui s'est passé, événements,
-écarts entre prévu et réalisé), **Sauvegardes**.
+écarts entre prévu et réalisé), **Sauvegardes**, **Glossaire** (lot 3.5).
 
 Pour suivre beaucoup d'indicateurs sans noyer le joueur :
 
@@ -406,3 +407,11 @@ Pour suivre beaucoup d'indicateurs sans noyer le joueur :
   joueur ne modifie que ce qui compte.
 - **Aperçu** (`previewDecisions`) : coût, trésorerie fin de tour estimée et
   capacité, affichés avant de valider.
+- **Guide de premiers pas** (lot 3.5) : panneau non modal à la première
+  partie du navigateur, une étape par écran, rouvrable par le bouton « Guide ».
+- **Infobulles** (`components/Term.tsx`) : les termes du glossaire, soulignés
+  en pointillés, montrent leur définition au survol ou au focus.
+- **Accessibilité** : lien d'évitement, focus visible, titre d'écran focalisé
+  à chaque navigation, onglets au clavier (flèches, Début, Fin), annonce de la
+  fin du trimestre (région live), rôles ARIA (alertes, barres de progression,
+  graphiques), sens des variations doublé d'une flèche.

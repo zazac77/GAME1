@@ -1,4 +1,5 @@
 import { PALETTE, SeriesChart } from '../charts/SeriesChart';
+import { Term } from '../components/Term';
 import { companyNamer } from '../components/lists';
 import { Button, Card, Notice, Stat, Table, Td } from '../components/ui';
 import {
@@ -83,7 +84,7 @@ export function Bourse() {
         </Card>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title={t.declared}>
+        <Card title={<Term id="disclosureThreshold">{t.declared}</Term>}>
           {declared.length === 0 ? (
             <p className="text-sm text-slate-500">{t.noDeclared}</p>
           ) : (
@@ -100,7 +101,7 @@ export function Bourse() {
           <p className="mt-2 text-xs text-slate-500">{t.declaredHint}</p>
         </Card>
         {view.stock.campaigns.length > 0 && (
-          <Card title={t.campaigns}>
+          <Card title={<Term id="activistFund">{t.campaigns}</Term>}>
             <ul className="space-y-1 text-sm">
               {view.stock.campaigns.map((c) => (
                 <li key={`${c.fundId}-${c.targetId}`}>

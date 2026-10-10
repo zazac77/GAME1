@@ -3,7 +3,16 @@ import type { AlertKind, ValidationIssueCode } from '@game/engine';
 import { defaultConfig } from '../../engine/src/config/default';
 import { AI_PROFILE_IDS, MODIFIER_KEYS } from '../../engine/src/config/schema';
 import { parseNumber, quarterLabel } from '../src/i18n/format';
-import { alertTexts, eventText, fr, issuePath, issueText, KNOWN_EVENT_KINDS } from '../src/i18n/fr';
+import {
+  alertTexts,
+  eventText,
+  fr,
+  GLOSSARY_CATEGORIES,
+  issuePath,
+  issueText,
+  KNOWN_EVENT_KINDS,
+} from '../src/i18n/fr';
+import { SCREEN_IDS } from '../src/store/game';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -87,5 +96,45 @@ describe('French labels', () => {
     expect(parseNumber('1 234,5')).toBe(1234.5);
     expect(parseNumber('12.5')).toBe(12.5);
     expect(Number.isNaN(parseNumber('abc'))).toBe(true);
+  });
+
+  // Lot 3.5: glossary, tooltips and the first-steps guide.
+  it('define every glossary term once, in a known category', () => {
+    const entries = Object.values(fr.glossary);
+    expect(entries.length).toBeGreaterThan(40);
+    const terms = entries.map((e) => e.term.toLowerCase());
+    expect(new Set(terms).size).toBe(terms.length);
+    for (const e of entries) {
+      expect(GLOSSARY_CATEGORIES).toContain(e.category);
+      expect(e.definition.length).toBeGreaterThan(20);
+    }
+    for (const c of GLOSSARY_CATEGORIES) {
+      expect(entries.some((e) => e.category === c)).toBe(true);
+    }
+  });
+
+  it('name every screen and point the guide at existing screens', () => {
+    for (const id of SCREEN_IDS) expect(fr.nav[id]).toBeDefined();
+    const screens = new Set<string>(SCREEN_IDS);
+    expect(fr.onboarding.steps.length).toBeGreaterThan(3);
+    for (const step of fr.onboarding.steps) expect(screens.has(step.screen)).toBe(true);
+  });
+
+  it('every glossary id used by the screens exists', () => {
+    const used = new Set<string>();
+    const walk = (dir: string) => {
+      for (const f of readdirSync(dir)) {
+        const p = join(dir, f);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (p.endsWith('.tsx')) {
+          const src = readFileSync(p, 'utf8');
+          for (const m of src.matchAll(/<Term id="([a-zA-Z]+)"/g)) used.add(m[1] ?? '');
+          for (const m of src.matchAll(/\bterm="([a-zA-Z]+)"/g)) used.add(m[1] ?? '');
+        }
+      }
+    };
+    walk(join(__dirname, '../src'));
+    expect(used.size).toBeGreaterThan(15);
+    for (const id of used) expect(Object.keys(fr.glossary)).toContain(id);
   });
 });

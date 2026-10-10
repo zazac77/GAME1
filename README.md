@@ -4,8 +4,11 @@ Jeu de gestion au tour par tour (1 tour = 1 trimestre) avec des marchés simulé
 travail, matières premières, produits et bourse. Une IA concurrente joue avec les
 mêmes règles que le joueur, et l'objectif à long terme est de bâtir un conglomérat.
 
-Statut : **Phase 3, lot 3.4** (objectifs et événements : 5 modes de jeu —
-capitalisation, domination, survie, conglomérat, bac à sable —, catalogue
+Statut : **Phase 3, lot 3.5** (équilibrage fin et finitions : campagne sim-cli
+multi-secteurs et par mode, survie recalée, guide de premiers pas, glossaire et
+infobulles, accessibilité, scénario Playwright « jouer 3 tours »). Lot 3.4 :
+objectifs et événements (5 modes de jeu — capitalisation, domination, survie,
+conglomérat, bac à sable —, catalogue
 d'événements étendu — réglementation, krach boursier, scandale qualité,
 perturbation logistique, droits de douane, pénurie de talents, engouement des
 consommateurs —, espionnage économique optionnel, difficultés facile, normale
@@ -28,7 +31,8 @@ npm install
 npm run dev                            # jeu dans le navigateur (http://localhost:5173)
 npm run build                          # version statique dans packages/web/dist
 npm run lint && npm run typecheck && npm test
-npm run sim -- --games 50 --turns 40   # options : --player passive|low_cost|premium|innovator|opportunist|conglomerate, --sector industry|agri|tech|all, --seed, --overrides f.json, --out f.json, --csv f.csv, --activist, --difficulty easy|normal|hard, --mode sandbox|capitalization|domination|survival|conglomerate
+npm run test:e2e                       # scénario Playwright « jouer 3 tours » (Chromium requis)
+npm run sim -- --games 50 --turns 40   # options : --player passive|low_cost|premium|innovator|opportunist|conglomerate, --sector industry|agri|tech|all, --seed, --overrides f.json, --out f.json, --csv f.csv, --activist, --difficulty easy|normal|hard, --mode sandbox|capitalization|domination|survival|conglomerate|all
 ```
 
 - [Architecture technique](docs/ARCHITECTURE.md)

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Term } from '../components/Term';
 import { PALETTE, SeriesChart } from '../charts/SeriesChart';
 import { AlertList, EventList } from '../components/lists';
 import { ObjectiveCard } from '../components/objective';
@@ -33,30 +34,34 @@ export function Dashboard() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Kpi
           label={fr.app.cash}
+          term="cash"
           value={fmtMoney(balance.cash)}
           change={change(balance.cash, previous?.balance.cash)}
           hint={t.trend}
         />
         <Kpi
           label={t.revenue}
+          term="revenue"
           value={fmtMoney(pnl.revenue)}
           change={change(pnl.revenue, previous?.pnl.revenue)}
           hint={t.trend}
         />
         <Kpi
           label={t.netIncome}
+          term="netIncome"
           value={fmtMoney(pnl.netIncome)}
           change={change(pnl.netIncome, previous?.pnl.netIncome)}
           hint={t.trend}
         />
-        <Kpi label={t.marketShare} value={fmtPct(share)} />
+        <Kpi label={t.marketShare} term="marketShare" value={fmtPct(share)} />
         <Kpi
           label={t.sharePrice}
+          term="sharePrice"
           value={fmtPrice(quote?.price ?? 0)}
           change={change(quote?.price ?? 0, quoteBefore)}
           hint={t.trend}
         />
-        <Kpi label={t.score} value={fmtMoney(view.score)} />
+        <Kpi label={t.score} term="score" value={fmtMoney(view.score)} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -124,17 +129,23 @@ export function Dashboard() {
             </div>
             <div>
               <h3 className="mb-1 text-sm font-semibold">{t.operations}</h3>
-              <Stat label={t.capacity} value={`${fmtInt(view.self.outputCeiling)} u./trim.`} />
+              <Stat
+                label={<Term id="capacity">{t.capacity}</Term>}
+                value={`${fmtInt(view.self.outputCeiling)} u./trim.`}
+              />
               <Stat label={t.staff} value={fmtInt(headcount)} />
               {line && (
                 <Stat
-                  label={`${t.quality} (${marketName(line.marketId)})`}
+                  label={<Term id="quality">{`${t.quality} (${marketName(line.marketId)})`}</Term>}
                   value={fmtDec(line.quality)}
                 />
               )}
-              <Stat label={t.brand} value={fmtDec(company.brand)} />
-              <Stat label={t.employerBrand} value={fmtDec(company.employerBrand)} />
-              <Stat label={t.rating} value={company.credit.rating} />
+              <Stat label={<Term id="brand">{t.brand}</Term>} value={fmtDec(company.brand)} />
+              <Stat
+                label={<Term id="employerBrand">{t.employerBrand}</Term>}
+                value={fmtDec(company.employerBrand)}
+              />
+              <Stat label={<Term id="rating">{t.rating}</Term>} value={company.credit.rating} />
             </div>
             <div>
               <h3 className="mb-1 text-sm font-semibold">{t.journal}</h3>

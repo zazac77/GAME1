@@ -1,5 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { fmtChange, parseNumber } from '../i18n/format';
+import type { GlossaryId } from '../i18n/fr';
+import { Term } from './Term';
 
 export function Card(props: {
   title?: ReactNode;
@@ -24,7 +26,14 @@ export function Card(props: {
   );
 }
 
-export function Kpi(props: { label: string; value: string; change?: number; hint?: string }) {
+export function Kpi(props: {
+  label: string;
+  value: string;
+  change?: number;
+  hint?: string;
+  /** Glossary entry explaining the indicator (tooltip on the label). */
+  term?: GlossaryId;
+}) {
   const { change } = props;
   const color =
     change === undefined || Math.abs(change) < 1e-9
@@ -35,11 +44,15 @@ export function Kpi(props: { label: string; value: string; change?: number; hint
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-        {props.label}
+        {props.term ? <Term id={props.term}>{props.label}</Term> : props.label}
       </div>
       <div className="mt-1 text-2xl font-semibold tabular-nums">{props.value}</div>
       {change !== undefined && Number.isFinite(change) && (
         <div className={`mt-1 text-xs tabular-nums ${color}`}>
+          {/* The arrow carries the direction for those who do not see the color. */}
+          <span aria-hidden="true">
+            {Math.abs(change) < 1e-9 ? '=' : change > 0 ? '▲' : '▼'}
+          </span>{' '}
           {fmtChange(change)} {props.hint}
         </div>
       )}
@@ -77,6 +90,7 @@ export function NumberField(props: {
     <input
       inputMode="decimal"
       aria-label={props.ariaLabel}
+      aria-invalid={invalid || undefined}
       placeholder={props.placeholder}
       className={`${props.className ?? 'w-28'} rounded border px-2 py-1 text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-sky-400 ${
         invalid ? 'border-rose-400 bg-rose-50' : 'border-slate-300'
@@ -109,6 +123,8 @@ export function Button(props: {
   type?: 'button' | 'submit';
   className?: string;
   title?: string;
+  /** Work in progress (announced to screen readers). */
+  ariaBusy?: boolean;
 }) {
   const styles = {
     primary: 'bg-sky-600 text-white hover:bg-sky-700 disabled:bg-slate-300',
@@ -120,6 +136,7 @@ export function Button(props: {
     <button
       type={props.type ?? 'button'}
       title={props.title}
+      aria-busy={props.ariaBusy || undefined}
       disabled={props.disabled}
       onClick={props.onClick}
       className={`whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 ${styles} ${props.className ?? ''}`}
@@ -136,7 +153,11 @@ export function Table(props: { head: ReactNode[]; children: ReactNode; className
         <thead>
           <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
             {props.head.map((h, i) => (
-              <th key={i} className={`px-2 py-2 font-medium ${i > 0 ? 'text-right' : ''}`}>
+              <th
+                key={i}
+                scope="col"
+                className={`px-2 py-2 font-medium ${i > 0 ? 'text-right' : ''}`}
+              >
                 {h}
               </th>
             ))}
@@ -167,7 +188,10 @@ const SEVERITY_STYLES = {
 
 export function Notice(props: { severity: keyof typeof SEVERITY_STYLES; children: ReactNode }) {
   return (
-    <div className={`rounded border px-3 py-2 text-sm ${SEVERITY_STYLES[props.severity]}`}>
+    <div
+      role={props.severity === 'critical' ? 'alert' : 'status'}
+      className={`rounded border px-3 py-2 text-sm ${SEVERITY_STYLES[props.severity]}`}
+    >
       {props.children}
     </div>
   );
@@ -182,28 +206,87 @@ export function Stat(props: { label: ReactNode; value: ReactNode; strong?: boole
   );
 }
 
+/**
+ * Tab list following the ARIA pattern: arrow keys, Home and End move between
+ * tabs; the panel of the active tab is labelled by it (see TabPanel).
+ */
 export function Tabs<T extends string>(props: {
   tabs: { id: T; label: string }[];
   active: T;
   onChange: (id: T) => void;
+  /** Prefix of the ids of the tabs and panels (default: a unique id). */
+  idPrefix?: string;
+}) {
+  const auto = useId();
+  const prefix = props.idPrefix ?? auto;
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const move = (index: number) => {
+    const tab = props.tabs[(index + props.tabs.length) % props.tabs.length];
+    if (!tab) return;
+    props.onChange(tab.id);
+    refs.current[tab.id]?.focus();
+  };
+  const current = props.tabs.findIndex((t) => t.id === props.active);
+  return (
+    <div
+      className="flex flex-wrap gap-1 border-b border-slate-200"
+      role="tablist"
+      onKeyDown={(e) => {
+        const target = {
+          ArrowRight: current + 1,
+          ArrowLeft: current - 1,
+          Home: 0,
+          End: props.tabs.length - 1,
+        }[e.key];
+        if (target === undefined) return;
+        e.preventDefault();
+        move(target);
+      }}
+    >
+      {props.tabs.map((t) => {
+        const selected = t.id === props.active;
+        return (
+          <button
+            key={t.id}
+            ref={(el) => {
+              refs.current[t.id] = el;
+            }}
+            type="button"
+            role="tab"
+            id={`${prefix}-tab-${t.id}`}
+            aria-controls={`${prefix}-panel-${t.id}`}
+            aria-selected={selected}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => props.onChange(t.id)}
+            className={`-mb-px rounded-t border px-3 py-2 text-sm font-medium ${
+              selected
+                ? 'border-slate-200 border-b-white bg-white text-sky-700'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The panel of the active tab (same idPrefix as its Tabs). */
+export function TabPanel(props: {
+  idPrefix: string;
+  active: string;
+  className?: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap gap-1 border-b border-slate-200" role="tablist">
-      {props.tabs.map((t) => (
-        <button
-          key={t.id}
-          role="tab"
-          aria-selected={t.id === props.active}
-          onClick={() => props.onChange(t.id)}
-          className={`-mb-px rounded-t border px-3 py-2 text-sm font-medium ${
-            t.id === props.active
-              ? 'border-slate-200 border-b-white bg-white text-sky-700'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          {t.label}
-        </button>
-      ))}
+    <div
+      role="tabpanel"
+      id={`${props.idPrefix}-panel-${props.active}`}
+      aria-labelledby={`${props.idPrefix}-tab-${props.active}`}
+      className={props.className}
+    >
+      {props.children}
     </div>
   );
 }
@@ -231,10 +314,17 @@ export function Select<T extends string>(props: {
   );
 }
 
-export function ProgressBar(props: { value: number }) {
+export function ProgressBar(props: { value: number; label?: string }) {
   const pct = Math.max(0, Math.min(1, props.value)) * 100;
   return (
-    <div className="h-2 w-full overflow-hidden rounded bg-slate-200">
+    <div
+      className="h-2 w-full overflow-hidden rounded bg-slate-200"
+      role="progressbar"
+      aria-label={props.label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(pct)}
+    >
       <div className="h-full bg-sky-500" style={{ width: `${pct}%` }} />
     </div>
   );

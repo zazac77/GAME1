@@ -85,7 +85,7 @@ export function MarketingTab() {
                   <>
                     <Stat label={t.rndProject} value={quote.projectId} />
                     <Stat label={t.rndProgress} value={fmtPct(quote.progress)} />
-                    <ProgressBar value={quote.progress} />
+                    <ProgressBar value={quote.progress} label={t.rndProgress} />
                   </>
                 ) : (
                   <p className="text-sm text-slate-500">

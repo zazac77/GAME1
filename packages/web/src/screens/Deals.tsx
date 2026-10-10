@@ -1,4 +1,5 @@
 import type { DealAction, DealQuote, MnaAction, OfferView } from '@game/engine';
+import { Term } from '../components/Term';
 import { useState } from 'react';
 import { companyNamer, IssueList } from '../components/lists';
 import { Button, Card, Notice, NumberField, Select, Stat, Table, Td } from '../components/ui';
@@ -188,7 +189,7 @@ export function Deals() {
         onToggle={toggleMove}
         onRaise={setDeal}
       />
-      <Card title={t.tenderOffers}>
+      <Card title={<Term id="tenderOffer">{t.tenderOffers}</Term>}>
         {offers.length === 0 ? (
           <p className="text-sm text-slate-500">{t.noOffers}</p>
         ) : (

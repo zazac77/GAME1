@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Term } from '../components/Term';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PALETTE, SeriesChart } from '../charts/SeriesChart';
 import { companyNamer } from '../components/lists';
@@ -25,7 +26,7 @@ export function Markets() {
 
   return (
     <div className="space-y-4">
-      <Card title={t.products}>
+      <Card title={<Term id="marketShare">{t.products}</Term>}>
         {Object.values(view.productMarkets).map((m) => {
           const shares = Object.entries(m.lastResult.shares)
             .map(([lineId, share]) => ({ name: name(owner[lineId] ?? lineId), share: share * 100 }))
@@ -75,7 +76,7 @@ export function Markets() {
         })}
       </Card>
 
-      <Card title={t.commodities}>
+      <Card title={<Term id="spotPrice">{t.commodities}</Term>}>
         <div className="grid gap-4 lg:grid-cols-2">
           <Table head={[fr.decisions.commodity, t.unit, t.spot, t.world, t.demand]}>
             {Object.values(view.commodities).map((c) => (
@@ -109,7 +110,7 @@ export function Markets() {
       </Card>
 
       <Card
-        title={t.labor}
+        title={<Term id="laborTension">{t.labor}</Term>}
         actions={
           <Select
             value={region}

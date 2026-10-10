@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 import { quarterLabel } from '../i18n/format';
+import { fr } from '../i18n/fr';
 
 export interface SeriesSpec {
   /** Key in history.series, or values given directly (aligned on the latest turns). */
@@ -47,7 +48,12 @@ export function SeriesChart(props: {
   });
   const data = props.last ? rows.slice(-props.last) : rows;
   return (
-    <div style={{ height: props.height ?? 220 }} className="w-full">
+    <div
+      style={{ height: props.height ?? 220 }}
+      className="w-full"
+      role="img"
+      aria-label={fr.a11y.chart(props.series.map((s) => s.label).join(', '))}
+    >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />

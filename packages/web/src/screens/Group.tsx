@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Term } from '../components/Term';
 import type {
   ConsolidatedStatements,
   GroupSynergiesView,
@@ -141,7 +142,7 @@ export function Group() {
       {cons && <Consolidated cons={cons} />}
 
       {running && rootDraft && (view.canCreateHolding || rootDraft.createHolding) && (
-        <Card title={t.holding}>
+        <Card title={<Term id="holding">{t.holding}</Term>}>
           <p className="mb-3 text-sm text-slate-600">{t.holdingHint}</p>
           {rootDraft.createHolding && (
             <div className="mb-3">
@@ -162,7 +163,7 @@ export function Group() {
         </Card>
       )}
 
-      <Card title={t.loans}>
+      <Card title={<Term id="intraGroupLoan">{t.loans}</Term>}>
         {view.groupLoans.length === 0 ? (
           <p className="text-sm text-slate-500">{t.noLoans}</p>
         ) : (
@@ -199,7 +200,11 @@ function Consolidated(props: { cons: ConsolidatedStatements }) {
   const t = fr.group;
   const { pnl, balance, eliminations } = props.cons;
   return (
-    <Card title={`${t.consolidated} · ${quarterLabel(props.cons.quarter)}`}>
+    <Card
+      title={
+        <Term id="consolidation">{`${t.consolidated} · ${quarterLabel(props.cons.quarter)}`}</Term>
+      }
+    >
       <p className="mb-3 text-xs text-slate-500">{t.consolidatedHint}</p>
       <div className="grid gap-6 lg:grid-cols-3">
         <div>
@@ -364,7 +369,7 @@ function Synergies({ synergies: g }: { synergies: GroupSynergiesView }) {
   const t = fr.group;
   const pooled = Object.entries(g.pooledContracts);
   return (
-    <Card title={t.synergies}>
+    <Card title={<Term id="synergies">{t.synergies}</Term>}>
       <p className="mb-3 text-sm text-slate-600">{t.synergiesHint}</p>
       <div className="grid gap-6 md:grid-cols-2">
         <div>

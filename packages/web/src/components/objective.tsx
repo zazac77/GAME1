@@ -55,7 +55,7 @@ export function ObjectiveCard({ view }: { view: PlayerView }) {
           <div className="text-xs text-slate-500">
             {t.progress} : {fmtPct(o.progress, 0)}
           </div>
-          <ProgressBar value={o.progress} />
+          <ProgressBar value={o.progress} label={t.progress} />
         </div>
       )}
     </Card>

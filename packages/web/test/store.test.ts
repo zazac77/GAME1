@@ -273,4 +273,21 @@ describe('options of the new game (lot 3.4)', () => {
     expect(game?.config.victory.sandbox.bankruptcyEndsGame).toBe(true);
     expect(view?.objective.lastTurn).toBeUndefined();
   });
+
+  it('opens the first-steps guide with a new game and walks its screens', () => {
+    const store = newStore();
+    start(store);
+    // No localStorage under Node: the guide is never marked as seen.
+    expect(store.getState().guideStep).toBe(0);
+    expect(store.getState().screen).toBe('dashboard');
+    store.getState().openGuide(1);
+    expect(store.getState().guideStep).toBe(1);
+    expect(store.getState().screen).toBe('decisions');
+    store.getState().closeGuide();
+    expect(store.getState().guideStep).toBeNull();
+    store.getState().openGuide();
+    expect(store.getState().guideStep).toBe(0);
+    store.getState().quit();
+    expect(store.getState().guideStep).toBeNull();
+  });
 });

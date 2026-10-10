@@ -14,6 +14,17 @@ import type {
 } from '@game/engine';
 import { fmtDec, fmtInt, fmtMoney, fmtPct, fmtPrice } from './format';
 
+/** Sections of the glossary screen, in display order. */
+export const GLOSSARY_CATEGORIES = [
+  'game',
+  'finance',
+  'markets',
+  'operations',
+  'bourse',
+  'group',
+] as const;
+export type GlossaryCategory = (typeof GLOSSARY_CATEGORIES)[number];
+
 export const fr = {
   app: {
     title: 'GAME1',
@@ -45,6 +56,7 @@ export const fr = {
     group: 'Groupe',
     report: 'Rapport de tour',
     saves: 'Sauvegardes',
+    glossary: 'Glossaire',
   },
   start: {
     heading: 'Nouvelle partie',
@@ -65,7 +77,7 @@ export const fr = {
       domination:
         'Vendre plus de 40 % d’un marché pendant 4 trimestres consécutifs, en 40 trimestres au plus.',
       survival:
-        'Tenir 40 trimestres dans un monde hostile : récession d’entrée, événements deux fois plus fréquents, trésorerie réduite.',
+        'Tenir 40 trimestres dans un monde hostile : récession d’entrée, événements deux fois plus fréquents, dette plus lourde et trésorerie réduite.',
       conglomerate:
         'Être présent dans 3 secteurs, chacun bénéficiaire 4 trimestres de suite (rachats indispensables).',
       sandbox: 'Pas de fin ni d’objectif : jouez librement.',
@@ -867,7 +879,388 @@ export const fr = {
     invalid_state: 'impossible dans l’état actuel',
     not_available: 'pas encore disponible',
   } satisfies Record<ValidationIssueCode, string>,
+  glossaryScreen: {
+    intro:
+      'Les notions du jeu, de la comptabilité à la bourse. Les termes soulignés en pointillés dans les écrans renvoient ici : survolez-les ou placez-y le focus pour lire leur définition.',
+    search: 'Rechercher un terme',
+    noMatch: 'Aucun terme ne correspond à la recherche.',
+    categories: {
+      finance: 'Finance et comptabilité',
+      markets: 'Marchés',
+      operations: 'Exploitation',
+      bourse: 'Bourse et rachats',
+      group: 'Groupe et conglomérat',
+      game: 'Partie',
+    } satisfies Record<GlossaryCategory, string>,
+  },
+  glossary: {
+    cash: {
+      category: 'finance',
+      term: 'Trésorerie',
+      definition:
+        'L’argent disponible en banque. Si elle passe sous zéro, la banque ouvre un découvert, cher ; si le découvert dépasse sa limite, la société fait faillite.',
+    },
+    revenue: {
+      category: 'finance',
+      term: 'Chiffre d’affaires (CA)',
+      definition: 'Les ventes du trimestre : unités vendues × prix (abonnés facturés en tech).',
+    },
+    ebitda: {
+      category: 'finance',
+      term: 'EBITDA',
+      definition:
+        'Résultat d’exploitation avant amortissements : CA moins matières, salaires, marketing, R&D, stockage et autres charges. Les banques s’en servent pour fixer le crédit.',
+    },
+    netIncome: {
+      category: 'finance',
+      term: 'Résultat net',
+      definition:
+        'Ce qu’il reste après toutes les charges : amortissements, intérêts, résultat financier et impôt. Il augmente (ou diminue) les fonds propres.',
+    },
+    netMargin: {
+      category: 'finance',
+      term: 'Marge nette',
+      definition: 'Résultat net ÷ chiffre d’affaires.',
+    },
+    depreciation: {
+      category: 'finance',
+      term: 'Amortissement',
+      definition:
+        'La part du coût des usines, machines et bureaux passée en charge chaque trimestre, pendant leur durée de vie. Il pèse sur le résultat sans sortir de trésorerie.',
+    },
+    equity: {
+      category: 'finance',
+      term: 'Fonds propres',
+      definition:
+        'La part de la société qui revient à ses actionnaires : actif (trésorerie, stocks, immobilisations, participations) moins dettes. Le bilan est toujours équilibré : actif = passif.',
+    },
+    debt: {
+      category: 'finance',
+      term: 'Dette',
+      definition:
+        'Emprunts bancaires à terme, remboursés par échéances, plus le découvert. Le taux dépend du taux directeur et de la notation.',
+    },
+    overdraft: {
+      category: 'finance',
+      term: 'Découvert',
+      definition:
+        'Crédit automatique quand la trésorerie manque, au taux le plus cher. Il est plafonné : au-delà, c’est la faillite.',
+    },
+    rating: {
+      category: 'finance',
+      term: 'Notation',
+      definition:
+        'La note de crédit de la société (de AAA à C), tirée de sa dette nette rapportée à l’EBITDA. Une mauvaise note renchérit les emprunts et réduit le crédit disponible.',
+    },
+    covenant: {
+      category: 'finance',
+      term: 'Covenant bancaire',
+      definition:
+        'Le ratio dette nette / EBITDA que la banque accepte. Près de la limite, une alerte s’affiche : la banque cessera de prêter.',
+    },
+    dividend: {
+      category: 'finance',
+      term: 'Dividende',
+      definition:
+        'Part de la trésorerie versée aux actionnaires. Il soutient le cours mais réduit les moyens d’investir.',
+    },
+    marketShare: {
+      category: 'markets',
+      term: 'Part de marché',
+      definition:
+        'Votre part des ventes d’un marché. Elle dépend du prix, de la qualité, de la marque et du marketing, comparés à ceux des concurrents, et des stocks disponibles.',
+    },
+    segment: {
+      category: 'markets',
+      term: 'Segment de clientèle',
+      definition:
+        'Chaque marché a des clients sensibles au prix et d’autres sensibles à la qualité. Un même produit ne plaît pas autant aux deux.',
+    },
+    spotPrice: {
+      category: 'markets',
+      term: 'Prix spot',
+      definition:
+        'Le prix d’une matière première au comptant ce trimestre. Il suit le prix mondial et monte quand les entreprises du jeu en achètent beaucoup.',
+    },
+    supplyContract: {
+      category: 'markets',
+      term: 'Contrat d’approvisionnement',
+      definition:
+        'Un achat d’une quantité fixe par trimestre, sur plusieurs trimestres, à un prix connu d’avance : il protège des hausses du spot.',
+    },
+    laborTension: {
+      category: 'markets',
+      term: 'Tension du marché du travail',
+      definition:
+        'Offres d’emploi rapportées aux chômeurs d’un bassin (région × métier). Quand elle monte, le salaire de marché monte et embaucher devient difficile.',
+    },
+    marketWage: {
+      category: 'markets',
+      term: 'Salaire de marché',
+      definition:
+        'Le salaire moyen d’un métier dans une région. En dessous, vos salariés partent plus souvent et vos offres d’embauche trouvent moins de candidats.',
+    },
+    capacity: {
+      category: 'operations',
+      term: 'Capacité',
+      definition:
+        'Ce que vos sites peuvent produire (ou servir, en tech) au plus dans le trimestre, limité par les machines, le personnel et les matières disponibles.',
+    },
+    quality: {
+      category: 'operations',
+      term: 'Qualité',
+      definition:
+        'Note de 0 à 100 du produit. Plus haute, elle séduit les clients sensibles à la qualité, mais coûte plus de matières. La R&D produit relève la qualité atteignable.',
+    },
+    brand: {
+      category: 'operations',
+      term: 'Marque',
+      definition:
+        'La réputation auprès des clients (0 à 100). Elle monte avec le marketing et la qualité, baisse avec les scandales, et pèse dans les parts de marché.',
+    },
+    employerBrand: {
+      category: 'operations',
+      term: 'Marque employeur',
+      definition:
+        'L’attractivité de la société pour les salariés (0 à 100) : elle aide à embaucher et à retenir. Les licenciements la font baisser.',
+    },
+    rnd: {
+      category: 'operations',
+      term: 'R&D',
+      definition:
+        'Projets de recherche : « procédés » pour gagner en productivité, « produit » pour relever la qualité atteignable. En tech, les développeurs font avancer la plateforme face à la frontière technologique.',
+    },
+    techFrontier: {
+      category: 'operations',
+      term: 'Frontière technologique',
+      definition:
+        'En tech, le niveau de l’état de l’art, qui avance chaque trimestre. Un produit qui prend du retard devient obsolète et perd ses abonnés.',
+    },
+    churn: {
+      category: 'operations',
+      term: 'Churn',
+      definition:
+        'En tech, la part des abonnés qui résilient chaque trimestre. Il monte quand le produit vieillit ou que le prix est élevé.',
+    },
+    networkEffect: {
+      category: 'operations',
+      term: 'Effet de réseau',
+      definition:
+        'En tech, un logiciel attire d’autant plus de nouveaux abonnés qu’il en a déjà beaucoup : le leader tend à creuser l’écart.',
+    },
+    perishability: {
+      category: 'operations',
+      term: 'Périssabilité',
+      definition:
+        'En agroalimentaire, une partie des stocks de produits et de récoltes se perd chaque trimestre : il faut produire au plus près des ventes.',
+    },
+    listing: {
+      category: 'operations',
+      term: 'Référencement',
+      definition:
+        'En agroalimentaire, les frais payés à la distribution pour être présent en rayon. Sans eux, les clients ne trouvent pas le produit.',
+    },
+    sharePrice: {
+      category: 'bourse',
+      term: 'Cours de l’action',
+      definition:
+        'Le prix d’une action en bourse. Il tend vers la valeur fondamentale, réagit aux résultats publiés, aux ordres et à l’humeur du marché.',
+    },
+    fundamentalValue: {
+      category: 'bourse',
+      term: 'Valeur fondamentale',
+      definition:
+        'Ce que vaut une action selon ses comptes publiés : bénéfices attendus et fonds propres, moins la dette. Le cours y revient avec le temps.',
+    },
+    marketCap: {
+      category: 'bourse',
+      term: 'Capitalisation',
+      definition: 'Cours × nombre d’actions : la valeur boursière de toute la société.',
+    },
+    float: {
+      category: 'bourse',
+      term: 'Flottant',
+      definition:
+        'La part du capital détenue par le public, qu’on peut acheter en bourse. Un petit flottant limite les ordres possibles.',
+    },
+    score: {
+      category: 'game',
+      term: 'Score (valeur de votre participation)',
+      definition:
+        'Cours de votre société de tête × actions que vous détenez en direct (sa valorisation si elle n’est pas cotée). C’est la mesure de réussite de la partie.',
+    },
+    tenderOffer: {
+      category: 'bourse',
+      term: 'OPA',
+      definition:
+        'Offre publique d’achat : proposer à tous les actionnaires de racheter leurs actions à un prix fixé, pour prendre le contrôle (plus de 50 %). Amicale si la direction l’accepte.',
+    },
+    hostileOffer: {
+      category: 'bourse',
+      term: 'OPA hostile',
+      definition:
+        'Une OPA lancée sans l’accord de la direction de la cible, qui peut se défendre (rachat d’actions, pilule empoisonnée) ou appeler un chevalier blanc.',
+    },
+    mandatoryOffer: {
+      category: 'bourse',
+      term: 'Offre obligatoire',
+      definition:
+        'Qui dépasse 30 % d’une société cotée, par exemple en rachetant un bloc, doit proposer le même prix à tous les autres actionnaires.',
+    },
+    disclosureThreshold: {
+      category: 'bourse',
+      term: 'Seuil déclaratif',
+      definition:
+        'Franchir 5, 10, 20 ou 33 % du capital d’une société cotée doit être déclaré publiquement : la cible et ses concurrents en sont avertis.',
+    },
+    poisonPill: {
+      category: 'bourse',
+      term: 'Pilule empoisonnée',
+      definition:
+        'Défense contre une OPA hostile : la cible émet des actions nouvelles qui diluent l’acheteur et renchérissent la prise de contrôle.',
+    },
+    whiteKnight: {
+      category: 'bourse',
+      term: 'Chevalier blanc',
+      definition:
+        'Un acheteur ami appelé par la cible d’une OPA hostile, qui dépose une offre concurrente plus haute.',
+    },
+    dueDiligence: {
+      category: 'bourse',
+      term: 'Audit (due diligence)',
+      definition:
+        'Examen d’une cible avant rachat, payant et long d’un trimestre : il révèle ses vrais chiffres et ses passifs cachés.',
+    },
+    activistFund: {
+      category: 'bourse',
+      term: 'Fonds activiste',
+      definition:
+        'Option de la partie : un fonds achète jusqu’à 10 % des sociétés sous-évaluées et fait campagne pour un dividende ou la vente de la société.',
+    },
+    subsidiary: {
+      category: 'group',
+      term: 'Filiale',
+      definition:
+        'Une société contrôlée (plus de 50 % du capital, directement ou par une chaîne de contrôle). Vous pouvez la diriger vous-même ou la laisser à sa direction.',
+    },
+    holding: {
+      category: 'group',
+      term: 'Holding',
+      definition:
+        'Une société de tête sans activité, posée au-dessus du groupe : elle détient les filiales, reçoit leurs dividendes et leur prête.',
+    },
+    consolidation: {
+      category: 'group',
+      term: 'Comptes consolidés',
+      definition:
+        'Les comptes du groupe comme s’il était une seule société : les filiales sont additionnées, les flux entre sociétés du groupe éliminés.',
+    },
+    minorityInterests: {
+      category: 'group',
+      term: 'Intérêts minoritaires',
+      definition:
+        'Dans les comptes consolidés, la part des filiales qui appartient aux autres actionnaires.',
+    },
+    intraGroupLoan: {
+      category: 'group',
+      term: 'Prêt intra-groupe',
+      definition:
+        'Un prêt d’une société du groupe à une autre. Il s’annule dans les comptes consolidés.',
+    },
+    cashPooling: {
+      category: 'group',
+      term: 'Cash pooling',
+      definition:
+        'Centraliser la trésorerie des filiales à la tête du groupe pour la redistribuer là où elle sert.',
+    },
+    synergies: {
+      category: 'group',
+      term: 'Synergies',
+      definition:
+        'Les économies d’un groupe : achats mutualisés, marque partagée, fonctions support communes.',
+    },
+    managerialCapacity: {
+      category: 'group',
+      term: 'Capacité managériale',
+      definition:
+        'Le nombre de sociétés et de secteurs qu’un groupe sait piloter. Au-delà, la surcharge dégrade les performances des filiales.',
+    },
+    conglomerateDiscount: {
+      category: 'group',
+      term: 'Décote de conglomérat',
+      definition:
+        'La bourse valorise moins un groupe dispersé dans plusieurs secteurs que la somme de ses parties.',
+    },
+    espionage: {
+      category: 'game',
+      term: 'Espionnage économique',
+      definition:
+        'Option de la partie : une opération payante sur un concurrent livre ses chiffres privés, au risque d’être découverte (amende, marque abîmée, rancune).',
+    },
+    quarter: {
+      category: 'game',
+      term: 'Trimestre (tour)',
+      definition:
+        'Un tour de jeu. Vous prenez vos décisions, puis tous les marchés et les concurrents sont résolus en même temps. Une partie à objectif dure 40 trimestres (10 ans).',
+    },
+    seed: {
+      category: 'game',
+      term: 'Graine',
+      definition:
+        'Le nombre qui fixe le hasard de la partie : même graine et mêmes décisions donnent la même partie, ce qui permet de la rejouer.',
+    },
+  } satisfies Record<string, { category: GlossaryCategory; term: string; definition: string }>,
+  onboarding: {
+    title: 'Premiers pas',
+    open: 'Guide',
+    step: (n: number, of: number) => `Étape ${n} sur ${of}`,
+    previous: 'Précédent',
+    next: 'Suivant',
+    finish: 'Terminer',
+    close: 'Fermer le guide',
+    steps: [
+      {
+        screen: 'dashboard',
+        title: 'Bienvenue à la tête de votre société',
+        body: 'Chaque tour est un trimestre. Le tableau de bord résume votre situation : six indicateurs clés, votre objectif et les alertes à traiter en priorité.',
+      },
+      {
+        screen: 'decisions',
+        title: 'Prenez vos décisions',
+        body: 'Prix, production, embauches, achats, investissements, marketing, R&D et finance. Les décisions reprennent celles du trimestre précédent : ne modifiez que ce qui compte.',
+      },
+      {
+        screen: 'decisions',
+        title: 'Vérifiez l’aperçu',
+        body: 'À droite, l’aperçu estime vos ventes, votre EBITDA et votre trésorerie de fin de trimestre, et signale les décisions corrigées faute de moyens.',
+      },
+      {
+        screen: 'markets',
+        title: 'Surveillez les marchés',
+        body: 'Salaires par région et métier, prix des matières premières, parts de marché : les concurrents jouent avec les mêmes règles que vous.',
+      },
+      {
+        screen: 'dashboard',
+        title: 'Terminez le trimestre',
+        body: 'Le bouton « Fin du trimestre », en haut à droite, résout le tour pour tout le monde puis ouvre le rapport : ce qui s’est passé, et l’écart entre prévu et réalisé.',
+      },
+      {
+        screen: 'glossary',
+        title: 'Un doute sur un terme ?',
+        body: 'Les termes soulignés en pointillés ont une définition au survol. Le glossaire les réunit tous. Vous pouvez rouvrir ce guide à tout moment avec le bouton « Guide ».',
+      },
+    ] satisfies { screen: string; title: string; body: string }[],
+  },
+  a11y: {
+    skipToContent: 'Aller au contenu',
+    mainNav: 'Navigation principale',
+    turnResolved: (quarter: string) => `Trimestre résolu. Nous sommes au ${quarter}.`,
+    chart: (labels: string) => `Graphique : ${labels}`,
+    definition: 'Définition',
+  },
 };
+
+export type GlossaryId = keyof typeof fr.glossary;
 
 const name = <T extends Record<string, string>>(table: T, id: string | undefined): string =>
   (id !== undefined ? table[id] : undefined) ?? id ?? '';

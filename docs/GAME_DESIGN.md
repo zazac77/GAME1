@@ -23,7 +23,7 @@ Les niveaux de qualification vont de N1 (non qualifié) à N4 (cadre ou
 expert). Chaque métier appartient à un niveau et à des secteurs ; certains
 métiers sont transversaux (commercial, cadre).
 
-**Stock** : `chômeurs U = laborForce − outsideEmployment − Σ effectifs entreprises`.
+**Stock** : `chômeurs U = max(0, laborForce − outsideEmployment − Σ effectifs entreprises)`.
 L'économie hors simulation (`outsideEmployment`) suit le cycle. Les
 entreprises simulées y représentent 15 à 40 % de l'emploi du métier : une
 embauche massive se voit donc sur les salaires sans vider le pays.
@@ -50,7 +50,8 @@ salaire, et baisse d'`employerBrand`.
 
 **Salaires de marché** :
 `w_{t+1} = w_t · (1 + π + κ · clamp(tension − tension*, −m, +m))`, avec
-`tension = V/U`. `κ` correspond à `labor.wageAdjustSpeed`.
+`tension = V / max(U, 1)` (jamais de division par zéro ; si U = 0, aucune
+embauche car `min(V, U, …) = 0`). `κ` correspond à `labor.wageAdjustSpeed`.
 
 **Offre de long terme** : les diplômés entrants par métier augmentent avec
 la prime salariale du métier par rapport à la moyenne, avec 4 à 8 trimestres
@@ -66,7 +67,11 @@ le salarié formé exige ensuite le salaire de son nouveau métier.
 Le choix retenu est un modèle offre/demande avec impact de prix, et non un
 carnet d'ordres complet. Il est plus lisible, plus stable à équilibrer et
 garde l'essentiel du comportement. Le carnet est simulé de façon simplifiée
-par les **ordres à cours limité**.
+par les **ordres à cours limité** : tant que le prix de compensation dépasse
+la limite d'un ordre, on retire `1/commodities.limitOrderTranches` de sa
+quantité, puis on recalcule le prix (tous les ordres en défaut à la fois,
+nombre de passes borné). Le résultat est déterministe et ne dépend pas de
+l'ordre des sociétés.
 
 - **Prix mondial** (exogène) : `ln P^w` suit un processus d'Ornstein-Uhlenbeck
   autour d'une tendance indexée sur l'inflation, avec une saisonnalité
@@ -102,7 +107,7 @@ de consommateurs (par exemple « prix », poids 60 %, et « qualité », poids
 
 ```
 U_ik = −βp_k · ln(prix_i / prixRéf) + βq_k · qualité_i + βb_k · marque_i
-       + βm_k · ln(1 + marketing_i) + βd · distribution_i
+       + βm_k · ln(1 + marketing_i/marketingUnit) + βd · distribution_i
        (+ βn · ln(1 + users_i) + βt · (niveauTechno_i − frontière) en tech)
 part_ik = exp(U_ik) / (exp(U_0k) + Σ_j exp(U_jk))
 ```
@@ -114,7 +119,8 @@ part_ik = exp(U_ik) / (exp(U_0k) + Σ_j exp(U_jk))
 est réallouée aux autres entreprises en stock, avec une perte de
 `products.spilloverRate`.
 
-**Marque** : `brand_{t+1} = brand_t·(1−δ) + a·ln(1+marketing) + b·(qualité − qualitéMoyenne) − scandales`.
+**Marque** : `brand_{t+1} = clamp(brand_t·(1−δ) + a·ln(1 + marketing/products.marketingUnit) + b·(qualité − qualitéMoyenne) − scandales, 0, 100)`.
+`employerBrand` est bornée de même à 0..100.
 
 Les deux segments rendent viables les positionnements low-cost et premium.
 
@@ -152,7 +158,7 @@ Les deux segments rendent viables les positionnements low-cost et premium.
 |---|---|
 | Métiers | Support (N1), Développeur (N2), Ingénieur senior/data (N3), Product manager (N4), Commercial (N2) |
 | Intrants | Capacité cloud, une matière première au prix volatil |
-| Mécaniques propres | **Niveau technologique** du produit face à une frontière qui avance chaque trimestre (obsolescence : l'attractivité baisse avec l'écart) ; R&D en projets mesurés en développeur·trimestres, à issue incertaine ; **base d'utilisateurs** avec effet de réseau (`βn·ln(users)`) ; revenus récurrents (abonnements) avec churn |
+| Mécaniques propres | **Niveau technologique** du produit face à une frontière qui avance chaque trimestre (obsolescence : l'attractivité baisse avec l'écart) ; R&D en projets mesurés en développeur·trimestres, à issue incertaine ; **base d'utilisateurs** avec effet de réseau (`βn·ln(1 + users/networkUnit)`, cf. §4) ; revenus récurrents (abonnements) avec churn |
 | Coûts | Environ 70 % de salaires, quasi fixes ; coût marginal faible, donc marge brute élevée |
 | Différenciation | Innovation, prix (freemium ou abonnement), marketing, qualité (bugs, fonction du ratio de seniors) |
 | Barrières | Entrée : talents rares et effet de réseau des leaders. Sortie : faibles (peu d'actifs physiques) |
@@ -195,7 +201,8 @@ enrichie aux phases 2 et 3.
   une société en perte (tech en croissance), on mélange avec
   `VE/CA × CA` selon la rentabilité.
 - `F = (VE − dette nette + actifs financiers) / actions`, avec un plancher à
-  la valeur liquidative.
+  la valeur liquidative puis à `stockMarket.minPrice` (> 0). Le cours est
+  aussi borné à `minPrice` : `ln(F/P)` reste toujours fini.
 
 **Formation du cours** :
 

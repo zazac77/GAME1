@@ -147,7 +147,7 @@ interface GameState {
   meta: {
     schemaVersion: number; seed: number; rng: RngState;
     turn: Quarter; mode: GameMode; status: 'running' | 'won' | 'lost';
-    playerActorId: Id;
+    playerActorId: Id;           // sim-cli : joueur en pilote automatique (profil IA ou passif), mode 'sandbox' (pas de 'lost')
   };
   config: GameConfig;                              // config effective figée
   macro: MacroState;                               // cycle, inflation, taux directeur
@@ -236,7 +236,8 @@ interface Statements {
 interface StockMarketState {
   quotes: Record<Id, Quote>;                       // cours, historique, cours de référence
   index: { value: number; history: number[] };
-  registry: Record<Id, Record<HolderId, number>>;  // société → (détenteur → nb d'actions) ; HolderId = Id société | 'public'
+  registry: Record<Id, Record<HolderId, number>>;  // société → (détenteur → nb d'actions) ; HolderId = Id société | Id acteur | 'public'
+                                                   // l'acteur détient en direct sa société de tête (score = cours × ces actions)
   orders: StockOrder[];                            // ordres du tour (exécutés en fin de tour)
   tenderOffers: TenderOffer[];                     // OPA en cours
 }
@@ -306,8 +307,8 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | 8 | `products` + `perishability` | Référencement (agro) → demande totale → parts de marché (logit) → ventes limitées par les stocks → report de la demande insatisfaite → marque ; puis pertes des stocks périssables. Tech : nouveaux abonnés (logit) → churn → abonnés facturés → cloud consommé |
 | 9 | `rnd` | Avance la frontière technologique (tech) ; avancement des projets (budget, ou développeurs en tech), niveau technologique, obsolescence |
 | 10 | `accounting` | Compte de résultat, impôt, intérêts, amortissements, stockage → trésorerie → bilan ; contrôle de solvabilité |
-| 11 | `stockmarket` | Valeur fondamentale → cours (avec impact des ordres) → exécution des ordres → registre → seuils et OPA |
-| 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs, OPA amicales), changements de contrôle, réévaluation des participations, sociétés mises en vente ; synergies, coûts de complexité, consolidation (phase 3) |
+| 11 | `stockmarket` | Valeur fondamentale (sur les comptes publiés) → cours (avec impact des ordres) → exécution des ordres → registre → indice → juste valeur des actifs financiers. Les achats/ventes d'actions et la réévaluation sont **passés dans les états du trimestre** clos à l'étape 10 (trésorerie, actifs financiers, flux d'investissement, résultat financier) |
+| 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs, OPA amicales), changements de contrôle, réévaluation des participations, sociétés mises en vente ; synergies, coûts de complexité, consolidation (phase 3). Comme l'étape 11, écrit ses mouvements dans les états du trimestre ; les invariants comptables sont vérifiés après l'étape 13 |
 | 13 | `victory` + `reporting` | KPI, historique, journal, rapport de tour, conditions de fin |
 
 ## 8. Configuration et équilibrage
@@ -330,7 +331,9 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 
 ## 9. Sauvegarde et chargement
 
-- Le format est `SaveFile = { schemaVersion, engineVersion, savedAt, state }`
+- Le format est `SaveFile = { schemaVersion, engineVersion, savedAt: string | null, state }`
+  (`savedAt` est fourni par l'appelant via `serializeGame(state, { savedAt })` :
+  le moteur n'utilise jamais `Date`)
   (l'état contient déjà la config et l'état du RNG).
 - Dans le navigateur : IndexedDB avec plusieurs slots, autosave à chaque fin
   de tour (rotation sur les 3 derniers) et export/import d'un fichier

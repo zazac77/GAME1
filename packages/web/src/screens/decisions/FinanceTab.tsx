@@ -94,6 +94,7 @@ export function FinanceTab() {
           )}
         </Card>
       </div>
+      <CapitalCard />
       <Card title={t.stockOrders}>
         <p className="mb-2 text-sm text-slate-600">{fr.bourse.orderHint}</p>
         <Table
@@ -151,5 +152,97 @@ export function FinanceTab() {
         </Table>
       </Card>
     </div>
+  );
+}
+
+/** Equity transactions: dividend, capital increase, buyback, public offering. */
+function CapitalCard() {
+  const view = useGame((s) => s.view);
+  const draft = useGame((s) => s.draft);
+  const edit = useGame((s) => s.editDraft);
+  const quotes = view?.costs?.capital;
+  if (!view || !draft || !quotes) return null;
+  const t = fr.capital;
+  const company = view.self.company;
+  const setFinance = (key: 'dividend' | 'issueShares' | 'buyback', v: number | undefined) =>
+    edit((d) => {
+      const x = key === 'dividend' ? (v ?? 0) : Math.floor(v ?? 0);
+      const rest = Object.fromEntries(
+        Object.entries(d.finance).filter(([k]) => k !== key),
+      ) as typeof d.finance;
+      d.finance = x > 0 ? { ...rest, [key]: x } : rest;
+    });
+  return (
+    <Card title={t.heading}>
+      <div className="grid gap-x-8 gap-y-3 text-sm md:grid-cols-2">
+        <label className="flex items-center justify-between gap-2">
+          <span>
+            {t.dividend}{' '}
+            <span className="text-slate-500">(max {fmtMoney(quotes.maxDividend)})</span>
+          </span>
+          <NumberField
+            ariaLabel={t.dividend}
+            min={0}
+            value={draft.finance.dividend ?? 0}
+            onChange={(v) => setFinance('dividend', v)}
+          />
+        </label>
+        {company.listed ? (
+          <>
+            <label className="flex items-center justify-between gap-2">
+              <span>
+                {t.issue}{' '}
+                <span className="text-slate-500">
+                  ({t.atPrice(fmtPrice(quotes.issuePrice))}, max {fmtInt(quotes.maxIssue)})
+                </span>
+              </span>
+              <NumberField
+                ariaLabel={t.issue}
+                min={0}
+                value={draft.finance.issueShares ?? 0}
+                onChange={(v) => setFinance('issueShares', v)}
+              />
+            </label>
+            <label className="flex items-center justify-between gap-2">
+              <span>
+                {t.buyback}{' '}
+                <span className="text-slate-500">
+                  ({t.atPrice(fmtPrice(quotes.buybackPrice))}, max {fmtInt(quotes.maxBuyback)})
+                </span>
+              </span>
+              <NumberField
+                ariaLabel={t.buyback}
+                min={0}
+                value={draft.finance.buyback ?? 0}
+                onChange={(v) => setFinance('buyback', v)}
+              />
+            </label>
+          </>
+        ) : quotes.ipo ? (
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={draft.finance.ipo === true}
+              onChange={(e) =>
+                edit((d) => {
+                  if (e.target.checked) d.finance.ipo = true;
+                  else delete d.finance.ipo;
+                })
+              }
+            />
+            <span>
+              {t.ipo(
+                fmtInt(quotes.ipo.newShares),
+                fmtPrice(quotes.ipo.pricePerShare),
+                fmtMoney(quotes.ipo.proceeds),
+              )}
+            </span>
+          </label>
+        ) : (
+          <p className="text-slate-500">{t.ipoUnavailable}</p>
+        )}
+      </div>
+      <p className="mt-3 text-xs text-slate-500">{t.hint}</p>
+    </Card>
   );
 }

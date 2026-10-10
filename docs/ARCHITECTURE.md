@@ -94,7 +94,7 @@ GAME1/
 │  │  └─ src/
 │  │     ├─ app/                  # routing, layout, thème
 │  │     ├─ store/                # zustand : partie courante + brouillon de décisions
-│  │     ├─ screens/              # Dashboard, Decisions, Markets, Competitors, Bourse, Group, TurnReport, Saves
+│  │     ├─ screens/              # Dashboard, Decisions, Markets, Competitors, Bourse, Deals, Group, TurnReport, Saves
 │  │     ├─ components/           # KPI tiles, tables, formulaires, alertes
 │  │     ├─ charts/
 │  │     ├─ persistence/          # IndexedDB, export/import
@@ -358,8 +358,9 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 (onglets Production & prix, RH, Achats, Investissements, Marketing & R&D,
 Finance & bourse), **Marchés** (travail par région et métier, matières
 premières, produits), **Concurrents** (vue partielle), **Bourse** (cotes,
-indice, portefeuille, ordres, OPA), **Groupe** (phase 2-3 : filiales,
-consolidé), **Rapport de tour** (récit de ce qui s'est passé, événements,
+indice, portefeuille, ordres), **Rachats & OPA** (pépites et concurrents,
+valorisation, audits, rachat de bloc, OPA amicale, financement), **Groupe**
+(phase 2 : filiales et qui les dirige ; phase 3 : consolidé), **Rapport de tour** (récit de ce qui s'est passé, événements,
 écarts entre prévu et réalisé), **Sauvegardes**.
 
 Pour suivre beaucoup d'indicateurs sans noyer le joueur :

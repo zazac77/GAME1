@@ -156,11 +156,17 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
       refDemand: 0,
     } satisfies CommodityMarket;
   }
+  // A market is sized for its reference number of starting companies.
+  const starting = (sector: SectorId): number =>
+    (scenario.playerSector === sector ? 1 : 0) +
+    scenario.aiCompetitors.filter((c) => c.sector === sector).length;
   for (const [marketId, m] of Object.entries(config.products.markets)) {
+    const companies = starting(m.sectorId);
+    const sizing = m.referenceCompanies && companies > 0 ? companies / m.referenceCompanies : 1;
     state.productMarkets[marketId] = {
       id: marketId,
       sectorId: m.sectorId,
-      baseVolume: m.baseVolume,
+      baseVolume: m.baseVolume * sizing,
       refPrice: m.refPrice,
       segments: m.segments.map((s) => ({ ...s })),
       lastResult: { shares: {}, demand: 0, allocated: {}, volume: 0, avgPrice: m.refPrice },

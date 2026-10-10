@@ -3,10 +3,13 @@ import { quarterLabel } from '../i18n/format';
 import { alertText, eventText, fr, issueText } from '../i18n/fr';
 import { Notice } from './ui';
 
-/** Company id → display name, from what the player can see. */
+/** Company (or listing) id → display name, from what the player can see. */
 export function companyNamer(view: PlayerView): (id: string) => string {
-  const names: Record<string, string> = { [view.companyId]: view.self.company.name };
+  const names: Record<string, string> = {};
+  for (const l of view.mna.listings) names[l.id] = l.name;
   for (const c of view.competitors) names[c.companyId] = c.name;
+  for (const c of view.groupCompanies) names[c.companyId] = c.name;
+  names[view.companyId] = view.self.company.name;
   return (id) => names[id] ?? id;
 }
 

@@ -194,6 +194,25 @@ describe('world generation', () => {
     expect(() => newGame(-3)).toThrow(/Seed/);
   });
 
+  it('sizes each product market for its starting companies', () => {
+    const base = (id: string) => defaultConfig.products.markets[id]?.baseVolume ?? 0;
+    // Default: the player and 3 AI in industry, 3 AI in agri and tech (the reference).
+    expect(state.productMarkets.mkt_appliances?.baseVolume).toBe(base('mkt_appliances'));
+    expect(state.productMarkets.mkt_food?.baseVolume).toBe(base('mkt_food'));
+    expect(state.productMarkets.mkt_software?.baseVolume).toBe(base('mkt_software'));
+    // A player in tech: 3 companies in industry, 4 in tech.
+    const tech = newGame(42, { scenario: { playerSector: 'tech' } });
+    expect(tech.productMarkets.mkt_appliances?.baseVolume).toBeCloseTo(
+      (base('mkt_appliances') * 3) / 4,
+    );
+    expect(tech.productMarkets.mkt_software?.baseVolume).toBeCloseTo(
+      (base('mkt_software') * 4) / 3,
+    );
+    expect(tech.productMarkets.mkt_food?.baseVolume).toBe(base('mkt_food'));
+    const player = tech.companies[tech.actors[tech.meta.playerActorId]?.rootCompanyId ?? ''];
+    expect(player?.sector).toBe('tech');
+  });
+
   it('supports up to 6 AI competitors per sector', () => {
     const big = newGame(5, {
       scenario: {

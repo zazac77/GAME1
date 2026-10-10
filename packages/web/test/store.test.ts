@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memoryBackend, SaveStore, exportJson, importJson } from '../src/persistence/saves';
+import { createGame } from '@game/engine';
 import { createGameStore } from '../src/store/game';
 
 const newStore = () => createGameStore(new SaveStore(memoryBackend()));
@@ -67,6 +68,90 @@ describe('game store', () => {
     expect(store.getState().preview?.companies[id]?.costs.rnd).toBe(before + 100_000);
     store.getState().resetDraft();
     expect(store.getState().draft?.rnd).toEqual([]);
+  });
+});
+
+describe('starting sector and group', () => {
+  it.each(['agri', 'tech'] as const)(
+    'starts a %s game and plays it through the store',
+    async (sector) => {
+      const store = newStore();
+      store.getState().newGame({
+        playerName: 'Camille Durand',
+        companyName: 'Durand',
+        seed: 11,
+        mode: 'standard',
+        sector,
+      });
+      const { view } = store.getState();
+      expect(view?.self.company.sector).toBe(sector);
+      if (sector === 'tech') expect(view?.costs?.tech).toBeDefined();
+      else expect(view?.costs?.farms).toBeDefined();
+      for (let q = 0; q < 8; q++) await store.getState().endTurn();
+      expect(store.getState().game?.meta.turn).toBe(8);
+      expect(store.getState().view?.status).toBe('running');
+    },
+  );
+
+  it('buys a company for sale, then runs the subsidiary or leaves it to its management', async () => {
+    const store = newStore();
+    // Companies for sale every quarter, and a cash-rich player (equity raised).
+    const game = createGame(
+      { seed: 3, playerName: 'Camille Durand', companyName: 'Durand', mode: 'standard' },
+      { mna: { listings: { arrivalProbability: 1 } } },
+    );
+    const own = game.companies[game.actors[game.meta.playerActorId]?.rootCompanyId ?? ''];
+    if (!own) throw new Error('no player company');
+    own.books.current.balance.cash += 30e6;
+    own.books.current.balance.equity += 30e6;
+    store.getState().loadGame(game);
+    // Wait for a company for sale the player can pay, then buy it.
+    let target: string | undefined;
+    for (let q = 0; q < 30 && !target; q++) {
+      const { view } = store.getState();
+      const cash = view?.self.company.books.current.balance.cash ?? 0;
+      const deal = view?.deals.find(
+        (d) => d.kind === 'listing' && (d.price ?? Infinity) < cash + d.debtCapacity,
+      );
+      if (deal) {
+        target = deal.targetId;
+        const debt = Math.max(0, Math.min(deal.debtCapacity, (deal.price ?? 0) - cash / 2));
+        store.getState().editDraft((d) => {
+          d.mna = [{ kind: 'private_purchase', targetId: deal.targetId, debt }];
+        });
+        expect(store.getState().draft?.mna).toHaveLength(1);
+      }
+      await store.getState().endTurn();
+    }
+    expect(target).toBeDefined();
+    const { view } = store.getState();
+    const sub = view?.groupCompanies.find((c) => !c.isRoot);
+    expect(sub).toBeDefined();
+    if (!sub) return;
+    expect(sub.stake).toBe(1);
+
+    // Left to its management: no draft; the player takes it over.
+    store.getState().selectCompany(sub.companyId);
+    expect(store.getState().view?.companyId).toBe(sub.companyId);
+    expect(store.getState().draft).toBeNull();
+    store.getState().setManaged(sub.companyId, true);
+    expect(store.getState().draft?.companyId).toBe(sub.companyId);
+    expect(store.getState().preview?.companies[sub.companyId]).toBeDefined();
+    store.getState().editDraft((d) => {
+      d.marketing = Object.fromEntries(Object.keys(d.pricing).map((id) => [id, 12_345]));
+    });
+    await store.getState().endTurn();
+    const after = store.getState();
+    // The subsidiary stays managed and shown; its decisions were the player's.
+    expect(after.activeCompanyId).toBe(sub.companyId);
+    expect(Object.keys(after.drafts)).toContain(sub.companyId);
+    const last = after.game?.companies[sub.companyId]?.lastDecisions;
+    expect(Object.values(last?.marketing ?? {})).toContain(12_345);
+
+    store.getState().setManaged(sub.companyId, false);
+    expect(store.getState().draft).toBeNull();
+    store.getState().selectCompany(view?.companyId ?? '');
+    expect(store.getState().draft?.companyId).toBe(view?.companyId);
   });
 });
 

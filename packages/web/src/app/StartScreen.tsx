@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { GameMode } from '@game/engine';
+import type { GameMode, SectorId } from '@game/engine';
 import { SaveBrowser } from '../components/SaveBrowser';
 import { Button, Card, NumberField, Select } from '../components/ui';
 import { fr } from '../i18n/fr';
@@ -7,10 +7,13 @@ import { useGame } from '../store/game';
 
 const randomSeed = () => Math.floor(Math.random() * 0xffffffff);
 
+const SECTORS: SectorId[] = ['industry', 'agri', 'tech'];
+
 export function StartScreen() {
   const newGame = useGame((s) => s.newGame);
   const [playerName, setPlayerName] = useState(fr.start.defaultPlayer);
-  const [companyName, setCompanyName] = useState(fr.start.defaultCompany);
+  const [sector, setSector] = useState<SectorId>('industry');
+  const [companyName, setCompanyName] = useState<string>(fr.start.defaultCompanies.industry);
   const [seed, setSeed] = useState(randomSeed);
   const [mode, setMode] = useState<GameMode>('standard');
 
@@ -25,9 +28,49 @@ export function StartScreen() {
           className="grid gap-4 sm:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
-            newGame({ playerName, companyName, seed: seed >>> 0, mode });
+            newGame({ playerName, companyName, seed: seed >>> 0, mode, sector });
           }}
         >
+          <fieldset className="space-y-2 text-sm sm:col-span-2">
+            <legend className="mb-1 text-slate-600">{fr.start.sector}</legend>
+            <div className="grid gap-3 md:grid-cols-3">
+              {SECTORS.map((id) => {
+                const info = fr.start.sectors[id];
+                const checked = id === sector;
+                return (
+                  <label
+                    key={id}
+                    className={`cursor-pointer rounded-lg border p-3 ${
+                      checked ? 'border-sky-500 bg-sky-50' : 'border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 font-semibold">
+                      <input
+                        type="radio"
+                        name="sector"
+                        value={id}
+                        checked={checked}
+                        onChange={() => {
+                          // Keep a name the player typed; swap only the suggested one.
+                          if (companyName === fr.start.defaultCompanies[sector]) {
+                            setCompanyName(fr.start.defaultCompanies[id]);
+                          }
+                          setSector(id);
+                        }}
+                      />
+                      {info.title}
+                    </span>
+                    <span className="mt-1 block text-slate-600">{info.pitch}</span>
+                    <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-slate-500">
+                      {info.traits.map((t) => (
+                        <li key={t}>{t}</li>
+                      ))}
+                    </ul>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
           <label className="space-y-1 text-sm">
             <span className="block text-slate-600">{fr.start.playerName}</span>
             <input

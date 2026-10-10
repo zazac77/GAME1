@@ -20,8 +20,23 @@ export function Decisions() {
   const [tab, setTab] = useState<TabId>('production');
   const draft = useGame((s) => s.draft);
   const resetDraft = useGame((s) => s.resetDraft);
+  const view = useGame((s) => s.view);
+  const setManaged = useGame((s) => s.setManaged);
   // No decisions once the game is over (bankruptcy).
-  if (!draft) return <Notice severity="critical">{fr.app.gameLost}</Notice>;
+  if (!view || view.status !== 'running') {
+    return <Notice severity="critical">{fr.app.gameLost}</Notice>;
+  }
+  // A subsidiary left to its management in place.
+  if (!draft) {
+    return (
+      <div className="space-y-3">
+        <Notice severity="info">{fr.deals.noDraft}</Notice>
+        <Button variant="primary" onClick={() => setManaged(view.companyId, true)}>
+          {fr.group.takeOver}
+        </Button>
+      </div>
+    );
+  }
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="min-w-0 space-y-3">

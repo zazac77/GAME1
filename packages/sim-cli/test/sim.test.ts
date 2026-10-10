@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { firstSustained, gameMetrics, median, std, summarize } from '../src/metrics';
-import { formatSummary, toCsv } from '../src/report';
+import { formatCrossSector, formatSummary, toCsv } from '../src/report';
 import { runGame } from '../src/run';
 
 describe('sim-cli', () => {
@@ -68,4 +68,26 @@ describe('sim-cli', () => {
       expect(passive.playerRank).toBeGreaterThan(1);
     }
   }, 60_000);
+
+  // Lot 2.5: the player can start in any sector.
+  it.each(['agri', 'tech'] as const)(
+    'plays games with a player starting in %s',
+    (sector) => {
+      const overrides = { scenario: { playerSector: sector } };
+      const games = [21, 22, 23].map((seed) =>
+        gameMetrics(runGame({ seed, turns: 16, player: 'opportunist', overrides })),
+      );
+      const summary = summarize(games);
+      expect(summary.errors).toBe(0);
+      expect(games.flatMap((g) => g.sanityViolations)).toEqual([]);
+      expect(
+        games.every((g) => g.companies.find((c) => c.kind === 'player')?.sector === sector),
+      ).toBe(true);
+      expect(summary.bySector[sector]?.companies).toBe(12); // the player and 3 AI, 3 games
+      const table = formatCrossSector([{ sector, summary }]);
+      expect(table).toContain(sector);
+      expect(table).toContain(`${summary.playerFirst}/3`);
+    },
+    60_000,
+  );
 });

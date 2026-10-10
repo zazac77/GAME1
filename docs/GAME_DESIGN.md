@@ -933,3 +933,82 @@ Limites connues, pour le lot 2.5 :
 - les pépites rachetées par l'IA perdent souvent de l'argent (marge médiane
   négative pour les profils innovateurs, petite taille et coûts fixes) ;
 - le taux global de faillite des IA reste sous la cible de 5 %.
+
+## 21. Choix d'implémentation (lot 2.5 : interface et équilibrage multi-secteurs)
+
+- **Secteur de départ** : l'écran de nouvelle partie propose industrie,
+  agroalimentaire ou technologie (`scenario.playerSector`, passé en override
+  à `createGame`). Le joueur et 3 IA occupent son secteur, 3 IA chacun des
+  deux autres.
+- **Marchés dimensionnés** : `products.markets.<id>.referenceCompanies`
+  (facultatif) donne le nombre de sociétés de départ pour lequel `baseVolume`
+  est calé (électroménager 4, alimentaire 3, logiciel 3). À la génération, le
+  volume est multiplié par `sociétés de départ du secteur / référence` : un
+  joueur en agro ou en tech ne prend plus sa place aux IA, et l'industrie sans
+  joueur perd un quart de son volume. La partie par défaut est inchangée
+  (seul le hash du golden bouge, la configuration effective faisant partie de
+  l'état ; aucune migration : le champ est facultatif et ne sert qu'à la
+  génération).
+- **Interface** (`packages/web`, aucune règle de jeu) :
+  - décisions adaptées au secteur : en tech, prix par abonné, abonnés, churn
+    et frontière ; bureaux (places libres) au lieu d'usines ; R&D en
+    développeurs (plateforme et versions) ; en agro, achat d'exploitations
+    (terres restantes par région) et frais de référencement (présence en
+    rayon). L'aperçu montre les abonnés attendus en tech ;
+  - opérations sur capital dans l'onglet Finance (dividende, augmentation de
+    capital, rachat d'actions, introduction en bourse), bornées par
+    `PlayerCosts.capital` ;
+  - écran **Rachats & OPA** : pépites et autres sociétés avec chiffres
+    (estimés, publiés ou audités), dette nette, fourchette de valeur, prix ou
+    prime demandés ; audit en un clic ; offre (rachat de 100 % d'une pépite,
+    bloc de contrôle ou OPA amicale) avec prix par action, dette d'acquisition
+    et part payée en actions ; ajustements de la validation et OPA récentes ;
+  - écran **Groupe** (version simple) : sociétés contrôlées, détenteur, part,
+    valeur, coût, CA, résultat, trésorerie, fonds propres, intégration en
+    cours ; sommes non consolidées. Chaque filiale est **gérée par sa
+    direction en place** (le planner, lot 2.4) ou **reprise en main** : le
+    store garde alors un brouillon par société (`drafts`) et les soumet tous
+    à `resolveTurn` ; un sélecteur dans l'en-tête change la société affichée
+    (`getPlayerView(state, companyId)`).
+- **sim-cli** : `--sector all` enchaîne une campagne par secteur de départ et
+  termine par un tableau croisé ; chaque secteur donne la médiane des parts
+  de marché max et le nombre de parties au-dessus de 60 %.
+
+Équilibrage croisé mesuré avec `npm run sim -- --games 50 --turns 40 --sector
+all` (seeds 1 à 50, joueur en pilote automatique opportuniste) :
+
+| Secteur de départ | Faillite des IA | Marge médiane | Joueur 1er / rang médian | Part max ind. / agro / tech (médiane, parties > 60 %) |
+|---|---|---|---|---|
+| Industrie | 3,8 % | 6,0 % | 0/50, 3 | 48,0 (37,3 ; 0) / 55,1 (42,1 ; 0) / 46,5 (40,9 ; 0) % |
+| Agroalimentaire | 4,7 % | 5,7 % | 9/50, 2 | 66,9 (44,3 ; 7) / 44,5 (33,9 ; 0) / 46,1 (40,8 ; 0) % |
+| Technologie | 3,6 % | 6,1 % | 14/50, 2 | 69,7 (45,7 ; 11) / 66,5 (42,2 ; 2) / 38,8 (34,8 ; 0) % |
+
+Autres mesures (50 parties chacune) : joueur passif jamais premier en agro ni
+en tech (rang médian 4) ; joueur « premium » en pilote automatique en tête
+dans 19/50 parties en industrie (tour 13), 4/50 en agro, 3/50 en tech.
+Effet du dimensionnement (joueur tech, mêmes seeds, dimensionnement neutralisé
+par override) : joueur premier 21/50 → 14/50 ; faillite des IA 2,4 → 3,6 %
+(industrie 4,0 → 8,7 %, le marché sans joueur étant plus petit) ; parties où
+l'électroménager dépasse 60 % : 5 → 11 (toujours un duopole après la faillite
+du low-cost). Salaires réels
++7 à +9 %, volatilité des matières ~12 %, des cours ~13 %, sans erreur ni
+violation des bornes.
+
+Variantes essayées et écartées (joueur industriel) : marge du low-cost tech à
+0 % (`priceMarkup`) : marge 2,1 %, toujours aucune faillite ; départ tech plus
+endetté (dette 8 à 10 M€) : quelques faillites tech, mais le cours initial
+(12 × la valeur comptable) devient très inférieur à la valeur fondamentale et
+sort des bornes de sanité dès le 4e trimestre.
+
+Limites connues, pour la phase 3 :
+- le taux global de faillite des IA reste juste sous la cible (3,6 à 4,7 %) :
+  une société SaaS peu endettée ne fait pas faillite, même sans marge ;
+- quand le joueur quitte l'industrie, le marché de l'électroménager n'a plus
+  que 3 sociétés ; si le low-cost fait faillite (20 à 26 %), le duopole
+  restant dépasse 60 % de parts (7 à 11 parties sur 50, toujours après cette
+  faillite). Piste : faire entrer une pépite du secteur appauvri ;
+- un joueur tech « prend la tête » dès les premiers trimestres (mesure de
+  sim-cli, cf. lot 2.2), et le pilote premium, simple approximation d'un
+  joueur attentif, mène rarement en agro et en tech ;
+- l'IA ne lance toujours pas d'OPA (elle préfère le bloc) et les pépites
+  rachetées restent souvent déficitaires.

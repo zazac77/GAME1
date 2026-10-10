@@ -236,6 +236,12 @@ const productMarketSchema = z.strictObject({
   sectorId,
   /** Quarterly volume at the reference price, before seasonality and cycle. */
   baseVolume: pos,
+  /**
+   * Starting companies baseVolume is sized for: at generation the volume is
+   * scaled by (starting companies of the sector) / referenceCompanies, so a
+   * player choosing this sector does not crowd it (absent: no scaling).
+   */
+  referenceCompanies: posInt.optional(),
   refPrice: pos,
   /** ε_market: price elasticity of total demand. */
   priceElasticity: nonNeg,

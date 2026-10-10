@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Button, Notice } from '../components/ui';
+import { Button, Notice, Select } from '../components/ui';
 import { fmtMoney, quarterLabel } from '../i18n/format';
 import { fr } from '../i18n/fr';
 import { Bourse } from '../screens/Bourse';
 import { Competitors } from '../screens/Competitors';
 import { Dashboard } from '../screens/Dashboard';
+import { Deals } from '../screens/Deals';
+import { Group } from '../screens/Group';
 import { Decisions } from '../screens/decisions/Decisions';
 import { Markets } from '../screens/Markets';
 import { Saves } from '../screens/Saves';
@@ -17,6 +19,8 @@ const SCREENS: { id: ScreenId; label: string }[] = [
   { id: 'markets', label: fr.nav.markets },
   { id: 'competitors', label: fr.nav.competitors },
   { id: 'bourse', label: fr.nav.bourse },
+  { id: 'deals', label: fr.nav.deals },
+  { id: 'group', label: fr.nav.group },
   { id: 'report', label: fr.nav.report },
   { id: 'saves', label: fr.nav.saves },
 ];
@@ -28,10 +32,14 @@ export function Layout() {
   const endTurn = useGame((s) => s.endTurn);
   const quit = useGame((s) => s.quit);
   const storageError = useGame((s) => s.storageError);
+  const selectCompany = useGame((s) => s.selectCompany);
   const [busy, setBusy] = useState(false);
   if (!view) return null;
 
   const running = view.status === 'running';
+  const group = view.groupCompanies.filter(
+    (c) => c.status === 'active' || c.status === 'distressed',
+  );
   const gameTurns = view.config.time.standardGameTurns;
   const over = view.mode === 'standard' && view.turn >= gameTurns;
   const onEndTurn = async () => {
@@ -50,7 +58,20 @@ export function Layout() {
       <header className="sticky top-0 z-10 flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-4 py-2 shadow-sm">
         <div>
           <div className="text-xs uppercase tracking-wide text-slate-500">{fr.app.title}</div>
-          <div className="font-semibold">{view.self.company.name}</div>
+          {group.length > 1 ? (
+            <Select
+              ariaLabel={fr.app.activeCompany}
+              className="font-semibold"
+              value={view.companyId}
+              onChange={selectCompany}
+              options={group.map((c) => ({
+                value: c.companyId,
+                label: c.isRoot ? c.name : `${c.name} (${fr.app.subsidiary})`,
+              }))}
+            />
+          ) : (
+            <div className="font-semibold">{view.self.company.name}</div>
+          )}
         </div>
         <div className="text-sm">
           <span className="text-slate-500">{fr.app.quarter} </span>
@@ -116,6 +137,8 @@ export function Layout() {
           {screen === 'markets' && <Markets />}
           {screen === 'competitors' && <Competitors />}
           {screen === 'bourse' && <Bourse />}
+          {screen === 'deals' && <Deals />}
+          {screen === 'group' && <Group />}
           {screen === 'report' && <TurnReportScreen />}
           {screen === 'saves' && <Saves />}
         </main>

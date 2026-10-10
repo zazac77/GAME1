@@ -16,7 +16,7 @@ export function formatSummary(s: Summary, turns: number): string {
     'Par secteur :',
     ...Object.entries(s.bySector).map(
       ([sector, v]) =>
-        `  ${sector.padEnd(18)} ${String(v.companies).padStart(4)} sociétés, faillite des IA ${pct(v.aiBankruptcyRate).padStart(7)}, marge médiane ${pct(v.medianNetMargin)}, part de marché max ${pct(v.maxMarketShare)}`,
+        `  ${sector.padEnd(18)} ${String(v.companies).padStart(4)} sociétés, faillite des IA ${pct(v.aiBankruptcyRate).padStart(7)}, marge médiane ${pct(v.medianNetMargin)}, part de marché max ${pct(v.maxMarketShare)} (médiane ${pct(v.medianMaxMarketShare)}, > 60 % dans ${v.gamesAbove60} parties)`,
     ),
     'Par profil :',
     ...Object.entries(s.byProfile).map(
@@ -30,6 +30,39 @@ export function formatSummary(s: Summary, turns: number): string {
     ),
     `Rachats (par partie) : ${s.deals.takeovers.toFixed(2)} prises de contrôle (joueur ${s.deals.byPlayer.toFixed(2)} ; pépites ${s.deals.listings.toFixed(2)}, blocs ${s.deals.blocks.toFixed(2)}, OPA ${s.deals.tenderOffers.toFixed(2)}), ${s.deals.failed.toFixed(2)} échecs`,
     `Opérations sur capital (par partie) : ${s.deals.dividends.toFixed(1)} dividendes, ${s.deals.issues.toFixed(2)} augmentations de capital, ${s.deals.buybacks.toFixed(2)} rachats d’actions, ${s.deals.ipos.toFixed(2)} introductions en bourse`,
+  ];
+  return lines.join('\n');
+}
+
+/** Cross-sector balancing: one line per starting sector of the player (--sector all). */
+export function formatCrossSector(rows: readonly { sector: string; summary: Summary }[]): string {
+  const sectors = [...new Set(rows.flatMap((r) => Object.keys(r.summary.bySector)))].sort();
+  const lines = [
+    'Équilibrage croisé (une campagne par secteur de départ du joueur) :',
+    `  ${'départ'.padEnd(9)} ${'faill. IA'.padStart(9)} ${'marge'.padStart(7)} ${'joueur 1er'.padStart(10)} ${'rang'.padStart(5)} ${'en tête'.padStart(8)}  ${sectors.map((s) => `part max ${s} (méd., > 60 %)`).join('  ')}`,
+    ...rows.map(({ sector, summary: s }) =>
+      [
+        `  ${sector.padEnd(9)}`,
+        pct(s.aiBankruptcyRate).padStart(9),
+        pct(s.medianNetMargin).padStart(7),
+        `${s.playerFirst}/${s.games}`.padStart(10),
+        String(s.medianPlayerRank).padStart(5),
+        `${s.playerLeads}/${s.games}`.padStart(8),
+        ' ' +
+          sectors
+            .map((x) => {
+              const v = s.bySector[x];
+              return v
+                ? `${pct(v.maxMarketShare)} (${pct(v.medianMaxMarketShare)}, ${v.gamesAbove60})`.padEnd(
+                    `part max ${x} (méd., > 60 %)`.length,
+                  )
+                : '—';
+            })
+            .join('  '),
+      ]
+        .join(' ')
+        .trimEnd(),
+    ),
   ];
   return lines.join('\n');
 }

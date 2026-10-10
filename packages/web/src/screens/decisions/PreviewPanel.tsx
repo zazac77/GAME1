@@ -15,10 +15,20 @@ export function PreviewPanel() {
       <Card title={t.preview}>
         {p && (
           <div data-testid="preview">
-            <Stat label={t.outputCeiling} value={fmtInt(p.outputCeiling)} />
-            <Stat label={t.plannedOutput} value={fmtInt(p.plannedOutput)} />
-            <Stat label={t.expectedDemand} value={fmtInt(p.expectedDemand)} />
-            <Stat label={t.expectedSold} value={fmtInt(p.expectedUnitsSold)} />
+            {p.expectedUsers !== undefined ? (
+              <>
+                <Stat label={t.serviceCeiling} value={fmtInt(p.outputCeiling)} />
+                <Stat label={t.expectedBilled} value={fmtInt(p.expectedUnitsSold)} />
+                <Stat label={t.expectedUsers} value={fmtInt(p.expectedUsers)} />
+              </>
+            ) : (
+              <>
+                <Stat label={t.outputCeiling} value={fmtInt(p.outputCeiling)} />
+                <Stat label={t.plannedOutput} value={fmtInt(p.plannedOutput)} />
+                <Stat label={t.expectedDemand} value={fmtInt(p.expectedDemand)} />
+                <Stat label={t.expectedSold} value={fmtInt(p.expectedUnitsSold)} />
+              </>
+            )}
             <Stat label={t.expectedRevenue} value={fmtMoney(p.expectedRevenue)} strong />
             <Stat label={t.expectedEbitda} value={fmtMoney(p.expectedEbitda)} strong />
             <details className="my-2 text-sm">
@@ -34,6 +44,12 @@ export function PreviewPanel() {
             {p.borrowing > 0 && <Stat label={t.borrowing} value={fmtMoney(p.borrowing)} />}
             {p.repayment > 0 && <Stat label={t.repayment} value={fmtMoney(p.repayment)} />}
             {p.installments > 0 && <Stat label={t.installments} value={fmtMoney(p.installments)} />}
+            {p.equity !== 0 && <Stat label={t.equityFlows} value={fmtMoney(p.equity)} />}
+            {p.mnaCosts > 0 && <Stat label={t.mnaCosts} value={fmtMoney(p.mnaCosts)} />}
+            {p.acquisitions > 0 && <Stat label={t.acquisitions} value={fmtMoney(p.acquisitions)} />}
+            {p.acquisitionDebt > 0 && (
+              <Stat label={t.acquisitionDebt} value={fmtMoney(p.acquisitionDebt)} />
+            )}
             <Stat label={t.expectedCash} value={fmtMoney(p.expectedCashEnd)} strong />
             {p.overdraftRisk && (
               <div className="mt-2">
@@ -44,7 +60,7 @@ export function PreviewPanel() {
         )}
       </Card>
       <Card title={t.issues}>
-        <IssueList issues={preview.issues} />
+        <IssueList issues={preview.issues.filter((i) => i.companyId === view.companyId)} />
       </Card>
     </div>
   );

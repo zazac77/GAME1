@@ -259,6 +259,7 @@ export const defaultConfig: GameConfig = {
       mkt_appliances: {
         sectorId: 'industry',
         baseVolume: 90000,
+        referenceCompanies: 4, // the player and 3 AI
         // About the full cost of a starting firm at 85 % utilization + a mid markup:
         // the market opens near its equilibrium instead of drifting up by a third.
         refPrice: 365,
@@ -296,6 +297,7 @@ export const defaultConfig: GameConfig = {
       mkt_food: {
         sectorId: 'agri',
         baseVolume: 180000,
+        referenceCompanies: 3, // 3 AI (one more when the player starts in agrifood)
         refPrice: 160,
         priceElasticity: 0.4,
         seasonality: [1.0, 0.96, 0.97, 1.07],
@@ -331,6 +333,7 @@ export const defaultConfig: GameConfig = {
       mkt_software: {
         sectorId: 'tech',
         baseVolume: 15000,
+        referenceCompanies: 3, // 3 AI (one more when the player starts in tech)
         refPrice: 120,
         priceElasticity: 0.8,
         seasonality: [1.05, 1.0, 0.9, 1.05],

@@ -299,7 +299,11 @@ export interface Summary {
   medianShareVolatility: number;
   maxMarketShare: number;
   medianMaxMarketShare: number;
-  /** By sector: bankruptcies of the AI, median net margin of every company, largest market share. */
+  /**
+   * By sector: bankruptcies of the AI, median net margin of every company,
+   * largest market share (over all games, median of the games) and games where
+   * a company of the sector went above 60 %.
+   */
   bySector: Record<
     string,
     {
@@ -307,6 +311,8 @@ export interface Summary {
       aiBankruptcyRate: number;
       medianNetMargin: number;
       maxMarketShare: number;
+      medianMaxMarketShare: number;
+      gamesAbove60: number;
     }
   >;
   /** Games the player ends first by equity gain. */
@@ -339,12 +345,17 @@ export function summarize(games: readonly GameMetrics[]): Summary {
   for (const sector of [...new Set(all.map((c) => c.sector))].sort()) {
     const cs = all.filter((c) => c.sector === sector);
     const ai = cs.filter((c) => c.kind === 'ai');
+    const perGame = games.map((g) =>
+      Math.max(0, ...g.companies.filter((c) => c.sector === sector).map((c) => c.maxMarketShare)),
+    );
     bySector[sector] = {
       companies: cs.length,
       aiBankruptcyRate:
         ai.length > 0 ? ai.filter((c) => c.status === 'bankrupt').length / ai.length : 0,
       medianNetMargin: median(cs.map((c) => c.netMargin)),
       maxMarketShare: Math.max(0, ...cs.map((c) => c.maxMarketShare)),
+      medianMaxMarketShare: median(perGame),
+      gamesAbove60: perGame.filter((x) => x > 0.6).length,
     };
   }
   const aiMoves: Summary['aiMoves'] = {};

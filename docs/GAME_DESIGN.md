@@ -1454,5 +1454,25 @@ Limites connues, pour le lot 3.5 :
   va au bout) ; le rapport compte les événements par partie et, pour un mode à
   objectif, les parties gagnées et perdues.
 
-Les mesures `sim-cli` du lot sont ajoutées dans le commit suivant.
+Équilibrage mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50,
+joueur en pilote automatique opportuniste sauf mention) :
+
+| Indicateur (50 parties) | Lot 3.3 | Lot 3.4 |
+|---|---|---|
+| Faillite des IA | 3,6 % | 4,0 % |
+| Marge nette médiane | 6,0 % | 6,2 % |
+| Volatilité des matières / des cours | 12,3 / 13,2 % | 12,6 / 13,2 % |
+| Part de marché max (médiane) | – | 52,9 % (43,6 %) |
+| Événements par partie | ≈ 6 | ≈ 14 |
+
+Objectifs (normal) : capitalisation gagnée par le pilote automatique dans 1
+partie sur 50, par le joueur passif dans 0 ; domination dans 3 sur 50. Les
+objectifs restent donc hors de portée d'une conduite moyenne, ce qui est voulu
+(un joueur passif ne gagne pas). Le krach (0,26 par partie) et les nouveaux
+événements rapprochent la faillite des IA de la cible de 5 %.
+
+Limites connues, pour le lot 3.5 : survie et conglomérat ne sont pas encore
+mesurés par sim-cli (l'IA du joueur ne diversifie pas assez pour le
+conglomérat) ; la cible de capitalisation et le seuil de domination seront
+recalés sur des parties jouées.
 

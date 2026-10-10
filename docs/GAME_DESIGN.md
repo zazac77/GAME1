@@ -108,7 +108,7 @@ de consommateurs (par exemple « prix », poids 60 %, et « qualité », poids
 ```
 U_ik = −βp_k · ln(prix_i / prixRéf) + βq_k · qualité_i + βb_k · marque_i
        + βm_k · ln(1 + marketing_i/marketingUnit) + βd · distribution_i
-       (+ βn · ln(1 + users_i) + βt · (niveauTechno_i − frontière) en tech)
+       (+ βn · ln(1 + users_i/networkUnit) + βt · (niveauTechno_i − frontière) en tech)
 part_ik = exp(U_ik) / (exp(U_0k) + Σ_j exp(U_jk))
 ```
 

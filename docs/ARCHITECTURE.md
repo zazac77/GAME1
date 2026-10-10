@@ -153,7 +153,7 @@ interface GameState {
     difficulty: 'easy' | 'normal' | 'hard';   // preset déjà appliqué à la config
     playerActorId: Id;           // sim-cli : joueur en pilote automatique (profil IA ou passif), mode 'sandbox' (pas de 'lost')
   };
-  config: GameConfig;                              // config effective figée
+  config: GameConfig;                              // config effective figée (nouvelle clé ⇒ schemaVersion + migration, cf. §9)
   macro: MacroState;                               // cycle, inflation, taux directeur
   regions: Record<Id, Region>;
   labor: Record<LaborPoolKey, LaborPool>;          // clé `${regionId}:${occupationId}`
@@ -231,7 +231,7 @@ interface ProductMarket {
 
 // ---- finance & bourse --------------------------------------------------
 interface Books {
-  current: Statements; history: Statements[];      // un élément par trimestre
+  current: Statements; history: Statements[];      // un par trimestre, borné à reporting.historyMaxLength
   consolidated?: ConsolidatedStatements[];         // têtes de groupe avec filiale (lot 3.1)
 }
 interface Statements {
@@ -300,7 +300,7 @@ getPlayerView(state: GameState): PlayerView           // ce que l'UI affiche (vi
 validateDecisions(state: GameState, d: CompanyDecisions[]): ValidationIssue[]
 previewDecisions(state: GameState, d: CompanyDecisions[]): DecisionPreview  // estimations sans aléa
 defaultDecisions(state: GameState, companyId: Id): CompanyDecisions          // « reconduire le tour précédent »
-serializeGame(state): SaveFile ; deserializeGame(file): GameState   // + migrations
+serializeGame(state, { savedAt? }): SaveFile ; deserializeGame(file): GameState   // + migrations
 ```
 
 `resolveTurn` appelle en interne le planner IA pour chaque acteur IA. L'UI
@@ -362,6 +362,10 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 - Dans le navigateur : IndexedDB avec plusieurs slots, autosave à chaque fin
   de tour (rotation sur les 3 derniers) et export/import d'un fichier
   `.json`.
+- La config faisant partie de l'état, chaque nouvelle clé de config
+  incrémente `schemaVersion` ; la migration se contente de compléter
+  `state.config` avec la valeur de `config/default.ts` (`x ??= défaut`),
+  sans autre transformation.
 - `persistence/migrations/` contient une fonction par incrément de
   `schemaVersion`, et des tests chargent des sauvegardes d'anciennes
   versions.

@@ -14,7 +14,11 @@
 - **Inflation** : AR(1) autour de `macro.inflationTarget`. Elle indexe les
   salaires de référence et les prix mondiaux.
 - **Taux directeur** : suit une règle de Taylor simplifiée
-  `r = r* + a·(π − π*) + b·(croissance − tendance)`, lissée. Elle sert au
+  `r = r_n + a·(π − π*) + b·(croissance − tendance)`, lissée et bornée par
+  `policyRate.floor`. `r_n` (`policyRate.neutral`) est le taux neutre
+  **nominal** (taux réel neutre + π*) ; avec `a = 1,5`, c'est la règle de
+  Taylor usuelle `r* + π + 0,5·(π − π*)` réécrite. Les taux sont annuels ;
+  les formules par tour utilisent π/4. Elle sert au
   coût de la dette, à l'actualisation et aux multiples boursiers.
 
 ## 2. Marché du travail (par région × métier)
@@ -31,7 +35,10 @@ embauche massive se voit donc sur les salaires sans vider le pays.
 **Appariement** (fonction de Cobb-Douglas) :
 `embauches_totales = min(V, U, μ · U^α · V^(1−α))`, où V = Σ postes ouverts.
 Ces embauches sont réparties entre les entreprises au prorata de
-`postes_i · (salaireOffert_i / salaireMarché)^ε_w · f(employerBrand_i)`.
+`postes_i · (salaireOffert_i / salaireMarché)^ε_w · f(employerBrand_i)`,
+**plafonnées à `postes_i`** : l'excédent d'une entreprise servie est
+redistribué aux autres selon les mêmes poids (`allocateHires`). Aucune
+entreprise n'embauche plus que les postes qu'elle a ouverts.
 Payer au-dessus du marché recrute donc plus vite et sur le même vivier que
 les concurrents.
 
@@ -82,7 +89,13 @@ l'ordre des sociétés.
   prix pour tous.
 - **Ordres spot** : un ordre au marché est exécuté au prix `P`. Un ordre à
   cours limité est exécuté seulement si `P ≤ limite` (exécution partielle par
-  tranches sinon). Le joueur voit le prix du tour précédent et une
+  tranches sinon). **Compensation** (simultanée, indépendante de l'ordre de
+  traitement) : on calcule P avec tous les ordres ; tous les ordres limités
+  dont la limite est sous P perdent ensemble une tranche
+  (`limitOrderTranches`), puis P est recalculé, jusqu'à ce qu'aucun ordre
+  servi ne viole sa limite (nombre de tours borné). D(P) étant croissante en
+  quantité servie, P ne fait que baisser : le processus converge. Le joueur
+  voit le prix du tour précédent et une
   fourchette estimée.
 - **Contrats long terme** : prix fixé = prix à terme (spot attendu + prime de
   risque de `commodities.forwardPremium`), moins une remise volume. Ils
@@ -217,7 +230,10 @@ ln P_t = ln P_{t−1} + λ·ln(F / P_{t−1})             # retour vers le fonda
 - **Indice** pondéré par les capitalisations des sociétés cotées.
 - **Liquidité** : au plus `stockMarket.maxFloatPerQuarter` (par exemple
   10 %) du flottant échangé par acteur et par trimestre. On ne prend donc
-  pas 51 % d'une société en bourse en un tour : il faut une OPA.
+  pas 51 % d'une société en bourse en un tour. Les achats répétés sont
+  aussi bornés par `min(maxMinorityStake, mandatoryOfferThreshold)` du
+  capital : au-delà, seule une OPA (avec sa prime) permet de monter, dès la
+  phase 1.
 - **Information** : les sociétés cotées publient leurs résultats avec un
   trimestre de retard ; les sociétés non cotées ne donnent qu'une estimation
   annuelle bruitée.

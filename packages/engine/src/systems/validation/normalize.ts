@@ -485,6 +485,24 @@ export function normalizeDecisions(
     ),
   );
 
+  // ---- economic espionage (option): paid at the start of the quarter ------
+  const espionageSpent = normalizeEspionage(
+    state,
+    company,
+    input,
+    out,
+    flag,
+    Math.max(
+      0,
+      cash +
+        (out.finance.borrow ?? 0) -
+        (out.finance.repay ?? 0) +
+        equityCash -
+        capexSpent -
+        diligenceSpent,
+    ),
+  );
+
   // ---- budget: discretionary spending within the available liquidity -----
   const spotCost = (o: CompanyDecisions['purchasing']['spot'][number]): number => {
     const market = state.commodities[o.commodityId];
@@ -505,7 +523,8 @@ export function normalizeDecisions(
       (out.finance.repay ?? 0) +
       equityCash -
       capexSpent -
-      diligenceSpent +
+      diligenceSpent -
+      espionageSpent +
       config.finance.spendingOverdraftShareOfRevenue * revenue,
   );
   if (spending > liquidity) {
@@ -535,6 +554,54 @@ export function normalizeDecisions(
 }
 
 type Flag = (path: string, code: ValidationIssueCode, submitted?: number, applied?: number) => void;
+
+/** Price of an espionage operation this quarter. */
+export const espionageCost = (state: GameState): number =>
+  state.config.espionage.cost * state.macro.priceLevel;
+
+/**
+ * Espionage operations (lot 3.4, an option of the game): on an operating
+ * company outside the spy's group, one per target, at most maxPerQuarter,
+ * each paid in full from the liquidity left. Returns the amount spent.
+ */
+function normalizeEspionage(
+  state: GameState,
+  company: Company,
+  input: CompanyDecisions,
+  out: CompanyDecisions,
+  flag: Flag,
+  room: number,
+): number {
+  const E = state.config.espionage;
+  const ops = Array.isArray(input.espionage) ? input.espionage : [];
+  if (ops.length === 0) return 0;
+  if (!E.enabled) {
+    flag('espionage', 'not_available');
+    return 0;
+  }
+  const cost = espionageCost(state);
+  const kept: NonNullable<CompanyDecisions['espionage']> = [];
+  let spent = 0;
+  ops.forEach((op, i) => {
+    const path = `espionage[${i}]`;
+    const target = state.companies[typeof op?.targetId === 'string' ? op.targetId : ''];
+    if (
+      !target ||
+      !isOperating(target) ||
+      target.id === company.id ||
+      sameGroup(state, company.id, target.id)
+    ) {
+      return flag(path, 'unknown_id');
+    }
+    if (kept.some((k) => k.targetId === target.id)) return flag(path, 'duplicate');
+    if (kept.length >= E.maxPerQuarter) return flag(path, 'limit');
+    if (spent + cost > room) return flag(path, 'budget', cost, 0);
+    kept.push({ targetId: target.id });
+    spent += cost;
+  });
+  if (kept.length > 0) out.espionage = kept;
+  return spent;
+}
 type Bound = (path: string, x: number, min: number, max: number) => number;
 
 /**

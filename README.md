@@ -4,7 +4,12 @@ Jeu de gestion au tour par tour (1 tour = 1 trimestre) avec des marchés simulé
 travail, matières premières, produits et bourse. Une IA concurrente joue avec les
 mêmes règles que le joueur, et l'objectif à long terme est de bâtir un conglomérat.
 
-Statut : **Phase 3, lot 3.3** (bourse v3 : OPA hostile, offres concurrentes et
+Statut : **Phase 3, lot 3.4** (objectifs et événements : 5 modes de jeu —
+capitalisation, domination, survie, conglomérat, bac à sable —, catalogue
+d'événements étendu — réglementation, krach boursier, scandale qualité,
+perturbation logistique, droits de douane, pénurie de talents, engouement des
+consommateurs —, espionnage économique optionnel, difficultés facile, normale
+et difficile). Lot 3.3 : bourse v3 (OPA hostile, offres concurrentes et
 surenchères, contre-offre et chevalier blanc de l'IA, pilule empoisonnée et
 rachats défensifs, seuils déclaratifs qui déclenchent les réactions de l'IA,
 offre obligatoire, paiement en titres, fonds activiste optionnel). Lot 3.2 :
@@ -23,7 +28,7 @@ npm install
 npm run dev                            # jeu dans le navigateur (http://localhost:5173)
 npm run build                          # version statique dans packages/web/dist
 npm run lint && npm run typecheck && npm test
-npm run sim -- --games 50 --turns 40   # options : --player passive|low_cost|premium|innovator|opportunist|conglomerate, --sector industry|agri|tech|all, --seed, --overrides f.json, --out f.json, --csv f.csv, --activist
+npm run sim -- --games 50 --turns 40   # options : --player passive|low_cost|premium|innovator|opportunist|conglomerate, --sector industry|agri|tech|all, --seed, --overrides f.json, --out f.json, --csv f.csv, --activist, --difficulty easy|normal|hard, --mode sandbox|capitalization|domination|survival|conglomerate
 ```
 
 - [Architecture technique](docs/ARCHITECTURE.md)

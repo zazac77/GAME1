@@ -41,6 +41,7 @@ import {
 import { unemployed } from '../systems/labor/pools';
 import { nextDistribution } from '../systems/products';
 import { marketShares } from '../systems/products/logit';
+import { espionageCost } from '../systems/validation/normalize';
 import { filterControlled, normalizeDecisions } from '../systems/validation';
 
 const season = (state: GameState, marketId: string, turn: number): number =>
@@ -134,6 +135,8 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   mnaPreSystem.run(ctx);
   // Due diligences, integration costs and liabilities coming due (before any other cost).
   const mnaCosts = ctx.ledger(companyId).other;
+  // Espionage: the price of the operations (a fine is a risk, not an estimate).
+  const espionage = (d.espionage?.length ?? 0) * espionageCost(state);
   capexSystem.run(ctx);
   const company = draft.companies[companyId] as Company;
   const ledger = ctx.ledger(companyId);
@@ -213,7 +216,8 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   const beforeDeals =
     company.books.current.balance.cash +
     equity -
-    mnaCosts +
+    mnaCosts -
+    espionage +
     ledger.borrowed -
     ledger.repaid -
     installments +
@@ -263,6 +267,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     installments,
     equity,
     mnaCosts,
+    espionage,
     acquisitions: deals.cash,
     acquisitionDebt,
     expectedEbitda,

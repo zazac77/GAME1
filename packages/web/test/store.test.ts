@@ -9,7 +9,7 @@ const start = (store: ReturnType<typeof newStore>, seed = 7) =>
     playerName: 'Camille Durand',
     companyName: 'Durand Électroménager',
     seed,
-    mode: 'standard',
+    mode: 'capitalization',
   });
 
 describe('game store', () => {
@@ -23,7 +23,7 @@ describe('game store', () => {
     expect(view?.costs?.rnd.process.maxBudget).toBeGreaterThan(0);
   });
 
-  it('plays a full 40-quarter standard game through the UI store, R&D included', async () => {
+  it('plays a full 40-quarter capitalization game through the UI store, R&D included', async () => {
     const store = newStore();
     start(store, 2024);
     for (let q = 0; q < 40; q++) {
@@ -46,7 +46,9 @@ describe('game store', () => {
       expect(screen).toBe('report');
     }
     const { view, game, saves } = store.getState();
-    expect(view?.status).toBe('running');
+    // The game ends with its last quarter: the objective is reached or not.
+    expect(view?.status).not.toBe('running');
+    expect(view?.objective.outcome?.turn).toBe(39);
     expect(game?.meta.turn).toBe(40);
     const company = view?.self.company;
     const rndSpent = company?.books.history.reduce((s, x) => s + x.pnl.rnd, 0) ?? 0;
@@ -80,7 +82,7 @@ describe('starting sector and group', () => {
         playerName: 'Camille Durand',
         companyName: 'Durand',
         seed: 11,
-        mode: 'standard',
+        mode: 'capitalization',
         sector,
       });
       const { view } = store.getState();
@@ -97,7 +99,7 @@ describe('starting sector and group', () => {
     const store = newStore();
     // Companies for sale every quarter, and a cash-rich player (equity raised).
     const game = createGame(
-      { seed: 3, playerName: 'Camille Durand', companyName: 'Durand', mode: 'standard' },
+      { seed: 3, playerName: 'Camille Durand', companyName: 'Durand', mode: 'capitalization' },
       { mna: { listings: { arrivalProbability: 1 } } },
     );
     const own = game.companies[game.actors[game.meta.playerActorId]?.rootCompanyId ?? ''];
@@ -224,5 +226,51 @@ describe('saves', () => {
     reloaded.getState().loadGame(store.getState().game as never);
     expect(reloaded.getState().activeCompanyId).toBe(rootId);
     expect(Object.keys(reloaded.getState().drafts).sort()).toEqual([holdingId, rootId].sort());
+  });
+});
+
+describe('options of the new game (lot 3.4)', () => {
+  it('passes the mode, the difficulty and the espionage option to the engine', async () => {
+    const store = newStore();
+    store.getState().newGame({
+      playerName: 'Camille Durand',
+      companyName: 'Durand',
+      seed: 5,
+      mode: 'domination',
+      difficulty: 'hard',
+      espionage: true,
+    });
+    const { view, game } = store.getState();
+    expect(view?.objective.mode).toBe('domination');
+    expect(view?.difficulty).toBe('hard');
+    expect(game?.config.events.probabilityScale).toBe(1.5);
+    const quote = view?.costs?.espionage;
+    expect(quote?.cost).toBeGreaterThan(0);
+    const rival = view?.competitors.find((c) => c.sector === view.self.company.sector);
+    store.getState().editDraft((d) => {
+      d.espionage = [{ targetId: rival?.companyId ?? '' }];
+    });
+    const id = view?.companyId ?? '';
+    expect(store.getState().preview?.companies[id]?.espionage).toBeCloseTo(quote?.cost ?? 0, 6);
+    expect(store.getState().preview?.issues).toEqual([]);
+    await store.getState().endTurn();
+    const after = store.getState();
+    expect(after.report?.events.some((e) => e.kind.startsWith('espionage_'))).toBe(true);
+    // An order is not carried over to the next quarter.
+    expect(after.draft?.espionage).toBeUndefined();
+  });
+
+  it('a sandbox with the bankruptcy option ends on a bankruptcy', () => {
+    const store = newStore();
+    store.getState().newGame({
+      playerName: 'Camille Durand',
+      companyName: 'Durand',
+      seed: 5,
+      mode: 'sandbox',
+      sandboxBankruptcy: true,
+    });
+    const { game, view } = store.getState();
+    expect(game?.config.victory.sandbox.bankruptcyEndsGame).toBe(true);
+    expect(view?.objective.lastTurn).toBeUndefined();
   });
 });

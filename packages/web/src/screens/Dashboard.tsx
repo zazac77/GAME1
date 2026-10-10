@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PALETTE, SeriesChart } from '../charts/SeriesChart';
 import { AlertList, EventList } from '../components/lists';
+import { ObjectiveCard } from '../components/objective';
 import { Button, Card, Kpi, Stat } from '../components/ui';
 import { fmtDec, fmtInt, fmtMoney, fmtPct, fmtPrice } from '../i18n/format';
 import { effectText, eventName, fr, marketName, targetName } from '../i18n/fr';
@@ -58,7 +59,8 @@ export function Dashboard() {
         <Kpi label={t.score} value={fmtMoney(view.score)} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <ObjectiveCard view={view} />
         <Card title={t.alerts}>
           <AlertList alerts={view.alerts} />
         </Card>

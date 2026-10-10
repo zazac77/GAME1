@@ -9,3 +9,4 @@ export type * from './state';
 export type * from './ai';
 export type * from './mna';
 export type * from './views';
+export type * from './victory';

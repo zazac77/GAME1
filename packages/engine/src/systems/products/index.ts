@@ -1,6 +1,6 @@
 import { indexedRefPrice, operatingCompanies } from '../../core/companies';
 import { clamp, sum } from '../../core/math';
-import { applyModifiers } from '../../core/modifiers';
+import { applyModifiers, type ModifierTarget } from '../../core/modifiers';
 import { groupsByMember, sharedBrand } from '../../core/synergies';
 import type { System } from '../../core/system';
 import type { Company, ProductLine } from '../../model/company';
@@ -41,7 +41,7 @@ interface Seller {
  * segment → sales limited by stock → reallocation of unserved demand (with a
  * loss) → revenue, cost of goods sold, logistics, marketing → brand. Tech
  * markets sell subscriptions instead (sectors/tech/market.ts). Reads
- * market.demand.
+ * market.demand, company.brand and company.complianceCost (company, market).
  */
 export const productsSystem: System = {
   id: 'products',
@@ -200,9 +200,20 @@ export const productsSystem: System = {
     }
 
     // brand_{t+1} = brand·(1 − δ) + a·ln(1 + marketing/unit) + b·(quality − market average)
+    //   + company.brand (scandals); compliance: company.complianceCost × revenue.
     const B = P.brand;
     for (const company of companies) {
       const lines = Object.values(company.productLines);
+      const targets: ModifierTarget[] = [
+        { kind: 'company', id: company.id },
+        ...[...new Set(lines.map((l) => l.marketId))].map((id): ModifierTarget => ({
+          kind: 'market',
+          id,
+        })),
+      ];
+      const ledger = ctx.ledger(company.id);
+      const compliance = applyModifiers(draft.modifiers, 'company.complianceCost', 0, targets);
+      if (compliance > 0) ledger.other += compliance * ledger.revenue;
       const qualityGap =
         lines.length > 0
           ? sum(
@@ -216,7 +227,8 @@ export const productsSystem: System = {
         company.brand * (1 - B.decay) +
           B.marketingWeight *
             Math.log(1 + (marketingByCompany[company.id] ?? 0) / P.marketingUnit) +
-          B.qualityWeight * qualityGap,
+          B.qualityWeight * qualityGap +
+          applyModifiers(draft.modifiers, 'company.brand', 0, targets),
         0,
         100,
       );

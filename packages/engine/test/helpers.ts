@@ -17,6 +17,15 @@ import { emptyDecisions } from '../src/systems/validation';
  */
 export const LOW_DEBT = { finance: { startingCash: 6_000_000, startingDebt: 6_000_000 } } as const;
 
+/** The value, or a test failure when it is missing. */
+export function must<T>(value: T | null | undefined, what = 'value'): T {
+  if (value === null || value === undefined) throw new Error(`missing ${what}`);
+  return value;
+}
+
+/** Sandbox mode: system tests that fund the player heavily must not win the game on the way. */
+export const SANDBOX = { mode: 'sandbox' } as const;
+
 export const newGame = (
   seed = 42,
   overrides?: DeepPartial<GameConfig>,

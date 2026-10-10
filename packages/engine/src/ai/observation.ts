@@ -29,7 +29,8 @@ import { publishedStatements } from '../systems/stockmarket/fundamental';
  * observed company in full (by default the actor's root company; any company
  * the actor runs, or one nobody controls, for its management), the markets,
  * and what is public about the others (shelf prices, job ads, factories,
- * published accounts, quotes, controlling shareholders, companies for sale).
+ * published accounts, quotes, controlling shareholders, companies for sale)
+ * and the espionage reports of its group.
  * Returns a deep copy: nothing the observer does can touch the state.
  */
 export function observe(state: GameState, actorId: Id, companyId?: Id): Observation {
@@ -133,6 +134,9 @@ export function observe(state: GameState, actorId: Id, companyId?: Id): Observat
     mna,
     group,
     news,
+    intel: groupIds
+      .flatMap((id) => state.intel[id] ?? [])
+      .sort((a, b) => a.turn - b.turn || a.id.localeCompare(b.id)),
   };
   const profileId = managementProfile(state, own);
   if (profileId) observation.profileId = profileId;

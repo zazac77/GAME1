@@ -2,7 +2,17 @@ import type { Actor, RndType } from './company';
 import type { Observation } from './ai';
 import type { ValidationIssue } from './decisions';
 import type { GameEvent, GameEventSeverity, ModifierTargetKind } from './events';
-import type { GameMode, HolderId, Id, ModifierKey, Money, Quarter, SectorId } from './ids';
+import type {
+  DifficultyId,
+  GameMode,
+  HolderId,
+  Id,
+  ModifierKey,
+  Money,
+  Quarter,
+  SectorId,
+} from './ids';
+import type { ObjectiveView } from './victory';
 import type { HistoryStore } from './state';
 import type { AnnualFigures } from './mna';
 import type { ConsolidatedStatements } from './finance';
@@ -81,6 +91,14 @@ export interface PlayerCosts {
     freeSeats: Record<Id, number>;
     developers: number;
     frontier: number;
+  };
+  /** Espionage (when the option is on): price of an operation this quarter, its odds, the fine. */
+  espionage?: {
+    cost: Money;
+    fine: Money;
+    successProbability: number;
+    detectionProbability: number;
+    maxPerQuarter: number;
   };
 }
 
@@ -224,6 +242,9 @@ export interface PlayerView extends Observation {
   history: HistoryStore;
   /** Value of the player's stake in its root company (share value × shares held). */
   score: Money;
+  difficulty: DifficultyId;
+  /** Objective of the mode and the progress towards it (lot 3.4). */
+  objective: ObjectiveView;
   /** Quotes for investments, disposals, R&D and equity transactions (absent once the company is gone). */
   costs?: PlayerCosts;
   /** Companies of the player's group (root first). */
@@ -282,6 +303,8 @@ export interface CompanyPreview {
   equity: Money;
   /** Due diligences ordered, integration costs, an undeclared liability coming due. */
   mnaCosts: Money;
+  /** Espionage operations ordered (lot 3.4). */
+  espionage: Money;
   /** Cash part of the deals (end of quarter) and acquisition loans drawn for them (estimates). */
   acquisitions: Money;
   acquisitionDebt: Money;

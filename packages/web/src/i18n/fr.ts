@@ -2,12 +2,15 @@
 import type {
   Alert,
   AlertKind,
+  DifficultyId,
   GameEvent,
+  GameMode,
   ModifierKey,
   RndType,
   SectorId,
   ValidationIssue,
   ValidationIssueCode,
+  VictoryReason,
 } from '@game/engine';
 import { fmtDec, fmtInt, fmtMoney, fmtPct, fmtPrice } from './format';
 
@@ -21,9 +24,13 @@ export const fr = {
     cash: 'Trésorerie',
     score: 'Score',
     quit: 'Menu principal',
-    gameLost: 'Partie perdue : votre société a fait faillite.',
-    gameOver: (turns: number) =>
-      `Partie standard terminée (${turns} trimestres). Vous pouvez continuer à jouer ou sauvegarder.`,
+    outcome: {
+      objective: 'Objectif atteint : vous avez gagné la partie !',
+      survived: 'Vous avez tenu jusqu’au bout : partie gagnée !',
+      deadline: 'Temps écoulé sans atteindre l’objectif : partie perdue.',
+      bankruptcy: 'Partie perdue : votre société a fait faillite.',
+    } satisfies Record<VictoryReason, string>,
+    turnOf: (turn: number, last: number) => `${turn}/${last}`,
     loading: 'Chargement…',
     activeCompany: 'Société affichée',
     subsidiary: 'filiale',
@@ -44,8 +51,42 @@ export const fr = {
     playerName: 'Votre nom',
     companyName: 'Nom de la société',
     seed: 'Graine (partie rejouable à l’identique)',
-    mode: 'Mode',
-    modes: { standard: 'Standard (40 trimestres)', sandbox: 'Bac à sable' },
+    mode: 'Mode de jeu',
+    modes: {
+      capitalization: 'Capitalisation',
+      domination: 'Domination',
+      survival: 'Survie',
+      conglomerate: 'Conglomérat',
+      sandbox: 'Bac à sable',
+    } satisfies Record<GameMode, string>,
+    modeHints: {
+      capitalization:
+        'Faire grimper la valeur de votre participation jusqu’à l’objectif avant la fin des 40 trimestres.',
+      domination:
+        'Vendre plus de 40 % d’un marché pendant 4 trimestres consécutifs, en 40 trimestres au plus.',
+      survival:
+        'Tenir 40 trimestres dans un monde hostile : récession d’entrée, événements deux fois plus fréquents, trésorerie réduite.',
+      conglomerate:
+        'Être présent dans 3 secteurs, chacun bénéficiaire 4 trimestres de suite (rachats indispensables).',
+      sandbox: 'Pas de fin ni d’objectif : jouez librement.',
+    } satisfies Record<GameMode, string>,
+    difficulty: 'Difficulté',
+    difficulties: {
+      easy: 'Facile',
+      normal: 'Normale',
+      hard: 'Difficile',
+    } satisfies Record<DifficultyId, string>,
+    difficultyHints: {
+      easy: 'Trésorerie de départ +50 %, meilleur produit, moins d’événements, IA moins combative.',
+      normal: 'L’équilibre de référence.',
+      hard: 'Trésorerie de départ −30 %, produit moins bon, événements +50 %, IA plus agressive.',
+    } satisfies Record<DifficultyId, string>,
+    sandboxBankruptcy: 'La faillite met fin à la partie',
+    sandboxBankruptcyHint:
+      'Sinon, la société en faillite reste gelée et vous continuez d’observer.',
+    espionage: 'Espionnage économique',
+    espionageHint:
+      'Vous pouvez commander des opérations sur vos concurrents : rapport sur leurs chiffres privés, au risque d’une amende et d’un scandale.',
     randomSeed: 'Au hasard',
     activist: 'Fonds activiste',
     activistHint:
@@ -91,6 +132,25 @@ export const fr = {
       },
     } satisfies Record<SectorId, { title: string; pitch: string; traits: string[] }>,
     noSaves: 'Aucune sauvegarde pour l’instant.',
+  },
+  objective: {
+    heading: 'Objectif',
+    difficulty: 'Difficulté',
+    deadline: 'Fin de partie',
+    noEnd: 'Pas de fin',
+    progress: 'Progression',
+    score: 'Valeur de votre participation',
+    target: 'Objectif',
+    share: (share: string, quarters: number) =>
+      `Plus de ${share} d’un marché pendant ${quarters} trimestres consécutifs`,
+    bestMarket: 'Meilleur marché',
+    streak: (n: number, of: number) => `${n}/${of} trimestres`,
+    sectors: (n: number, quarters: number) =>
+      `${n} secteurs, chacun bénéficiaire ${quarters} trimestres de suite`,
+    sectorStreak: (n: number, of: number) => `${Math.min(n, of)}/${of} trimestres bénéficiaires`,
+    noSector: 'aucun secteur bénéficiaire pour l’instant',
+    survive: (last: number) => `Tenir jusqu’au trimestre ${last}`,
+    sandbox: 'Bac à sable : pas d’objectif.',
   },
   dashboard: {
     kpis: 'Indicateurs clés',
@@ -360,6 +420,23 @@ export const fr = {
     sharePrice: 'Cours',
     partialView:
       'Vue partielle : seuls les faits publics (prix, offres d’emploi, usines) et les comptes publiés sont visibles.',
+    espionage: 'Espionnage',
+    spy: (cost: string) => `Espionner (${cost})`,
+    spyPlanned: 'Opération prévue ce trimestre',
+    cancelSpy: 'Annuler',
+    spyHint: (success: string, detection: string, fine: string) =>
+      `Réussite ${success} ; risque d’être découvert ${detection} (amende ${fine} et marque abîmée).`,
+    intel: 'Rapport d’espionnage',
+    intelOf: (quarter: string) => `Rapport du ${quarter}`,
+    noIntel: 'Aucun rapport.',
+    intelCash: 'Trésorerie',
+    intelDebt: 'Dette',
+    intelStaff: 'Effectifs (salaire moyen)',
+    intelLines: 'Produits (prix, qualité, qualité visée)',
+    intelRnd: 'R&D en cours',
+    intelStatements: (quarter: string) => `Comptes non publiés · ${quarter}`,
+    intelStock: 'Stocks',
+    intelFinished: 'Produits finis',
     yes: 'oui',
     no: 'non',
   },
@@ -729,6 +806,14 @@ export const fr = {
     ev_recession: 'Choc récessif',
     ev_drought: 'Sécheresse',
     ev_disruptive_innovation: 'Innovation disruptive',
+    ev_regulation: 'Nouvelle réglementation',
+    ev_stock_crash: 'Krach boursier',
+    ev_quality_scandal: 'Scandale qualité',
+    ev_logistics_disruption: 'Perturbation logistique',
+    ev_import_tariff: 'Droits de douane',
+    ev_talent_shortage: 'Pénurie de talents',
+    ev_demand_boom: 'Engouement des consommateurs',
+    espionage: 'Espionnage découvert',
   } as Record<string, string>,
   modifierKeys: {
     'macro.gdpGrowth': 'croissance',
@@ -743,6 +828,9 @@ export const fr = {
     'market.demand': 'demande',
     'agri.yield': 'rendement agricole',
     'tech.frontier': 'frontière technologique',
+    'company.brand': 'marque',
+    'company.complianceCost': 'coût de conformité (part du CA)',
+    'stock.marketReturn': 'cours de bourse',
   } satisfies Record<ModifierKey, string>,
   rndTypes: {
     process: 'Procédés',
@@ -806,6 +894,7 @@ const SECTIONS: Record<string, string> = {
   mna: 'Rachats',
   intraGroup: 'Intra-groupe',
   createHolding: 'création de la holding',
+  espionage: 'Espionnage',
   amount: 'montant',
   price: 'prix',
   qualityTarget: 'qualité visée',
@@ -960,8 +1049,17 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
       return `${who} est à découvert : ${fmtMoney(num(d, 'amount'))}.`;
     case 'company_bankrupt':
       return `${who} fait faillite.`;
-    case 'game_lost':
-      return 'Votre société a fait faillite : la partie est perdue.';
+    case 'game_won':
+    case 'game_lost': {
+      const reason = (str(d, 'reason') || 'bankruptcy') as VictoryReason;
+      return fr.app.outcome[reason] ?? fr.app.outcome.bankruptcy;
+    }
+    case 'espionage_success':
+      return `${who} : l’opération d’espionnage sur ${companyName(str(d, 'targetId'))} a réussi, le rapport est disponible.`;
+    case 'espionage_failed':
+      return `${who} : l’opération d’espionnage sur ${companyName(str(d, 'targetId'))} n’a rien rapporté.`;
+    case 'espionage_detected':
+      return `Scandale : ${who} est pris à espionner ${companyName(str(d, 'targetId'))} (amende de ${fmtMoney(num(d, 'fine'))}).`;
     case 'credit_rating':
       return `${who} : notation ${str(d, 'from')} → ${str(d, 'to')}.`;
     case 'covenant_breached':
@@ -1120,7 +1218,11 @@ export const KNOWN_EVENT_KINDS = [
   'ai_defense_buyback',
   'overdraft',
   'company_bankrupt',
+  'game_won',
   'game_lost',
+  'espionage_success',
+  'espionage_failed',
+  'espionage_detected',
   'credit_rating',
   'covenant_breached',
   'company_distressed',
@@ -1162,6 +1264,10 @@ export const KNOWN_EVENT_KINDS = [
 /** "+50 %", "×0,7" for a modifier effect. */
 export function effectText(key: ModifierKey, op: 'add' | 'mul', value: number): string {
   const label = fr.modifierKeys[key];
+  // Brand: points per quarter, not a percentage.
+  if (key === 'company.brand' && op === 'add') {
+    return `${label} ${value >= 0 ? '+' : ''}${fmtDec(value)} pts/trim.`;
+  }
   if (op === 'mul') return `${label} ${value >= 1 ? '+' : ''}${fmtPct(value - 1, 0)}`;
   return `${label} ${value >= 0 ? '+' : ''}${fmtPct(value)}`;
 }

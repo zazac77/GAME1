@@ -138,6 +138,12 @@ export interface CompanyDecisions {
    * the holding, which becomes the root company).
    */
   createHolding?: boolean;
+  /**
+   * Economic espionage (option of the game, lot 3.4): an operation on each
+   * target rival, paid at the start of the quarter; a success brings back a
+   * report on its private figures, the target may find out.
+   */
+  espionage?: { targetId: Id }[];
 }
 
 export type ValidationIssueCode =

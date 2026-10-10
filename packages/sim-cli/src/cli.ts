@@ -2,11 +2,13 @@ import { writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { gameMetrics, summarize } from './metrics';
 import { formatCrossSector, formatSummary, toCsv } from './report';
+import type { DifficultyId, GameMode } from '@game/engine';
 import { runGame, type PlayerMode } from './run';
 
 // npm run sim -- --games 50 --turns 40 [--seed 1] [--player opportunist|passive]
 //                [--sector industry|agri|tech|all] [--overrides file.json] [--out stats.json]
-//                [--csv stats.csv] [--activist]
+//                [--csv stats.csv] [--activist] [--difficulty easy|normal|hard]
+//                [--mode sandbox|capitalization|domination|survival|conglomerate]
 const { values } = parseArgs({
   options: {
     games: { type: 'string', default: '50' },
@@ -18,6 +20,8 @@ const { values } = parseArgs({
     out: { type: 'string' },
     csv: { type: 'string' },
     activist: { type: 'boolean', default: false },
+    difficulty: { type: 'string', default: 'normal' },
+    mode: { type: 'string', default: 'sandbox' },
   },
 });
 
@@ -69,6 +73,9 @@ for (const sector of sectors) {
       turns,
       player: values.player as PlayerMode,
       overrides,
+      // A mode with an objective ends the game when it is won or lost.
+      mode: values.mode as GameMode,
+      difficulty: values.difficulty as DifficultyId,
     });
     const m = gameMetrics(record);
     metrics.push(m);

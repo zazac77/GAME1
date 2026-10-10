@@ -40,7 +40,7 @@ function eligible(state: GameState, def: EventDefinition, turn: number): boolean
 
 /**
  * Step 2: ages the active modifiers, then draws the events of the quarter
- * from config.events. Each event becomes one modifier per effect; systems
+ * from config.events (probabilities × events.probabilityScale). Each event becomes one modifier per effect; systems
  * read them through applyModifiers.
  */
 export const eventsSystem: System = {
@@ -48,8 +48,10 @@ export const eventsSystem: System = {
   run(ctx) {
     const { draft, config, rng, turn } = ctx;
     draft.modifiers = ageModifiers(draft.modifiers);
+    const scale = config.events.probabilityScale;
     for (const def of config.events.definitions) {
-      if (!eligible(draft, def, turn) || !rng.chance(def.probability)) continue;
+      if (!eligible(draft, def, turn)) continue;
+      if (!rng.chance(Math.min(1, def.probability * scale))) continue;
       let target: Modifier['target'] = { kind: 'global' };
       if (def.target !== 'global') {
         const ids = candidates(draft, def);

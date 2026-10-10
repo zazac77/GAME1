@@ -13,6 +13,7 @@ import saveV7 from '../fixtures/save-v7.json';
 import saveV8 from '../fixtures/save-v8.json';
 import saveV9 from '../fixtures/save-v9.json';
 import saveV10 from '../fixtures/save-v10.json';
+import saveV11 from '../fixtures/save-v11.json';
 
 // A v1 save written by the lot 1.1 engine (seed 1234, after 2 quarters).
 const v1 = JSON.stringify(saveV1);
@@ -37,6 +38,8 @@ const v8 = JSON.stringify(saveV8);
 const v9 = JSON.stringify(saveV9);
 // A v10 save written by the lot 3.2 engine (the v9 save played 2 more quarters).
 const v10 = JSON.stringify(saveV10);
+// A v11 save written by the lot 3.3 engine (the v10 save played 2 more quarters).
+const v11 = JSON.stringify(saveV11);
 
 describe('migrations', () => {
   it('loads a v1 save into the current schema', () => {
@@ -328,5 +331,38 @@ describe('migrations', () => {
     expect(state.meta.turn).toBe(turn + 1);
     expect(state.log.filter((e) => e.kind === 'stake_threshold' && e.turn === turn)).toEqual([]);
     assertJsonSafe(state);
+  });
+
+  it('loads a v11 save: a capitalization game at normal difficulty, no espionage', () => {
+    expect(JSON.parse(v11).schemaVersion).toBe(11);
+    expect(JSON.parse(v11).state.meta.mode).toBe('standard');
+    let state = deserializeGame(v11);
+    expect(state.meta.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(state.meta).toMatchObject({ mode: 'capitalization', difficulty: 'normal' });
+    expect(state.victory).toEqual({ dominationStreaks: {}, profitableStreaks: {} });
+    expect(state.intel).toEqual({});
+    const { config } = state;
+    expect(config.events.probabilityScale).toBe(1);
+    expect(config.espionage.enabled).toBe(false);
+    expect(config.scenario.playerStart.cashFactor).toBe(1);
+    expect(config.victory.capitalization.targetValue).toBeGreaterThan(0);
+    // The old game keeps its own event catalogue.
+    expect(config.events.definitions.map((d) => d.id)).not.toContain('ev_stock_crash');
+    expect(getPlayerView(state).objective.mode).toBe('capitalization');
+    const ids = getPlayerView(state)
+      .groupCompanies.filter((c) => c.sector !== 'holding')
+      .map((c) => c.companyId);
+    state = resolveTurn(
+      state,
+      ids.map((id) => steadyDecisions(state, id)),
+    ).state;
+    expect(state.meta.turn).toBe(18);
+    assertJsonSafe(state);
+  });
+
+  it('keeps a sandbox game in the sandbox', () => {
+    const raw = JSON.parse(v11);
+    raw.state.meta.mode = 'sandbox';
+    expect(deserializeGame(raw).meta.mode).toBe('sandbox');
   });
 });

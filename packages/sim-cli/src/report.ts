@@ -28,6 +28,16 @@ export function formatSummary(s: Summary, turns: number): string {
       ([kind, v]) =>
         `  ${kind.padEnd(18)} ${v.perGame.toFixed(1).padStart(6)}  (${pct(v.againstAiShare)} contre une IA)`,
     ),
+    `Événements (par partie) : ${
+      Object.entries(s.events)
+        .map(([id, n]) => `${id.replace(/^ev_/, '')} ${n.toFixed(2)}`)
+        .join(', ') || 'aucun'
+    }`,
+    ...(s.objective.won + s.objective.lost > 0
+      ? [
+          `Objectif : gagné dans ${s.objective.won}/${s.games} parties, perdu dans ${s.objective.lost}, fin au tour ${s.objective.medianEndTurn} en médiane`,
+        ]
+      : []),
     `Rachats (par partie) : ${s.deals.takeovers.toFixed(2)} prises de contrôle (joueur ${s.deals.byPlayer.toFixed(2)} ; pépites ${s.deals.listings.toFixed(2)}, blocs ${s.deals.blocks.toFixed(2)}, OPA ${s.deals.tenderOffers.toFixed(2)}), ${s.deals.failed.toFixed(2)} échecs`,
     `Opérations sur capital (par partie) : ${s.deals.dividends.toFixed(1)} dividendes, ${s.deals.issues.toFixed(2)} augmentations de capital, ${s.deals.buybacks.toFixed(2)} rachats d’actions, ${s.deals.ipos.toFixed(2)} introductions en bourse`,
     `Intra-groupe (par partie) : ${s.deals.groupLoans.toFixed(2)} prêts accordés, ${s.deals.groupRepayments.toFixed(2)} remboursements, ${s.deals.groupWriteOffs.toFixed(2)} prêts passés en perte`,

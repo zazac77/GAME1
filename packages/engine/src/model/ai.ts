@@ -16,6 +16,7 @@ import type {
 import type { CommodityMarket, LaborPool, MacroState, ProductMarket, Region } from './markets';
 import type { DueDiligence, TargetListing } from './mna';
 import type { ActivistCampaign, Quote, TenderOffer } from './stock';
+import type { IntelReport } from './victory';
 
 /** What a planner remembers about one rival company. */
 export interface RivalMemory {
@@ -246,4 +247,6 @@ export interface Observation {
   mna: MnaView;
   group: GroupView;
   news: ActiveEventView[];
+  /** Espionage reports of the companies of the observer's group, oldest first (lot 3.4). */
+  intel: IntelReport[];
 }

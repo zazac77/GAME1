@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { GameMode, SectorId } from '@game/engine';
+import type { DifficultyId, GameMode, SectorId } from '@game/engine';
 import { SaveBrowser } from '../components/SaveBrowser';
 import { Button, Card, NumberField, Select } from '../components/ui';
 import { fr } from '../i18n/fr';
@@ -8,6 +8,8 @@ import { useGame } from '../store/game';
 const randomSeed = () => Math.floor(Math.random() * 0xffffffff);
 
 const SECTORS: SectorId[] = ['industry', 'agri', 'tech'];
+const MODES: GameMode[] = ['capitalization', 'domination', 'survival', 'conglomerate', 'sandbox'];
+const DIFFICULTIES: DifficultyId[] = ['easy', 'normal', 'hard'];
 
 export function StartScreen() {
   const newGame = useGame((s) => s.newGame);
@@ -15,8 +17,11 @@ export function StartScreen() {
   const [sector, setSector] = useState<SectorId>('industry');
   const [companyName, setCompanyName] = useState<string>(fr.start.defaultCompanies.industry);
   const [seed, setSeed] = useState(randomSeed);
-  const [mode, setMode] = useState<GameMode>('standard');
+  const [mode, setMode] = useState<GameMode>('capitalization');
+  const [difficulty, setDifficulty] = useState<DifficultyId>('normal');
   const [activist, setActivist] = useState(false);
+  const [espionage, setEspionage] = useState(false);
+  const [sandboxBankruptcy, setSandboxBankruptcy] = useState(false);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
@@ -29,7 +34,17 @@ export function StartScreen() {
           className="grid gap-4 sm:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
-            newGame({ playerName, companyName, seed: seed >>> 0, mode, sector, activist });
+            newGame({
+              playerName,
+              companyName,
+              seed: seed >>> 0,
+              mode,
+              difficulty,
+              sector,
+              activist,
+              espionage,
+              sandboxBankruptcy: mode === 'sandbox' && sandboxBankruptcy,
+            });
           }}
         >
           <fieldset className="space-y-2 text-sm sm:col-span-2">
@@ -107,24 +122,41 @@ export function StartScreen() {
             <Select
               value={mode}
               onChange={setMode}
-              options={[
-                { value: 'standard', label: fr.start.modes.standard },
-                { value: 'sandbox', label: fr.start.modes.sandbox },
-              ]}
+              options={MODES.map((m) => ({ value: m, label: fr.start.modes[m] }))}
             />
+            <span className="block text-xs text-slate-500">{fr.start.modeHints[mode]}</span>
           </label>
-          <label className="flex items-start gap-2 text-sm sm:col-span-2">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={activist}
-              onChange={(e) => setActivist(e.target.checked)}
+          <label className="space-y-1 text-sm">
+            <span className="block text-slate-600">{fr.start.difficulty}</span>
+            <Select
+              value={difficulty}
+              onChange={setDifficulty}
+              options={DIFFICULTIES.map((d) => ({ value: d, label: fr.start.difficulties[d] }))}
             />
-            <span>
-              <span className="block font-medium">{fr.start.activist}</span>
-              <span className="block text-slate-500">{fr.start.activistHint}</span>
+            <span className="block text-xs text-slate-500">
+              {fr.start.difficultyHints[difficulty]}
             </span>
           </label>
+          {mode === 'sandbox' && (
+            <Option
+              checked={sandboxBankruptcy}
+              onChange={setSandboxBankruptcy}
+              label={fr.start.sandboxBankruptcy}
+              hint={fr.start.sandboxBankruptcyHint}
+            />
+          )}
+          <Option
+            checked={espionage}
+            onChange={setEspionage}
+            label={fr.start.espionage}
+            hint={fr.start.espionageHint}
+          />
+          <Option
+            checked={activist}
+            onChange={setActivist}
+            label={fr.start.activist}
+            hint={fr.start.activistHint}
+          />
           <div className="sm:col-span-2">
             <Button type="submit" variant="primary">
               {fr.start.create}
@@ -136,5 +168,28 @@ export function StartScreen() {
         <SaveBrowser />
       </Card>
     </div>
+  );
+}
+
+/** A checkbox option of the new game, with its explanation. */
+function Option(props: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <label className="flex items-start gap-2 text-sm sm:col-span-2">
+      <input
+        type="checkbox"
+        className="mt-1"
+        checked={props.checked}
+        onChange={(e) => props.onChange(e.target.checked)}
+      />
+      <span>
+        <span className="block font-medium">{props.label}</span>
+        <span className="block text-slate-500">{props.hint}</span>
+      </span>
+    </label>
   );
 }

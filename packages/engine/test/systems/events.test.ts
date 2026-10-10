@@ -5,7 +5,9 @@ import { createTurnContext } from '../../src/core/context';
 import { ageModifiers, applyModifiers } from '../../src/core/modifiers';
 import type { Modifier } from '../../src';
 import { eventsSystem } from '../../src/systems/events';
-import { newGame } from '../helpers';
+import type { GameState } from '../../src';
+import type { SystemId } from '../../src/core/system';
+import { newGame, resolveAll, steadyAll, must } from '../helpers';
 
 const modifier = (over: Partial<Modifier>): Modifier => ({
   id: 'mod_x',
@@ -67,7 +69,7 @@ describe('modifiers', () => {
 });
 
 describe('events', () => {
-  it('ships the 5 MVP events, the drought and the disruptive innovation as data', () => {
+  it('ships the MVP events, the sector events and the extended catalogue as data', () => {
     expect(defaultConfig.events.definitions.map((d) => d.id)).toEqual([
       'ev_strike',
       'ev_energy_crisis',
@@ -76,7 +78,32 @@ describe('events', () => {
       'ev_recession',
       'ev_drought',
       'ev_disruptive_innovation',
+      'ev_regulation',
+      'ev_stock_crash',
+      'ev_quality_scandal',
+      'ev_logistics_disruption',
+      'ev_import_tariff',
+      'ev_talent_shortage',
+      'ev_demand_boom',
     ]);
+  });
+
+  it('scales every probability by events.probabilityScale, capped at 1', () => {
+    const fired = (scale: number) =>
+      Array.from({ length: 40 }, (_, i) => {
+        const s = newGame(i + 1, {
+          events: {
+            probabilityScale: scale,
+            definitions: [{ ...defaultConfig.events.definitions[3], probability: 0.4 } as never],
+          },
+        });
+        runEvents(s);
+        return s.modifiers.length;
+      }).reduce((a, b) => a + b, 0);
+    expect(fired(0)).toBe(0);
+    expect(fired(3)).toBe(40);
+    expect(fired(1)).toBeGreaterThan(0);
+    expect(fired(1)).toBeLessThan(40);
   });
 
   it('turns a drawn event into one modifier per effect and logs it', () => {
@@ -143,5 +170,61 @@ describe('events', () => {
     expect(() =>
       resolveConfig({ events: { definitions: [{ ...def, targetIds: ['reg_atlantide'] }] } }),
     ).toThrow(/unknown reg_atlantide/);
+  });
+});
+
+describe('extended catalogue (lot 3.4)', () => {
+  const quarter = (state: GameState, until: SystemId) =>
+    resolveAll(state, steadyAll(state), { until });
+
+  it('a regulation makes the sellers of its market pay a share of their revenue', () => {
+    const base = newGame(4, onlyEvent('ev_regulation'));
+    const calm = newGame(4, onlyEvent('none'));
+    const hit = quarter(base, 'products');
+    const mod = hit.state.modifiers.find((m) => m.sourceId === 'ev_regulation');
+    expect(mod?.target.kind).toBe('market');
+    const marketId = mod?.target.id ?? '';
+    const seller = Object.values(hit.state.companies).find((c) =>
+      Object.values(c.productLines).some((l) => l.marketId === marketId),
+    );
+    if (!seller) throw new Error('no seller');
+    const ref = quarter(calm, 'products');
+    const ledger = hit.ctx.ledger(seller.id);
+    const extra = ledger.other - ref.ctx.ledger(seller.id).other;
+    expect(extra).toBeCloseTo(0.02 * ledger.revenue, 0);
+    expect(extra).toBeGreaterThan(0);
+  });
+
+  it('a quality scandal costs the target its brand points', () => {
+    const hit = quarter(newGame(5, onlyEvent('ev_quality_scandal')), 'products');
+    const calm = quarter(newGame(5, onlyEvent('none')), 'products');
+    const mod = hit.state.modifiers.find((m) => m.sourceId === 'ev_quality_scandal');
+    expect(mod?.target.kind).toBe('company');
+    const id = mod?.target.id ?? '';
+    expect(must(calm.state.companies[id]).brand - must(hit.state.companies[id]).brand).toBeCloseTo(
+      10,
+      6,
+    );
+  });
+
+  it('a stock market crash pulls every price down at once', () => {
+    const hit = quarter(newGame(6, onlyEvent('ev_stock_crash')), 'stockmarket');
+    const calm = quarter(newGame(6, onlyEvent('none')), 'stockmarket');
+    expect(hit.state.stock.index.value / calm.state.stock.index.value).toBeLessThan(0.85);
+    for (const [id, q] of Object.entries(hit.state.stock.quotes)) {
+      if (hit.state.companies[id]?.listed) {
+        expect(q.price).toBeLessThan(must(calm.state.stock.quotes[id]).price);
+      }
+    }
+  });
+
+  it('a logistics disruption rations the deliveries of a material', () => {
+    const state = newGame(7, onlyEvent('ev_logistics_disruption'));
+    runEvents(state);
+    const [m] = state.modifiers;
+    expect(m).toMatchObject({ key: 'commodity.supply', op: 'mul', value: 0.75 });
+    expect(['com_steel', 'com_polymers', 'com_electronics', 'com_packaging']).toContain(
+      m?.target.id,
+    );
   });
 });

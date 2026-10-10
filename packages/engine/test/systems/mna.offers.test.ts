@@ -13,6 +13,7 @@ import {
   playTurns,
   resolveAll,
   steadyDecisions,
+  SANDBOX,
 } from '../helpers';
 
 /** No AI deal of its own (white knights included): the offers of the tests stay alone. */
@@ -94,7 +95,7 @@ const hostile = (state: GameState, targetId: string, premium: number): MnaAction
 
 describe('hostile tender offer', () => {
   it('opens over the board, then takes control from the shareholders at its close', () => {
-    let state = fund(playTurns(newGame(21, withPill(0)), 2), 300_000_000);
+    let state = fund(playTurns(newGame(21, withPill(0), SANDBOX), 2), 300_000_000);
     const { actor, company } = premiumRival(state);
     expect(controllingActor(state, company.id)).toBeUndefined();
     expect(contestable(state, company)).toBe(true);
@@ -129,7 +130,7 @@ describe('hostile tender offer', () => {
   });
 
   it('fails without enough shares tendered, nothing changes hands', () => {
-    let state = fund(playTurns(newGame(21, withPill(0)), 2), 300_000_000);
+    let state = fund(playTurns(newGame(21, withPill(0), SANDBOX), 2), 300_000_000);
     const { company } = premiumRival(state);
     const before = structuredClone(state.stock.registry[company.id]);
     state = play(state, { mna: [hostile(state, company.id, 0)] });
@@ -142,7 +143,7 @@ describe('hostile tender offer', () => {
   });
 
   it('cannot take a company its controlling shareholder holds against its will', () => {
-    let state = fund(playTurns(newGame(21, QUIET), 2), 300_000_000);
+    let state = fund(playTurns(newGame(21, QUIET, SANDBOX), 2), 300_000_000);
     const low = Object.values(state.actors).find(
       (a) =>
         a.profileId === 'low_cost' &&
@@ -161,7 +162,7 @@ describe('hostile tender offer', () => {
 
 describe('poison pill', () => {
   it('dilutes the holders who kept their shares when the offer wins against the board', () => {
-    let state = fund(playTurns(newGame(22, withPill(1, 0.25)), 1), 400_000_000);
+    let state = fund(playTurns(newGame(22, withPill(1, 0.25), SANDBOX), 1), 400_000_000);
     const { company } = premiumRival(state);
     state = buildStake(state, company.id, 0.3);
     const id = playerCompanyId(state);
@@ -190,7 +191,7 @@ describe('poison pill', () => {
   });
 
   it('defeats an offer that would not keep control after it', () => {
-    let state = fund(playTurns(newGame(22, withPill(1, 0.5)), 2), 400_000_000);
+    let state = fund(playTurns(newGame(22, withPill(1, 0.5), SANDBOX), 2), 400_000_000);
     const { company } = premiumRival(state);
     const before = structuredClone(state.stock.registry[company.id]);
     state = play(state, { mna: [hostile(state, company.id, 0.4)] });
@@ -208,7 +209,7 @@ describe('poison pill', () => {
 
 describe('competing offers', () => {
   it('extend the contest; raises compete; the best price wins at the close', () => {
-    let state = fund(playTurns(newGame(23, withPill(0)), 2), 400_000_000);
+    let state = fund(playTurns(newGame(23, withPill(0), SANDBOX), 2), 400_000_000);
     const { company } = premiumRival(state);
     const id = playerCompanyId(state);
     const knight = Object.values(state.actors).find((a) => a.profileId === 'conglomerate');
@@ -280,7 +281,7 @@ describe('competing offers', () => {
 
 describe('validation of offer moves', () => {
   it('withdraws only an outbid or pilled offer, tenders only shares held', () => {
-    let state = fund(playTurns(newGame(21, withPill(0)), 2), 300_000_000);
+    let state = fund(playTurns(newGame(21, withPill(0), SANDBOX), 2), 300_000_000);
     const { company } = premiumRival(state);
     const id = playerCompanyId(state);
     state = play(state, { mna: [hostile(state, company.id, 0.3)] });
@@ -314,7 +315,7 @@ describe('validation of offer moves', () => {
 
 describe('disclosure thresholds and the mandatory offer', () => {
   it('declares the stakes crossing 5 and 10 %, and stops market buying at 30 %', () => {
-    let state = fund(playTurns(newGame(24, QUIET), 1), 300_000_000);
+    let state = fund(playTurns(newGame(24, QUIET, SANDBOX), 1), 300_000_000);
     const { company } = premiumRival(state);
     const id = playerCompanyId(state);
     const actorId = state.meta.playerActorId;

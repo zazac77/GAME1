@@ -38,6 +38,8 @@ const PUBLIC_COMPANY_EVENTS: ReadonlySet<string> = new Set([
   'ai_white_knight',
   'ai_preempt',
   'ai_defense_buyback',
+  // Lot 3.4: a spy caught is public news.
+  'espionage_detected',
 ]);
 
 /** Whether an observer controlling `own` may see a journal entry. */

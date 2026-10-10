@@ -323,7 +323,7 @@ conformité), innovation disruptive (saut de la frontière technologique),
 krach boursier, hausse surprise des taux, scandale qualité.
 
 Le rapport de tour présente chaque événement avec son impact chiffré sur le
-joueur.
+joueur. Le catalogue complet (lot 3.4) est détaillé au §25.
 
 ## 12. Objectifs et fin de partie
 
@@ -335,6 +335,8 @@ Modes configurables (`victory`) :
 - **Survie** : tenir N tours avec un scénario hostile.
 - **Conglomérat** : au moins 3 secteurs, chacun rentable pendant 4
   trimestres.
+
+Les règles exactes (lot 3.4) sont au §25.
 
 Le score affiché en continu est la valeur de la participation du joueur
 dans sa société de tête (cours × actions détenues, ou valorisation si elle
@@ -1359,3 +1361,98 @@ Limites connues, pour le lot 3.5 :
   IA, chevaliers blancs et contre-offres ne répondent qu'au joueur ;
 - l'IA ne monte pas au capital d'une cible avant une offre (pas de ramassage en
   bourse) et ne fait jamais appel au marché pour diluer un raider.
+
+## 25. Choix d'implémentation (lot 3.4 : objectifs et événements)
+
+- **Modes** (`meta.mode`, choisi à la création) : `capitalization` (par défaut),
+  `domination`, `survival`, `conglomerate` et `sandbox`. Une partie à objectif
+  dure `time.standardGameTurns` (40) trimestres. Le système `victory` (étape 13,
+  avant `reporting`) tient les séries de `state.victory` puis termine la partie
+  (`meta.status`, `victory.outcome` avec la raison, nouvelle `game_won` ou
+  `game_lost`) dès que l'objectif est atteint ; au dernier trimestre, la survie
+  est gagnée (`survived`), les autres modes perdus (`deadline`). Une partie
+  terminée ne se résout plus.
+  - **Capitalisation** : le score (valeur de la participation directe du joueur
+    dans sa société de tête, §12) atteint `capitalization.targetValue` (60 M€)
+    × niveau des prix. Une société pilotée par l'IA finit 40 trimestres vers
+    45 M€ quel que soit son secteur (9 M€ au départ en industrie, 11 en agro,
+    22 en tech) : la cible demande une conduite nettement meilleure, sans
+    dépendre du secteur de départ.
+  - **Domination** : part du groupe du joueur (somme des parts de ses lignes
+    dans `lastResult.shares`) au-dessus de `domination.share` (40 %) sur un même
+    marché `domination.quarters` (4) trimestres de suite.
+  - **Conglomérat** : `conglomerate.sectors` (3) secteurs où le résultat net du
+    groupe (sociétés opérationnelles contrôlées, holdings exclues, trimestre
+    clos) est positif `conglomerate.quarters` (4) trimestres de suite. Il faut
+    donc racheter au moins deux sociétés hors de son secteur.
+  - **Survie** : tenir jusqu'au bout, dans le scénario hostile
+    `MODE_PRESETS.survival` : récession dès le départ, transitions de régime
+    plus défavorables (12 % / 20 %), événements deux fois plus probables,
+    trésorerie de départ × 0,8. La faillite y termine toujours la partie.
+  - **Bac à sable** : pas de fin ; la faillite ne la termine qu'avec
+    `victory.sandbox.bankruptcyEndsGame` (case de l'écran de nouvelle partie).
+    Ailleurs, `victory.bankruptcyEndsGame` (vrai) : la faillite est vérifiée à
+    l'étape 10 comme avant et donne la raison `bankruptcy`.
+- **Difficulté** (`meta.difficulty`, `config/presets/difficulty.ts`) : facile
+  (trésorerie de départ du joueur × 1,5, qualité de départ 58, événements × 0,6,
+  agressivité des IA réduite), normale (rien ne change), difficile (trésorerie
+  × 0,7, qualité 45, événements × 1,5, IA plus agressives). `createGame`
+  applique la difficulté, puis le scénario du mode, puis les overrides de
+  l'appelant ; les échelles se multiplient (survie difficile : événements × 3,
+  trésorerie × 0,56). Deux clés nouvelles : `events.probabilityScale` (toutes
+  les probabilités, plafonnées à 1) et `scenario.playerStart.cashFactor`.
+- **Catalogue étendu** (en données, comme les autres) et trois clés de
+  modificateur : `company.complianceCost` (part du CA du trimestre passée en
+  autres charges, cibles société ou marché, lue par `products`),
+  `company.brand` (points de marque gagnés par trimestre, mêmes cibles, ajoutés à
+  la formule de la marque) et `stock.marketReturn` (ajouté au facteur de marché
+  de la bourse). Nouveaux événements :
+
+  | Événement | Proba. / trim. | Cible | Effet |
+  |---|---|---|---|
+  | `ev_regulation` | 2 % | un marché | conformité : 2 % du CA pendant 4 trimestres |
+  | `ev_stock_crash` | 1 % | global | rendement de marché −22 % (log) un trimestre, puis retour vers la valeur fondamentale |
+  | `ev_quality_scandal` | 3 % | une société | marque −10 puis −5 points |
+  | `ev_logistics_disruption` | 3 % | une matière stockable | 25 % des livraisons manquent un trimestre |
+  | `ev_import_tariff` | 2 % | acier, polymères, électronique ou oléagineux | prix mondial +20 %, s'estompe sur un an |
+  | `ev_talent_shortage` | 3 % | un bassin d'emploi | salaires de marché +3 % par trimestre, deux trimestres |
+  | `ev_demand_boom` | 3 % (expansion) | un marché | demande +12 %, s'estompe sur 3 trimestres |
+
+- **Espionnage économique** (option `espionage.enabled`, case de l'écran de
+  nouvelle partie ; décision `espionage: [{ targetId }]`, même validation pour
+  le joueur et l'IA) : au plus `maxPerQuarter` (1) opération par trimestre, sur
+  une société opérationnelle hors de son groupe, payée `cost` (400 k€ × niveau
+  des prix) au début du trimestre dans la limite de la liquidité (comme un
+  audit). Système `espionage` (étape 3, après les audits) : réussite avec
+  `successProbability` (70 %) → rapport (`state.intel`, `reportsKept` derniers
+  par société espionne) sur les chiffres privés de la cible au début du
+  trimestre : derniers comptes clos (publiés ou non), trésorerie, dette,
+  effectifs et salaires par bassin, stocks, prix, qualité et qualité visée de
+  ses produits, projets de R&D. Indépendamment, la cible le découvre avec
+  `detectionProbability` (25 %) : nouvelle publique `espionage_detected`,
+  amende `fine` (1,5 M€ × niveau des prix), marque −`brandPenalty` (6 points
+  sur 2 trimestres, modificateur `company.brand` de source `espionage`) et
+  rancune `grudge` (0,5) de la direction IA de la cible, qui nourrit ses
+  ripostes (§19). Les rapports du groupe sont dans l'`Observation` (champ
+  `intel`) ; l'IA n'espionne pas (elle n'en a pas l'usage dans ses
+  heuristiques). Coût dans l'aperçu (`CompanyPreview.espionage`), devis et
+  probabilités dans `PlayerCosts.espionage`.
+- **Vues et interface** : `PlayerView.objective` (mode, dernier trimestre,
+  progression, score et cible, meilleur marché et sa série, séries par secteur,
+  issue) et `PlayerView.difficulty`. Écran de nouvelle partie : mode avec son
+  explication, difficulté, options (espionnage, faillite en bac à sable, fonds
+  activiste). Tableau de bord : carte Objectif. Concurrents : bouton
+  « Espionner » et dernier rapport par concurrent. Bandeau de fin de partie
+  selon la raison.
+- **Sauvegardes** : `schemaVersion` 12. La migration v11 → v12 fait du mode
+  standard une partie de capitalisation (le bac à sable reste), en difficulté
+  normale, séries à zéro, sans rapport ; elle ajoute les sections de
+  configuration (espionnage désactivé, échelle d'événements 1) et garde le
+  catalogue d'événements de l'ancienne partie. Une ancienne partie au-delà du
+  40ᵉ trimestre se termine donc au trimestre suivant.
+- **sim-cli** : `--difficulty`, `--mode` (par défaut bac à sable : la partie
+  va au bout) ; le rapport compte les événements par partie et, pour un mode à
+  objectif, les parties gagnées et perdues.
+
+Les mesures `sim-cli` du lot sont ajoutées dans le commit suivant.
+

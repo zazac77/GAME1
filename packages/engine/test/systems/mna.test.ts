@@ -15,7 +15,14 @@ import {
 } from '../../src/systems/mna';
 import { holdings } from '../../src/systems/stockmarket';
 import { normalizeDecisions } from '../../src/systems/validation';
-import { assertJsonSafe, newGame, playerCompanyId, playTurns, steadyDecisions } from '../helpers';
+import {
+  assertJsonSafe,
+  newGame,
+  playerCompanyId,
+  playTurns,
+  steadyDecisions,
+  SANDBOX,
+} from '../helpers';
 
 /** A listing arriving every quarter. */
 const RICH: DeepPartial<GameConfig> = { mna: { listings: { arrivalProbability: 1 } } };
@@ -67,7 +74,7 @@ const rival = (state: GameState, profileId = 'low_cost') => {
 
 describe('listings ("pépites")', () => {
   it('arrive with a noisy estimate, an asking price above value, and expire', () => {
-    let state = newGame(5, RICH);
+    let state = newGame(5, RICH, SANDBOX);
     expect(state.mna.listings).toEqual([]);
     state = playTurns(state, 1);
     expect(state.mna.listings).toHaveLength(1);
@@ -98,7 +105,7 @@ describe('listings ("pépites")', () => {
 
 describe('due diligence', () => {
   it('costs money now and reveals the actual figures and hidden liability next quarter', () => {
-    let state = fund(playTurns(newGame(6, RICH), 1), 50_000_000);
+    let state = fund(playTurns(newGame(6, RICH, SANDBOX), 1), 50_000_000);
     const listing = state.mna.listings[0];
     if (!listing) throw new Error('no listing');
     const id = playerCompanyId(state);
@@ -122,12 +129,14 @@ describe('due diligence', () => {
 
 describe('buying a listing', () => {
   it('creates a wholly owned, unlisted subsidiary run by its management', () => {
-    let state = fund(playTurns(newGame(7, RICH), 1), 100_000_000);
+    let state = fund(playTurns(newGame(7, RICH, SANDBOX), 1), 100_000_000);
     // Look for a listing with a hidden liability over a few seeds' worth of quarters.
     for (let t = 0; t < 8 && !state.mna.listings.some((l) => l.hiddenLiability > 0); t++) {
       state = playTurns(state, 1);
     }
-    const listing = state.mna.listings.find((l) => l.hiddenLiability > 0) ?? state.mna.listings[0];
+    // (a listing still open after the due diligence's quarter)
+    const open = state.mna.listings.filter((l) => l.expiresAt > state.meta.turn + 1);
+    const listing = open.find((l) => l.hiddenLiability > 0) ?? open.at(-1);
     if (!listing) throw new Error('no listing');
     const id = playerCompanyId(state);
     // Due diligence first: the revealed liability comes off the price.
@@ -193,7 +202,7 @@ describe('friendly tender offer', () => {
   };
 
   it('is rejected by the board below its asking premium, nothing changes hands', () => {
-    const state = fund(playTurns(newGame(8, RICH), 2), 300_000_000);
+    const state = fund(playTurns(newGame(8, RICH, SANDBOX), 2), 300_000_000);
     const { company } = rival(state);
     const board = boardPremium(state, company) ?? 0;
     expect(board).toBeGreaterThan(0);
@@ -204,7 +213,7 @@ describe('friendly tender offer', () => {
   });
 
   it('takes control with the board, the founder and part of the float', () => {
-    const state = fund(playTurns(newGame(8, RICH), 2), 300_000_000);
+    const state = fund(playTurns(newGame(8, RICH, SANDBOX), 2), 300_000_000);
     const { actor, company } = rival(state);
     const board = boardPremium(state, company) ?? 0;
     const { next } = offer(state, board + 0.05);
@@ -228,7 +237,7 @@ describe('friendly tender offer', () => {
   });
 
   it('pays partly in new shares and with an acquisition loan', () => {
-    const state = fund(playTurns(newGame(9, RICH), 2), 5_000_000);
+    const state = fund(playTurns(newGame(9, RICH, SANDBOX), 2), 5_000_000);
     const id = playerCompanyId(state);
     const player = state.companies[id] as GameState['companies'][string];
     const { company } = rival(state);
@@ -254,7 +263,7 @@ describe('friendly tender offer', () => {
 
 describe('block purchase', () => {
   it('buys the founder block above its asking premium, with the mandatory offer to the others', () => {
-    const state = fund(playTurns(newGame(10, RICH), 2), 300_000_000);
+    const state = fund(playTurns(newGame(10, RICH, SANDBOX), 2), 300_000_000);
     const { actor, company } = rival(state, 'low_cost');
     const ref = state.stock.quotes[company.id]?.referencePrice ?? 0;
     const block = (premium: number) =>
@@ -280,7 +289,7 @@ describe('block purchase', () => {
   });
 
   it('is costed on every share of a listed target (mandatory offer)', () => {
-    const state = fund(playTurns(newGame(10, RICH), 2), 1_000_000);
+    const state = fund(playTurns(newGame(10, RICH, SANDBOX), 2), 1_000_000);
     const id = playerCompanyId(state);
     const { company } = rival(state, 'low_cost');
     const ref = state.stock.quotes[company.id]?.referencePrice ?? 0;
@@ -299,7 +308,7 @@ describe('block purchase', () => {
 
 describe('AI targets', () => {
   it('never get to bid for the player companies', () => {
-    const state = playTurns(newGame(11, RICH), 2);
+    const state = playTurns(newGame(11, RICH, SANDBOX), 2);
     const { company } = rival(state);
     const id = playerCompanyId(state);
     const d = steadyDecisions(state, company.id);
@@ -312,7 +321,7 @@ describe('AI targets', () => {
 
 describe('public offering of a subsidiary', () => {
   it('lists it once it has closed enough quarters; the parent keeps control', () => {
-    let state = fund(playTurns(newGame(12, RICH), 1), 100_000_000);
+    let state = fund(playTurns(newGame(12, RICH, SANDBOX), 1), 100_000_000);
     const listing = state.mna.listings[0];
     if (!listing) throw new Error('no listing');
     const id = playerCompanyId(state);

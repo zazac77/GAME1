@@ -62,6 +62,10 @@ export interface GameMetrics {
   playerLeadTurn: number | null;
   /** Competitive moves of the AI journaled (ai_* kinds), and how many target another AI. */
   aiMoves: Record<string, { count: number; againstAi: number }>;
+  /** Events drawn in the game, by event id (lot 3.4). */
+  events: Record<string, number>;
+  /** How the game ended (modes with an objective), or null while it was still running. */
+  outcome: GameState['victory']['outcome'] | null;
   /** Takeovers (by mode and by buyer), equity transactions and deals that failed. */
   deals: {
     takeovers: number;
@@ -256,6 +260,15 @@ export function gameMetrics(record: GameRecord): GameMetrics {
       if (isAi(e.data?.rivalId)) m.againstAi += 1;
     }
   });
+  const events: GameMetrics['events'] = {};
+  record.states.slice(1).forEach((s, i) => {
+    const turn = record.states[i]?.meta.turn;
+    for (const e of s.log) {
+      if (e.turn !== turn || e.kind !== 'event') continue;
+      const id = String(e.data?.eventId ?? '');
+      events[id] = (events[id] ?? 0) + 1;
+    }
+  });
   const deals: GameMetrics['deals'] = {
     takeovers: 0,
     byPlayer: 0,
@@ -335,6 +348,8 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     playerRank,
     playerLeadTurn: lead === null ? null : lead + 1,
     aiMoves,
+    events,
+    outcome: last.victory.outcome ?? null,
     deals,
   };
   if (record.error) metrics.error = record.error;
@@ -379,6 +394,10 @@ export interface Summary {
   byProfile: Record<string, { companies: number; bankruptcyRate: number; medianNetMargin: number }>;
   /** By kind of AI move: mean count per game, share aimed at another AI. */
   aiMoves: Record<string, { perGame: number; againstAiShare: number }>;
+  /** Mean number of each event per game. */
+  events: Record<string, number>;
+  /** Games won and lost (modes with an objective), with the median quarter of the end. */
+  objective: { won: number; lost: number; medianEndTurn: number };
   /** Mean per game of each kind of deal and equity transaction. */
   deals: Record<keyof GameMetrics['deals'], number>;
 }
@@ -423,6 +442,16 @@ export function summarize(games: readonly GameMetrics[]): Summary {
       againstAiShare: count > 0 ? againstAi / count : 0,
     };
   }
+  const events: Summary['events'] = {};
+  for (const id of [...new Set(games.flatMap((g) => Object.keys(g.events)))].sort()) {
+    events[id] = games.reduce((s, g) => s + (g.events[id] ?? 0), 0) / Math.max(1, games.length);
+  }
+  const ended = games.flatMap((g) => (g.outcome ? [g.outcome] : []));
+  const objective = {
+    won: ended.filter((o) => o.status === 'won').length,
+    lost: ended.filter((o) => o.status === 'lost').length,
+    medianEndTurn: median(ended.map((o) => o.turn + 1)),
+  };
   const dealKeys = Object.keys(games[0]?.deals ?? {}) as (keyof GameMetrics['deals'])[];
   const deals = Object.fromEntries(
     dealKeys.map((k) => [k, games.reduce((s, g) => s + g.deals[k], 0) / Math.max(1, games.length)]),
@@ -450,6 +479,8 @@ export function summarize(games: readonly GameMetrics[]): Summary {
     bySector,
     byProfile,
     aiMoves,
+    events,
+    objective,
     deals,
   };
 }

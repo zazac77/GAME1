@@ -6,6 +6,7 @@ import { aiSystem } from '../systems/ai';
 import { capexSystem } from '../systems/capex';
 import { commoditiesSystem } from '../systems/commodities';
 import { conglomeratePreSystem, conglomerateSystem } from '../systems/conglomerate';
+import { espionageSystem } from '../systems/espionage';
 import { eventsSystem } from '../systems/events';
 import { financePreSystem } from '../systems/finance';
 import { laborSystem } from '../systems/labor';
@@ -18,13 +19,11 @@ import { reportingSystem } from '../systems/reporting';
 import { rndSystem } from '../systems/rnd';
 import { stockMarketSystem } from '../systems/stockmarket';
 import { filterControlled, validationSystem } from '../systems/validation';
+import { victorySystem } from '../systems/victory';
 import { weatherSystem } from '../systems/weather';
 import { buildTurnReport } from '../views/report';
 import { createTurnContext, type TurnContext } from './context';
-import type { System, SystemId } from './system';
-
-/** Placeholder for a step whose system arrives in a later lot. */
-const pending = (id: SystemId): System => ({ id, run: () => {} });
+import type { System } from './system';
 
 /** Fixed resolution order (docs/ARCHITECTURE.md §7). */
 export const PIPELINE: readonly System[] = [
@@ -35,6 +34,7 @@ export const PIPELINE: readonly System[] = [
   weatherSystem, // 2. regional weather (crop yields)
   financePreSystem, // 3. loans, repayments, dividends, share issues, buybacks, offerings
   mnaPreSystem, // 3. due diligences, integration costs
+  espionageSystem, // 3. espionage operations (option)
   capexSystem, // 4. commissioning, construction, disposals
   laborSystem, // 5. dismissals, matching, attrition, training, wages
   commoditiesSystem, // 6. contract deliveries, spot clearing, stocks
@@ -47,7 +47,7 @@ export const PIPELINE: readonly System[] = [
   stockMarketSystem, // 11. fundamental, price, orders, registry, index
   mnaSystem, // 12. takeovers, changes of control, holdings, listings
   conglomerateSystem, // 12. holdings, intra-group transfers, consolidation, overload
-  pending('victory'), // 13. end conditions
+  victorySystem, // 13. objective streaks, end conditions
   reportingSystem, // 13. history, journal, next quarter
 ];
 

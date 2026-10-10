@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseConfig } from '../config/schema';
+import { DIFFICULTY_IDS, GAME_MODES, parseConfig } from '../config/schema';
 import { ENGINE_VERSION, SCHEMA_VERSION } from '../core/version';
 import type { GameState } from '../model/state';
 import { migrateState, type RawState } from './migrations';
@@ -25,7 +25,8 @@ const metaSchema = z.object({
   seed: uint32,
   rng: z.strictObject({ a: uint32, b: uint32, c: uint32, d: uint32 }),
   turn: z.number().int().min(0),
-  mode: z.enum(['standard', 'sandbox']),
+  mode: z.enum(GAME_MODES),
+  difficulty: z.enum(DIFFICULTY_IDS),
   status: z.enum(['running', 'won', 'lost']),
   playerActorId: z.string().min(1),
   idCounters: z.record(z.string(), z.number().int().min(0)),
@@ -53,6 +54,8 @@ const stateShapeSchema = z.object({
   aiMemory: record,
   log: z.array(z.unknown()),
   history: z.object({ turns: z.array(z.number()), series: record }),
+  victory: z.object({ dominationStreaks: record, profitableStreaks: record }),
+  intel: z.record(z.string(), z.array(z.unknown())),
 });
 
 export function serializeGame(state: GameState, opts: { savedAt?: string } = {}): SaveFile {

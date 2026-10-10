@@ -16,6 +16,7 @@ import type { Company } from '../../model/company';
 import type { Statements } from '../../model/finance';
 import type { GameState } from '../../model/state';
 import { plantConfigOf } from '../../sectors/config';
+import { bankruptcyEndsGame, endGame } from '../victory';
 import { rate, trailingAnnual } from '../finance/credit';
 
 /** Storage of stored materials and finished goods; units above the warehouses cost more. */
@@ -148,7 +149,7 @@ function settleOverdraft(ctx: TurnContext, company: Company, cash: number): numb
 }
 
 function goBankrupt(ctx: TurnContext, company: Company): void {
-  const { draft, config } = ctx;
+  const { draft } = ctx;
   company.status = 'bankrupt';
   // Liquidation: staff go back to their pools, contracts lapse, subscribers leave.
   company.workforce = {};
@@ -168,9 +169,8 @@ function goBankrupt(ctx: TurnContext, company: Company): void {
         const c = draft.companies[id];
         return c !== undefined && c.sector !== 'holding' && isOperating(c);
       }));
-  if (lost && draft.meta.mode === 'standard' && config.victory.bankruptcyEndsGame) {
-    draft.meta.status = 'lost';
-    ctx.log({ kind: 'game_lost', severity: 'critical', companyId: company.id });
+  if (lost && draft.meta.status === 'running' && bankruptcyEndsGame(draft)) {
+    endGame(ctx, 'lost', 'bankruptcy', company.id);
   }
 }
 

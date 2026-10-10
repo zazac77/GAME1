@@ -1070,6 +1070,8 @@ export const defaultConfig: GameConfig = {
 
   // Effects are read by the systems through MODIFIER_KEYS (config/schema.ts).
   events: {
+    // Difficulty and the survival scenario scale every probability.
+    probabilityScale: 1,
     definitions: [
       {
         // Regional strike: output collapses for a quarter, wages are renegotiated up.
@@ -1155,7 +1157,98 @@ export const defaultConfig: GameConfig = {
         durationQuarters: 1,
         decay: 0,
       },
+      // ---- lot 3.4: extended catalogue --------------------------------------
+      {
+        // New regulation on a market: every seller spends 2 % of its revenue on
+        // compliance for a year.
+        id: 'ev_regulation',
+        probability: 0.02,
+        conditions: {},
+        target: 'market',
+        effects: [{ key: 'company.complianceCost', op: 'add', value: 0.02 }],
+        durationQuarters: 4,
+        decay: 0,
+      },
+      {
+        // Stock market crash: every price loses about 20 % at once, then the pull
+        // to the fundamental value brings them back.
+        id: 'ev_stock_crash',
+        probability: 0.01,
+        conditions: {},
+        target: 'global',
+        effects: [{ key: 'stock.marketReturn', op: 'add', value: -0.22 }],
+        durationQuarters: 1,
+        decay: 0,
+      },
+      {
+        // Quality scandal at one company: its brand loses 10 points, then 5.
+        id: 'ev_quality_scandal',
+        probability: 0.03,
+        conditions: {},
+        target: 'company',
+        effects: [{ key: 'company.brand', op: 'add', value: -10 }],
+        durationQuarters: 2,
+        decay: 0.5,
+      },
+      {
+        // Logistics disruption (ports, rail): a quarter of the deliveries of a
+        // commodity arrive late, i.e. not this quarter.
+        id: 'ev_logistics_disruption',
+        probability: 0.03,
+        conditions: {},
+        target: 'commodity',
+        targetIds: ['com_steel', 'com_polymers', 'com_electronics', 'com_packaging'],
+        effects: [{ key: 'commodity.supply', op: 'mul', value: 0.75 }],
+        durationQuarters: 1,
+        decay: 0,
+      },
+      {
+        // Import tariff on a commodity: its world price up 20 %, fading over a year.
+        id: 'ev_import_tariff',
+        probability: 0.02,
+        conditions: {},
+        target: 'commodity',
+        targetIds: ['com_steel', 'com_polymers', 'com_electronics', 'com_oilseeds'],
+        effects: [{ key: 'commodity.price', op: 'mul', value: 1.2 }],
+        durationQuarters: 4,
+        decay: 0.2,
+      },
+      {
+        // Talent shortage in a labor pool: wages climb 3 % a quarter for two quarters.
+        id: 'ev_talent_shortage',
+        probability: 0.03,
+        conditions: {},
+        target: 'laborPool',
+        effects: [{ key: 'labor.wageGrowth', op: 'add', value: 0.03 }],
+        durationQuarters: 2,
+        decay: 0,
+      },
+      {
+        // Consumption boom on a market in an expansion (a fashion, a subsidy).
+        id: 'ev_demand_boom',
+        probability: 0.03,
+        conditions: { regimes: ['expansion'] },
+        target: 'market',
+        effects: [{ key: 'market.demand', op: 'mul', value: 1.12 }],
+        durationQuarters: 3,
+        decay: 0.3,
+      },
     ],
+  },
+
+  // Economic espionage (option of the new game screen): a report on a rival's
+  // private figures, at the risk of a fine and a scandal.
+  espionage: {
+    enabled: false,
+    cost: 400_000,
+    maxPerQuarter: 1,
+    successProbability: 0.7,
+    detectionProbability: 0.25,
+    fine: 1_500_000,
+    brandPenalty: 6,
+    brandPenaltyQuarters: 2,
+    grudge: 0.5,
+    reportsKept: 12,
   },
 
   scenario: {
@@ -1175,10 +1268,18 @@ export const defaultConfig: GameConfig = {
       { profileId: 'innovator', sector: 'tech' },
     ],
     initialJitter: 0.05,
-    playerStart: { quality: 50, priceIndex: 1 },
+    playerStart: { quality: 50, priceIndex: 1, cashFactor: 1 },
   },
 
   victory: {
     bankruptcyEndsGame: true,
+    sandbox: { bankruptcyEndsGame: false },
+    // An AI-run company ends 40 quarters near 45 M€ (sim, every sector): the
+    // target asks for a clearly better run.
+    capitalization: { targetValue: 60_000_000 },
+    // 4 to 7 sellers per market: 40 % is a clear lead.
+    domination: { share: 0.4, quarters: 4 },
+    survival: {},
+    conglomerate: { sectors: 3, quarters: 4 },
   },
 };

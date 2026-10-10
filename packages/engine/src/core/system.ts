@@ -8,6 +8,7 @@ export type SystemId =
   | 'weather'
   | 'financePre'
   | 'mnaPre'
+  | 'espionage'
   | 'capex'
   | 'labor'
   | 'commodities'

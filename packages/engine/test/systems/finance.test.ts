@@ -80,7 +80,7 @@ describe('debt, overdraft and bankruptcy', () => {
     expect(resolveAll(next, [d]).report.issues.map((i) => i.code)).toContain('clamped');
   });
 
-  const ruin = (mode: 'standard' | 'sandbox') => {
+  const ruin = (mode: 'capitalization' | 'sandbox') => {
     const state = newGame(12, undefined, { mode });
     const id = playerCompanyId(state);
     const c = state.companies[id] as Company;
@@ -98,7 +98,7 @@ describe('debt, overdraft and bankruptcy', () => {
   };
 
   it('goes bankrupt after distressQuarters of negative equity on overdraft: the player loses', () => {
-    const { s, id, kinds } = ruin('standard');
+    const { s, id, kinds } = ruin('capitalization');
     const c = s.companies[id] as Company;
     expect(c.status).toBe('bankrupt');
     expect(c.credit.distressQuarters).toBe(3);

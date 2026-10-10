@@ -61,7 +61,7 @@ GAME1/
 │  │  │  ├─ config/
 │  │  │  │  ├─ schema.ts          # schéma zod + type GameConfig
 │  │  │  │  ├─ default.ts         # ★ tous les paramètres d'équilibrage
-│  │  │  │  └─ presets/           # difficultés et scénarios (DeepPartial<GameConfig>)
+│  │  │  │  └─ presets/           # difficultés et scénarios des modes (DeepPartial<GameConfig>, lot 3.4)
 │  │  │  ├─ model/                # types purs, sans logique
 │  │  │  │  ├─ ids.ts  state.ts  company.ts  markets.ts
 │  │  │  │  ├─ finance.ts  stock.ts  decisions.ts  events.ts
@@ -76,7 +76,7 @@ GAME1/
 │  │  │  ├─ systems/              # un dossier par système, chacun testable seul
 │  │  │  │  ├─ macro/  labor/  commodities/  production/  products/
 │  │  │  │  ├─ rnd/  accounting/  finance/  stockmarket/  mna/
-│  │  │  │  └─ conglomerate/  events/  victory/
+│  │  │  │  └─ conglomerate/  events/  espionage/  victory/
 │  │  │  ├─ sectors/              # implémentations de SectorModule
 │  │  │  │  ├─ types.ts           # interface SectorModule
 │  │  │  │  ├─ industry/  agri/  tech/
@@ -149,6 +149,8 @@ interface GameState {
   meta: {
     schemaVersion: number; seed: number; rng: RngState;
     turn: Quarter; mode: GameMode; status: 'running' | 'won' | 'lost';
+    // mode : 'sandbox' | 'capitalization' | 'domination' | 'survival' | 'conglomerate' (lot 3.4)
+    difficulty: 'easy' | 'normal' | 'hard';   // preset déjà appliqué à la config
     playerActorId: Id;           // sim-cli : joueur en pilote automatique (profil IA ou passif), mode 'sandbox' (pas de 'lost')
   };
   config: GameConfig;                              // config effective figée
@@ -165,6 +167,8 @@ interface GameState {
   aiMemory: Record<Id, AiMemory>;                  // par acteur IA
   log: GameEvent[];                                // journal (borné)
   history: HistoryStore;                           // séries compactes pour les graphes
+  victory: VictoryState;                           // séries de trimestres vers l'objectif, issue de la partie (lot 3.4)
+  intel: Record<Id, IntelReport[]>;                // rapports d'espionnage, par société espionne (lot 3.4)
 }
 
 // ---- acteurs & entreprises ---------------------------------------------
@@ -275,6 +279,7 @@ interface CompanyDecisions {
                                                     // surenchère, retrait, apport de ses titres (lot 3.3)
   intraGroup?: IntraGroupTransfer[];                // dividende remonté, prêt, cash pooling, cession de titres (fin de trimestre)
   createHolding?: boolean;                          // société de tête seulement : holding créée au-dessus
+  espionage?: { targetId: Id }[];                   // opérations d'espionnage (option de la partie, lot 3.4)
 }
 ```
 
@@ -314,7 +319,7 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | 0 | `ai` | Chaque acteur IA reçoit `Observation(S_t)` et produit ses `CompanyDecisions` |
 | 1 | `validation` | Borne et normalise toutes les décisions (budget, crédit, stocks, effectifs) |
 | 2 | `macro` + `events` + `weather` | Avance le cycle, l'inflation et le taux directeur ; tire les événements ; applique ou expire les modificateurs ; tire la météo de chaque région (rendements agricoles) |
-| 3 | `finance (pré)` + `mna (pré)` | Emprunts, remboursements, dividendes, augmentations de capital, rachats d'actions, introductions en bourse ; audits d'acquisition commandés, coûts d'intégration |
+| 3 | `finance (pré)` + `mna (pré)` + `espionage` | Emprunts, remboursements, dividendes, augmentations de capital, rachats d'actions, introductions en bourse ; audits d'acquisition commandés, coûts d'intégration ; opérations d'espionnage (option, lot 3.4 : rapport, détection, amende) |
 | 4 | `capex` | Avancement des chantiers, mise en service, cessions d'actifs |
 | 5 | `labor` | Licenciements → appariement des embauches → attrition → formation → mise à jour des salaires de marché |
 | 6 | `commodities` | Livraisons des contrats → compensation du spot (prix fonction de la demande agrégée) → stocks |
@@ -324,7 +329,7 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | 10 | `conglomeratePre` + `accounting` | Groupes du début de trimestre (lot 3.2) : fonctions support partagées (salaires réduits) et frais de holding (répartis selon le CA du trimestre) passés au journal ; puis compte de résultat, impôt, intérêts, amortissements, stockage → trésorerie → bilan ; contrôle de solvabilité |
 | 11 | `stockmarket` | Valeur fondamentale (sur les comptes publiés) → cours (avec impact des ordres) → exécution des ordres → registre → indice → juste valeur des actifs financiers. Les achats/ventes d'actions et la réévaluation sont **passés dans les états du trimestre** clos à l'étape 10 (trésorerie, actifs financiers, flux d'investissement, résultat financier) |
 | 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs avec offre obligatoire, OPA amicales), OPA hostiles ouvertes, retraits, surenchères et offres concurrentes, clôture des OPA en cours (pilule empoisonnée, lot 3.3), changements de contrôle, réévaluation des participations, déclarations de franchissement de seuil, campagnes activistes, sociétés mises en vente ; puis prêts intra-groupe d'une société disparue passés en perte, création des holdings, transferts intra-groupe (cessions de titres, dividendes remontés, prêts, cash pooling), réévaluation, comptes consolidés de chaque tête de groupe (lot 3.1) ; enfin malus des groupes en surcharge managériale pour le trimestre suivant (modificateurs, lot 3.2). Comme l'étape 11, écrit ses mouvements dans les états du trimestre ; les invariants comptables sont vérifiés après l'étape 13 |
-| 13 | `victory` + `reporting` | KPI, historique, journal, rapport de tour, conditions de fin |
+| 13 | `victory` + `reporting` | Séries vers l'objectif du mode (part de marché du groupe, résultat par secteur), objectif atteint ou dernier trimestre joué (lot 3.4 ; la faillite termine la partie dès l'étape 10) ; KPI, historique, journal, rapport de tour |
 
 ## 8. Configuration et équilibrage
 
@@ -332,9 +337,13 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
   par `config/schema.ts`. Ses sections : `time`, `macro`, `regions`,
   `labor`, `commodities`, `products`, `sectors.{industry,agri,tech}`,
   `finance`, `stockMarket`, `mna`, `conglomerate`, `ai.profiles`, `events`,
-  `victory`.
+  `espionage`, `scenario`, `victory`.
 - Les difficultés et scénarios sont des `DeepPartial<GameConfig>` dans
-  `presets/`. En mode bac à sable, l'UI permet d'importer un JSON d'overrides.
+  `presets/` (lot 3.4) : `createGame` applique la difficulté
+  (`NewGameOptions.difficulty`), puis le scénario du mode (la survie est
+  hostile), puis les overrides de l'appelant ; les échelles
+  (`events.probabilityScale`, `scenario.playerStart.cashFactor`) se
+  multiplient. En mode bac à sable, l'UI permet d'importer un JSON d'overrides.
 - Les événements sont **décrits en données** (probabilité, conditions,
   cibles, modificateurs, durée) et non codés un par un. Ajouter une grève ou
   une crise énergétique revient à ajouter une entrée de config.
@@ -372,10 +381,12 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 
 ## 11. UI : écrans et principes
 
-Écrans : **Tableau de bord** (KPI avec tendance, alertes), **Décisions**
+Écrans : **Nouvelle partie** (secteur, mode, difficulté, options : fonds
+activiste, espionnage, faillite en bac à sable), **Tableau de bord** (KPI avec
+tendance, objectif et progression, alertes), **Décisions**
 (onglets Production & prix, RH, Achats, Investissements, Marketing & R&D,
 Finance & bourse), **Marchés** (travail par région et métier, matières
-premières, produits), **Concurrents** (vue partielle), **Bourse** (cotes,
+premières, produits), **Concurrents** (vue partielle ; lot 3.4 : espionnage et rapports), **Bourse** (cotes,
 indice, portefeuille, ordres ; lot 3.3 : franchissements de seuil, campagnes activistes), **Rachats & OPA** (pépites et concurrents,
 valorisation, audits, rachat de bloc, OPA amicale, financement ; lot 3.3 : OPA hostile, offres en cours, surenchère, retrait, apport de ses titres), **Groupe**
 (phase 2 : filiales et qui les dirige ; lot 3.1 : holding, flux intra-groupe, comptes consolidés et reporting par filiale ; lot 3.2 : synergies et coûts de la complexité), **Rapport de tour** (récit de ce qui s'est passé, événements,

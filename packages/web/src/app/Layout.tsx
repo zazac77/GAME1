@@ -40,8 +40,8 @@ export function Layout() {
   const group = view.groupCompanies.filter(
     (c) => c.status === 'active' || c.status === 'distressed',
   );
-  const gameTurns = view.config.time.standardGameTurns;
-  const over = view.mode === 'standard' && view.turn >= gameTurns;
+  const lastTurn = view.objective.lastTurn;
+  const outcome = view.objective.outcome;
   const onEndTurn = async () => {
     setBusy(true);
     // Let the button repaint before the (synchronous) resolution.
@@ -78,10 +78,10 @@ export function Layout() {
           <span className="font-semibold" data-testid="quarter">
             {quarterLabel(view.turn)}
           </span>
-          {view.mode === 'standard' && (
+          {lastTurn !== undefined && (
             <span className="text-slate-400">
               {' '}
-              ({Math.min(view.turn + 1, gameTurns)}/{gameTurns})
+              ({fr.app.turnOf(Math.min(view.turn + 1, lastTurn + 1), lastTurn + 1)})
             </span>
           )}
         </div>
@@ -124,8 +124,14 @@ export function Layout() {
           </ul>
         </nav>
         <main className="min-w-0 flex-1 space-y-4 p-4">
-          {view.status === 'lost' && <Notice severity="critical">{fr.app.gameLost}</Notice>}
-          {running && over && <Notice severity="info">{fr.app.gameOver(gameTurns)}</Notice>}
+          {outcome && (
+            <Notice severity={outcome.status === 'won' ? 'info' : 'critical'}>
+              {fr.app.outcome[outcome.reason]}
+            </Notice>
+          )}
+          {!outcome && view.status === 'lost' && (
+            <Notice severity="critical">{fr.app.outcome.bankruptcy}</Notice>
+          )}
           {storageError && (
             <Notice severity="warning">
               {fr.saves.storageError}

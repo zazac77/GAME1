@@ -10,7 +10,7 @@ import { createRng, seedRng } from '../core/rng';
 import { SCHEMA_VERSION } from '../core/version';
 import type { Actor, Company, ProductionLine, Site, Staff, StockLot } from '../model/company';
 import type { BalanceSheet, Statements } from '../model/finance';
-import type { AiProfileId, GameMode, Id, LaborPoolKey, SectorId } from '../model/ids';
+import type { AiProfileId, DifficultyId, GameMode, Id, LaborPoolKey, SectorId } from '../model/ids';
 import type { CommodityMarket, LaborPool, ProductMarket, Region } from '../model/markets';
 import type { GameState } from '../model/state';
 import { buyFarmCost, farmLandValue, farmlandLeft } from '../sectors/agri/farm';
@@ -24,7 +24,10 @@ export interface NewGameOptions {
   seed: number;
   playerName: string;
   companyName: string;
+  /** Sandbox or one of the four objectives (default: capitalization). */
   mode?: GameMode;
+  /** Difficulty preset (default: normal). */
+  difficulty?: DifficultyId;
   /**
    * Autopilot: the player's company is run by the AI planner with this
    * profile whenever no decisions are submitted for it (sim-cli).
@@ -90,7 +93,8 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
       seed: opts.seed,
       rng: rngState,
       turn: 0,
-      mode: opts.mode ?? 'standard',
+      mode: opts.mode ?? 'capitalization',
+      difficulty: opts.difficulty ?? 'normal',
       status: 'running',
       playerActorId: '',
       idCounters: {},
@@ -129,6 +133,8 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
     aiMemory: {},
     log: [],
     history: { turns: [], series: {} },
+    victory: { dominationStreaks: {}, profitableStreaks: {} },
+    intel: {},
   };
 
   // ---- regions, labor pools (wages first: companies pay them) -------------
@@ -494,8 +500,9 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
       maturity: state.meta.turn + config.finance.loanTermQuarters,
     });
   }
+  const cashFactor = p.kind === 'player' ? config.scenario.playerStart.cashFactor : 1;
   company.books.current = zeroStatements(
-    openingBalance(company, config.finance.startingCash * scale),
+    openingBalance(company, config.finance.startingCash * scale * cashFactor),
     company.sharesOutstanding,
     state.meta.turn - 1,
   );
@@ -616,8 +623,9 @@ function createTechCompany(
       maturity: state.meta.turn + config.finance.loanTermQuarters,
     });
   }
+  const cashFactor = p.kind === 'player' ? config.scenario.playerStart.cashFactor : 1;
   company.books.current = zeroStatements(
-    openingBalance(company, start.cash * scale),
+    openingBalance(company, start.cash * scale * cashFactor),
     company.sharesOutstanding,
     state.meta.turn - 1,
   );

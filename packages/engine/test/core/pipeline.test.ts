@@ -31,6 +31,7 @@ describe('pipeline', () => {
       'weather',
       'financePre',
       'mnaPre',
+      'espionage',
       'capex',
       'labor',
       'commodities',

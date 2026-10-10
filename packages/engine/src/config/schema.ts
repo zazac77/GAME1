@@ -12,6 +12,16 @@ export const AI_PROFILE_IDS = [
 ] as const;
 export const MACRO_REGIMES = ['expansion', 'recession'] as const;
 export const CREDIT_RATINGS = ['AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC'] as const;
+/** Game modes: the sandbox and the four objectives (docs/GAME_DESIGN.md §12). */
+export const GAME_MODES = [
+  'sandbox',
+  'capitalization',
+  'domination',
+  'survival',
+  'conglomerate',
+] as const;
+/** Difficulty presets (config/presets/difficulty.ts). */
+export const DIFFICULTY_IDS = ['easy', 'normal', 'hard'] as const;
 /**
  * Quantities that modifiers (events, later synergies) can change. Each system
  * documents which keys it reads and with which targets.
@@ -29,6 +39,9 @@ export const MODIFIER_KEYS = [
   'market.demand', // mul, total demand of a product market (market)
   'agri.yield', // mul, crop yield of the farms (region)
   'tech.frontier', // add, extra advance of the technology frontier in a quarter (market)
+  'company.brand', // add, brand points gained per quarter (company, market)
+  'company.complianceCost', // add, share of the quarter's revenue spent on compliance (company, market)
+  'stock.marketReturn', // add, log return added to the market factor of the quarter (global)
 ] as const;
 
 const sectorId = z.enum(SECTOR_IDS);
@@ -1154,7 +1167,30 @@ const eventDefinitionSchema = z.strictObject({
 });
 
 const eventsSchema = z.strictObject({
+  /** Every event probability is multiplied by this (difficulty, hostile scenario), capped at 1. */
+  probabilityScale: nonNeg,
   definitions: z.array(eventDefinitionSchema),
+});
+
+const espionageSchema = z.strictObject({
+  /** Option of the new game screen: off, nobody can order an operation. */
+  enabled: z.boolean(),
+  /** Price of an operation, at the price level of the start of the game. */
+  cost: pos,
+  /** Operations a company can order per quarter. */
+  maxPerQuarter: posInt,
+  /** Probability that the operation brings a report back. */
+  successProbability: share,
+  /** Probability that the target finds out (whether or not the operation succeeds). */
+  detectionProbability: share,
+  /** Caught: fine (price level of the start of the game) and brand lost over brandPenaltyQuarters. */
+  fine: nonNeg,
+  brandPenalty: nonNeg,
+  brandPenaltyQuarters: posInt,
+  /** Grudge (0..1) the target's AI management holds against the spy once caught. */
+  grudge: share,
+  /** Reports kept per spying company (oldest dropped first). */
+  reportsKept: posInt,
 });
 
 const scenarioSchema = z.strictObject({
@@ -1174,12 +1210,27 @@ const scenarioSchema = z.strictObject({
   playerStart: z.strictObject({
     quality: z.number().min(0).max(100),
     priceIndex: pos,
+    /** Multiplies the player's starting cash (difficulty). */
+    cashFactor: pos,
   }),
 });
 
 const victorySchema = z.strictObject({
-  /** Whether a player bankruptcy ends a standard game. */
+  /** Whether a player bankruptcy ends a game with an objective (survival: always). */
   bankruptcyEndsGame: z.boolean(),
+  /** Sandbox: no end, the bankruptcy ends it only with this option. */
+  sandbox: z.strictObject({ bankruptcyEndsGame: z.boolean() }),
+  /**
+   * Capitalization: the score (value of the player's stake in its root
+   * company) reaches targetValue × price level within time.standardGameTurns.
+   */
+  capitalization: z.strictObject({ targetValue: pos }),
+  /** Domination: the player's group sells more than `share` of one market `quarters` quarters in a row. */
+  domination: z.strictObject({ share, quarters: posInt }),
+  /** Survival: still standing after time.standardGameTurns, in a hostile scenario (presets). */
+  survival: z.strictObject({}),
+  /** Conglomerate: `sectors` sectors, each with a group net income > 0 `quarters` quarters in a row. */
+  conglomerate: z.strictObject({ sectors: posInt, quarters: posInt }),
 });
 
 // ---- root -----------------------------------------------------------------------
@@ -1205,6 +1256,7 @@ export const gameConfigSchema = z
     ai: aiSchema,
     views: viewsSchema,
     events: eventsSchema,
+    espionage: espionageSchema,
     scenario: scenarioSchema,
     victory: victorySchema,
   })
@@ -1402,6 +1454,8 @@ export type SectorId = (typeof SECTOR_IDS)[number];
 export type AiProfileId = (typeof AI_PROFILE_IDS)[number];
 export type MacroRegime = (typeof MACRO_REGIMES)[number];
 export type CreditRating = (typeof CREDIT_RATINGS)[number];
+export type GameMode = (typeof GAME_MODES)[number];
+export type DifficultyId = (typeof DIFFICULTY_IDS)[number];
 export type AiProfileConfig = z.infer<typeof aiProfileSchema>;
 export type PlantSectorConfig = z.infer<typeof plantSectorSchema>;
 export type AgriConfig = z.infer<typeof agriSchema>;

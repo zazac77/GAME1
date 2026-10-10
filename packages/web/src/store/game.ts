@@ -9,6 +9,7 @@ import {
   type CompanyDecisions,
   type CompanyPreview,
   type DecisionPreview,
+  type DifficultyId,
   type GameMode,
   type GameState,
   type PlayerView,
@@ -35,10 +36,15 @@ export interface NewGameInput {
   companyName: string;
   seed: number;
   mode: GameMode;
+  difficulty?: DifficultyId;
   /** Starting sector of the player's company (default: the config's). */
   sector?: SectorId;
   /** The optional activist fund joins the game. */
   activist?: boolean;
+  /** Economic espionage is allowed (option). */
+  espionage?: boolean;
+  /** Sandbox: a bankruptcy ends the game (option). */
+  sandboxBankruptcy?: boolean;
 }
 
 /** What the player planned (preview at submission), kept to compare with the report. */
@@ -156,10 +162,15 @@ export const createGameStore = (saves: SaveStore) =>
           playerName: input.playerName,
           companyName: input.companyName,
           mode: input.mode,
+          difficulty: input.difficulty ?? 'normal',
         },
         {
           ...(input.sector ? { scenario: { playerSector: input.sector } } : {}),
           ...(input.activist ? { stockMarket: { activist: { enabled: true } } } : {}),
+          ...(input.espionage ? { espionage: { enabled: true } } : {}),
+          ...(input.sandboxBankruptcy
+            ? { victory: { sandbox: { bankruptcyEndsGame: true } } }
+            : {}),
         },
       );
       set({ ...derive(game), report: null, planned: null, screen: 'dashboard' });

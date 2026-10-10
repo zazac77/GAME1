@@ -17,6 +17,7 @@ import {
   techTeam,
 } from '../sectors/tech/team';
 import { disposalValue } from '../systems/capex';
+import { espionageCost } from '../systems/validation/normalize';
 import { capitalQuotes } from './mna';
 
 /** Cash a disposal would bring, by line id and by site id. */
@@ -39,7 +40,19 @@ function saleValues(state: GameState, company: Company): PlayerCosts['saleValue'
 export function playerCosts(state: GameState, company: Company): PlayerCosts | undefined {
   if (!isOperating(company)) return undefined;
   const costs = sectorCosts(state, company);
-  return costs ? { ...costs, capital: capitalQuotes(state, company) } : undefined;
+  if (!costs) return undefined;
+  const out: PlayerCosts = { ...costs, capital: capitalQuotes(state, company) };
+  const E = state.config.espionage;
+  if (E.enabled) {
+    out.espionage = {
+      cost: espionageCost(state),
+      fine: E.fine * state.macro.priceLevel,
+      successProbability: E.successProbability,
+      detectionProbability: E.detectionProbability,
+      maxPerQuarter: E.maxPerQuarter,
+    };
+  }
+  return out;
 }
 
 function sectorCosts(state: GameState, company: Company): Omit<PlayerCosts, 'capital'> | undefined {

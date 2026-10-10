@@ -6,7 +6,7 @@ import { companyAlerts } from './alerts';
 import { playerCosts } from './costs';
 import { dealQuotes, groupLoansView, groupView, offerViews } from './mna';
 import { canCreateHolding } from '../systems/conglomerate';
-import { shareValue } from '../systems/stockmarket';
+import { objectiveView, playerScore } from '../systems/victory';
 import { synergiesView } from './synergies';
 import { isVisible } from './visibility';
 
@@ -36,9 +36,7 @@ export function getPlayerView(state: GameState, companyId?: string): PlayerView 
     const company = /^company\.([^.]+)\./.exec(key)?.[1];
     if (company === undefined || own.has(company)) history.series[key] = [...values];
   }
-  const rootId = actor.rootCompanyId;
-  const root = state.companies[rootId];
-  const held = state.stock.registry[rootId]?.[actorId] ?? 0;
+  const root = state.companies[actor.rootCompanyId];
   const viewed = state.companies[viewedId];
   const costs = viewed ? playerCosts(state, viewed) : undefined;
   const view: PlayerView = {
@@ -49,7 +47,9 @@ export function getPlayerView(state: GameState, companyId?: string): PlayerView 
     alerts: companyAlerts(state, viewedId),
     log: structuredClone(state.log.filter((e) => isVisible(e, own))),
     history,
-    score: root ? held * shareValue(state, root) : 0,
+    score: playerScore(state),
+    difficulty: state.meta.difficulty,
+    objective: objectiveView(state),
     groupCompanies: groupView(state, actorId),
     groupLoans: groupLoansView(state, actorId),
     canCreateHolding: state.meta.status === 'running' && canCreateHolding(state, actor),

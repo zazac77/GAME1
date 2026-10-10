@@ -16,7 +16,14 @@ import { effectiveShares, groupDebt, groupLoansGranted } from '../../src/core/gr
 import { sum } from '../../src/core/math';
 import { consolidate } from '../../src/systems/conglomerate';
 import { normalizeDecisions } from '../../src/systems/validation';
-import { assertJsonSafe, newGame, playerCompanyId, playTurns, steadyDecisions } from '../helpers';
+import {
+  assertJsonSafe,
+  newGame,
+  playerCompanyId,
+  playTurns,
+  steadyDecisions,
+  SANDBOX,
+} from '../helpers';
 
 /** A listing arriving every quarter. */
 const RICH: DeepPartial<GameConfig> = { mna: { listings: { arrivalProbability: 1 } } };
@@ -34,7 +41,7 @@ function fund(state: GameState, id: string, amount: number): GameState {
 
 /** The player's root company owning 100 % of a bought listing. */
 function withSubsidiary(seed = 5): { state: GameState; rootId: string; subId: string } {
-  let state = playTurns(newGame(seed, RICH), 1);
+  let state = playTurns(newGame(seed, RICH, SANDBOX), 1);
   const rootId = playerCompanyId(state);
   state = fund(state, rootId, 100_000_000);
   const listing = state.mna.listings[0];
@@ -195,7 +202,8 @@ describe('intra-group transfers', () => {
   });
 
   it('a dividend goes up to the parent and is eliminated on consolidation', () => {
-    const w = withSubsidiary();
+    // (seed 6: the subsidiary keeps its covenant through the quarter)
+    const w = withSubsidiary(6);
     const { rootId, subId } = w;
     let state = w.state;
     state = fund(state, subId, 3e6);

@@ -37,7 +37,13 @@ describe('world generation', () => {
     expect(state.productMarkets.mkt_software?.techFrontier).toBe(1);
     expect(state.productMarkets.mkt_food?.techFrontier).toBeUndefined();
     for (const region of Object.values(state.regions)) expect(region.weather).toBe(1);
-    expect(state.meta).toMatchObject({ turn: 0, status: 'running', mode: 'standard', seed: 42 });
+    expect(state.meta).toMatchObject({
+      turn: 0,
+      status: 'running',
+      mode: 'capitalization',
+      difficulty: 'normal',
+      seed: 42,
+    });
   });
 
   it('creates the player and 3 AI competitors with distinct profiles in each sector, 5 in all', () => {

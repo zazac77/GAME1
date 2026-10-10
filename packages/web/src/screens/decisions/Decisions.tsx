@@ -22,9 +22,14 @@ export function Decisions() {
   const resetDraft = useGame((s) => s.resetDraft);
   const view = useGame((s) => s.view);
   const setManaged = useGame((s) => s.setManaged);
-  // No decisions once the game is over (bankruptcy).
+  // No decisions once the game is over (objective, deadline or bankruptcy).
   if (!view || view.status !== 'running') {
-    return <Notice severity="critical">{fr.app.gameLost}</Notice>;
+    const outcome = view?.objective.outcome;
+    return (
+      <Notice severity={outcome?.status === 'won' ? 'info' : 'critical'}>
+        {fr.app.outcome[outcome?.reason ?? 'bankruptcy']}
+      </Notice>
+    );
   }
   // A subsidiary left to its management in place.
   if (!draft) {

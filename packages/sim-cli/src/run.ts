@@ -4,6 +4,8 @@ import {
   resolveTurn,
   type AiProfileId,
   type DeepPartial,
+  type DifficultyId,
+  type GameMode,
   type GameConfig,
   type GameState,
 } from '@game/engine';
@@ -16,6 +18,9 @@ export interface RunOptions {
   turns: number;
   player: PlayerMode;
   overrides?: DeepPartial<GameConfig>;
+  /** Default sandbox: the game runs for every turn asked. */
+  mode?: GameMode;
+  difficulty?: DifficultyId;
 }
 
 /** Start-of-quarter snapshots of one game, enough for every metric. */
@@ -32,7 +37,14 @@ export interface GameRecord {
 export function runGame(opts: RunOptions): GameRecord {
   const autopilot = opts.player === 'passive' ? {} : { playerProfileId: opts.player };
   let state = createGame(
-    { seed: opts.seed, playerName: 'Sim', companyName: 'Sim SA', mode: 'sandbox', ...autopilot },
+    {
+      seed: opts.seed,
+      playerName: 'Sim',
+      companyName: 'Sim SA',
+      mode: opts.mode ?? 'sandbox',
+      difficulty: opts.difficulty ?? 'normal',
+      ...autopilot,
+    },
     opts.overrides,
   );
   const playerActor = state.actors[state.meta.playerActorId];

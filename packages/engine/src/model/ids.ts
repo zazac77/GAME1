@@ -4,6 +4,8 @@ export type {
   MacroRegime,
   CreditRating,
   ModifierKey,
+  GameMode,
+  DifficultyId,
 } from '../config/schema';
 
 export type Id = string; // "co_003", "reg_nord", "occ_operator"
@@ -18,5 +20,3 @@ export type StaffKey = LaborPoolKey;
 export type ItemId = Id;
 /** A company id, an actor id (founder stake) or the public float. */
 export type HolderId = Id | 'public';
-
-export type GameMode = 'standard' | 'sandbox';

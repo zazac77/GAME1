@@ -1,6 +1,7 @@
 import type { TurnContext } from '../../core/context';
 import { isOperating, operatingCompanies } from '../../core/companies';
 import { clamp, sum } from '../../core/math';
+import { applyModifiers } from '../../core/modifiers';
 import type { System } from '../../core/system';
 import type { Company } from '../../model/company';
 import type { Id, Money } from '../../model/ids';
@@ -19,7 +20,10 @@ interface Fill {
   fill: number;
 }
 
-/** Common factor r_market: noise, policy rate change and demand cycle change over the quarter. */
+/**
+ * Common factor r_market: noise, policy rate change and demand cycle change
+ * over the quarter, plus stock.marketReturn (a crash).
+ */
 function marketFactor(ctx: TurnContext): number {
   const { draft, config, rng } = ctx;
   const pf = config.stockMarket.priceFormation;
@@ -29,7 +33,8 @@ function marketFactor(ctx: TurnContext): number {
   return (
     rng.normal(0, pf.marketVolatility) -
     pf.marketRateSensitivity * (draft.macro.policyRate - prevRate) +
-    pf.marketDemandSensitivity * Math.log(draft.macro.demandIndex / Math.max(1e-9, prevDemand))
+    pf.marketDemandSensitivity * Math.log(draft.macro.demandIndex / Math.max(1e-9, prevDemand)) +
+    applyModifiers(draft.modifiers, 'stock.marketReturn', 0)
   );
 }
 

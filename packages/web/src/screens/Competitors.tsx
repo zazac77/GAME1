@@ -1,7 +1,8 @@
 import { PALETTE, SeriesChart } from '../charts/SeriesChart';
-import { Card, Notice, Stat, Table, Td } from '../components/ui';
-import { fmtDec, fmtMoney, fmtPct, fmtPrice, quarterLabel } from '../i18n/format';
-import { fr, occupationName, regionName } from '../i18n/fr';
+import type { CompetitorView, IntelReport, PlayerView } from '@game/engine';
+import { Button, Card, Notice, Stat, Table, Td } from '../components/ui';
+import { fmtDec, fmtInt, fmtMoney, fmtPct, fmtPrice, quarterLabel } from '../i18n/format';
+import { commodityName, fr, occupationName, regionName } from '../i18n/fr';
 import { useGame } from '../store/game';
 
 export function Competitors() {
@@ -84,6 +85,7 @@ export function Competitors() {
                   )}
                 </div>
                 <div>
+                  <Espionage view={view} competitor={c} />
                   <h4 className="text-sm font-semibold">{t.sharePrice}</h4>
                   <SeriesChart
                     history={view.history}
@@ -103,6 +105,129 @@ export function Competitors() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** Espionage on a competitor (option of the game): the order of the quarter and the last report. */
+function Espionage({ view, competitor }: { view: PlayerView; competitor: CompetitorView }) {
+  const draft = useGame((s) => s.draft);
+  const edit = useGame((s) => s.editDraft);
+  const quote = view.costs?.espionage;
+  const report = view.intel.filter((r) => r.targetId === competitor.companyId).at(-1);
+  if (!quote && !report) return null;
+  const t = fr.competitors;
+  const ordered = draft?.espionage?.some((o) => o.targetId === competitor.companyId) ?? false;
+  const operating = competitor.status === 'active' || competitor.status === 'distressed';
+  const canOrder =
+    quote !== undefined &&
+    operating &&
+    view.status === 'running' &&
+    (draft?.espionage?.length ?? 0) < quote.maxPerQuarter;
+  return (
+    <div className="mb-4 space-y-2 rounded border border-slate-200 p-2">
+      <h4 className="text-sm font-semibold">{t.espionage}</h4>
+      {quote && draft && (
+        <div className="space-y-1 text-sm">
+          {ordered ? (
+            <div className="flex items-center gap-2">
+              <span>{t.spyPlanned}</span>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  edit((d) => {
+                    d.espionage = (d.espionage ?? []).filter(
+                      (o) => o.targetId !== competitor.companyId,
+                    );
+                    if (d.espionage.length === 0) delete d.espionage;
+                  })
+                }
+              >
+                {t.cancelSpy}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              disabled={!canOrder}
+              onClick={() =>
+                edit((d) => {
+                  d.espionage = [...(d.espionage ?? []), { targetId: competitor.companyId }];
+                })
+              }
+            >
+              {t.spy(fmtMoney(quote.cost))}
+            </Button>
+          )}
+          <p className="text-xs text-slate-500">
+            {t.spyHint(
+              fmtPct(quote.successProbability, 0),
+              fmtPct(quote.detectionProbability, 0),
+              fmtMoney(quote.fine),
+            )}
+          </p>
+        </div>
+      )}
+      {report ? (
+        <IntelDetails report={report} />
+      ) : (
+        <p className="text-xs text-slate-500">{t.noIntel}</p>
+      )}
+    </div>
+  );
+}
+
+function IntelDetails({ report }: { report: IntelReport }) {
+  const t = fr.competitors;
+  const s = report.statements;
+  return (
+    <div className="text-sm">
+      <h5 className="font-medium">{t.intelOf(quarterLabel(report.turn))}</h5>
+      <Stat label={t.intelCash} value={fmtMoney(report.cash)} />
+      <Stat label={t.intelDebt} value={fmtMoney(report.debt)} />
+      {s && (
+        <>
+          <div className="mt-1 text-xs text-slate-500">
+            {t.intelStatements(quarterLabel(s.quarter))}
+          </div>
+          <Stat label={t.revenue} value={fmtMoney(s.pnl.revenue)} />
+          <Stat label={t.ebitda} value={fmtMoney(s.pnl.ebitda)} />
+          <Stat label={t.netIncome} value={fmtMoney(s.pnl.netIncome)} />
+        </>
+      )}
+      <Stat
+        label={t.intelLines}
+        value={report.lines
+          .map((l) => `${fmtPrice(l.price)} · ${fmtDec(l.quality)} · ${fmtDec(l.qualityTarget)}`)
+          .join(' ; ')}
+      />
+      <Stat
+        label={t.intelStaff}
+        value={report.workforce
+          .filter((w) => w.headcount > 0)
+          .map((w) => {
+            const [regionId, occupationId] = w.key.split(':');
+            return `${occupationName(occupationId)} (${regionName(regionId)}) ${fmtInt(w.headcount)} · ${fmtMoney(w.wage)}`;
+          })
+          .join(', ')}
+      />
+      <Stat
+        label={t.intelStock}
+        value={Object.entries(report.inventory)
+          .filter(([, qty]) => qty > 0)
+          .map(
+            ([id, qty]) =>
+              `${report.lines.some((l) => l.lineId === id) ? t.intelFinished : commodityName(id)} ${fmtInt(qty)}`,
+          )
+          .join(', ')}
+      />
+      {report.rnd.length > 0 && (
+        <Stat
+          label={t.intelRnd}
+          value={report.rnd
+            .map((p) => `${fr.rndTypes[p.type]} ${fmtPct(p.progress, 0)}`)
+            .join(', ')}
+        />
+      )}
     </div>
   );
 }

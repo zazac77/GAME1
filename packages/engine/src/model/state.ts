@@ -2,10 +2,11 @@ import type { GameConfig } from '../config/schema';
 import type { AiMemory } from './ai';
 import type { Actor, Company } from './company';
 import type { GameEvent, Modifier, ScheduledEffect } from './events';
-import type { GameMode, Id, LaborPoolKey, Quarter } from './ids';
+import type { DifficultyId, GameMode, Id, LaborPoolKey, Quarter } from './ids';
 import type { MnaState } from './mna';
 import type { CommodityMarket, LaborPool, MacroState, ProductMarket, Region } from './markets';
 import type { StockMarketState } from './stock';
+import type { IntelReport, VictoryState } from './victory';
 
 /** sfc32 state: four uint32 words. */
 export interface RngState {
@@ -21,6 +22,8 @@ export interface GameMeta {
   rng: RngState;
   turn: Quarter;
   mode: GameMode;
+  /** Difficulty preset the game was created with (already applied to the config). */
+  difficulty: DifficultyId;
   status: 'running' | 'won' | 'lost';
   playerActorId: Id;
   /** Last number allocated per id prefix ("co" → 4 means co_004 exists). */
@@ -55,4 +58,8 @@ export interface GameState {
   /** Bounded journal. */
   log: GameEvent[];
   history: HistoryStore;
+  /** Progress towards the objective of the mode (lot 3.4). */
+  victory: VictoryState;
+  /** Espionage reports, by spying company, oldest first (lot 3.4). */
+  intel: Record<Id, IntelReport[]>;
 }

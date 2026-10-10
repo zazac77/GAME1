@@ -396,8 +396,11 @@ export interface Summary {
   aiMoves: Record<string, { perGame: number; againstAiShare: number }>;
   /** Mean number of each event per game. */
   events: Record<string, number>;
-  /** Games won and lost (modes with an objective), with the median quarter of the end. */
-  objective: { won: number; lost: number; medianEndTurn: number };
+  /**
+   * Games won and lost (modes with an objective), with the median quarter of
+   * the end and the number of games by reason (objective, survived, deadline, bankruptcy).
+   */
+  objective: { won: number; lost: number; medianEndTurn: number; reasons: Record<string, number> };
   /** Mean per game of each kind of deal and equity transaction. */
   deals: Record<keyof GameMetrics['deals'], number>;
 }
@@ -451,7 +454,9 @@ export function summarize(games: readonly GameMetrics[]): Summary {
     won: ended.filter((o) => o.status === 'won').length,
     lost: ended.filter((o) => o.status === 'lost').length,
     medianEndTurn: median(ended.map((o) => o.turn + 1)),
+    reasons: {} as Record<string, number>,
   };
+  for (const o of ended) objective.reasons[o.reason] = (objective.reasons[o.reason] ?? 0) + 1;
   const dealKeys = Object.keys(games[0]?.deals ?? {}) as (keyof GameMetrics['deals'])[];
   const deals = Object.fromEntries(
     dealKeys.map((k) => [k, games.reduce((s, g) => s + g.deals[k], 0) / Math.max(1, games.length)]),

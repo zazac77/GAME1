@@ -1,14 +1,14 @@
 import { writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { gameMetrics, summarize } from './metrics';
-import { formatCrossSector, formatSummary, toCsv } from './report';
+import { formatCrossSector, formatModes, formatSummary, toCsv } from './report';
 import type { DifficultyId, GameMode } from '@game/engine';
 import { runGame, type PlayerMode } from './run';
 
 // npm run sim -- --games 50 --turns 40 [--seed 1] [--player opportunist|passive]
 //                [--sector industry|agri|tech|all] [--overrides file.json] [--out stats.json]
 //                [--csv stats.csv] [--activist] [--difficulty easy|normal|hard]
-//                [--mode sandbox|capitalization|domination|survival|conglomerate]
+//                [--mode sandbox|capitalization|domination|survival|conglomerate|all]
 const { values } = parseArgs({
   options: {
     games: { type: 'string', default: '50' },
@@ -62,33 +62,47 @@ const withSector = (sector: string | undefined) =>
     : base;
 
 const sectors = values.sector === 'all' ? ['industry', 'agri', 'tech'] : [values.sector];
+// --mode all: one campaign per game mode with an objective, ended by a table of the outcomes.
+const modes: GameMode[] =
+  values.mode === 'all'
+    ? ['capitalization', 'domination', 'survival', 'conglomerate']
+    : [values.mode as GameMode];
 const campaigns = [];
 let failed = false;
-for (const sector of sectors) {
-  const overrides = withSector(sector);
-  const metrics = [];
-  for (let i = 0; i < games; i++) {
-    const record = runGame({
-      seed: seed + i,
-      turns,
-      player: values.player as PlayerMode,
-      overrides,
-      // A mode with an objective ends the game when it is won or lost.
-      mode: values.mode as GameMode,
-      difficulty: values.difficulty as DifficultyId,
-    });
-    const m = gameMetrics(record);
-    metrics.push(m);
-    if (m.error) console.error(`seed ${m.seed}: ${m.error}`);
-    for (const v of m.sanityViolations.slice(0, 3)) console.error(`seed ${m.seed}: ${v}`);
+for (const mode of modes) {
+  for (const sector of sectors) {
+    const overrides = withSector(sector);
+    const metrics = [];
+    for (let i = 0; i < games; i++) {
+      const record = runGame({
+        seed: seed + i,
+        turns,
+        player: values.player as PlayerMode,
+        overrides,
+        // A mode with an objective ends the game when it is won or lost.
+        mode,
+        difficulty: values.difficulty as DifficultyId,
+      });
+      const m = gameMetrics(record);
+      metrics.push(m);
+      if (m.error) console.error(`seed ${m.seed}: ${m.error}`);
+      for (const v of m.sanityViolations.slice(0, 3)) console.error(`seed ${m.seed}: ${v}`);
+    }
+    const summary = summarize(metrics);
+    if (modes.length > 1) console.log(`\n=== Mode ${mode}`);
+    if (sectors.length > 1) console.log(`\n=== Joueur en ${sector}`);
+    console.log(formatSummary(summary, turns));
+    campaigns.push({ mode, sector: sector ?? 'industry', summary, games: metrics });
+    failed ||= summary.errors > 0 || summary.sanityViolations > 0;
   }
-  const summary = summarize(metrics);
-  if (sectors.length > 1) console.log(`\n=== Joueur en ${sector}`);
-  console.log(formatSummary(summary, turns));
-  campaigns.push({ sector: sector ?? 'industry', summary, games: metrics });
-  failed ||= summary.errors > 0 || summary.sanityViolations > 0;
 }
-if (campaigns.length > 1) console.log(`\n${formatCrossSector(campaigns)}`);
+if (modes.length > 1) console.log(`\n${formatModes(campaigns)}`);
+if (sectors.length > 1) {
+  for (const mode of modes) {
+    const rows = campaigns.filter((c) => c.mode === mode);
+    console.log(`\n${modes.length > 1 ? `${mode} : ` : ''}${formatCrossSector(rows)}`);
+  }
+}
 const out = campaigns.length > 1 ? { campaigns } : campaigns[0];
 if (values.out) writeFileSync(values.out, JSON.stringify(out, null, 2));
 if (values.csv) writeFileSync(values.csv, toCsv(campaigns.flatMap((c) => c.games)));

@@ -121,6 +121,9 @@ describe('victory: survival and sandbox', () => {
     let state = newGame(6, { time: { standardGameTurns: 2 } }, { mode: 'survival' });
     expect(state.macro.regime).toBe('recession');
     expect(state.config.events.probabilityScale).toBe(2);
+    expect(state.config.finance.startingDebt).toBeGreaterThan(
+      newGame(6).config.finance.startingDebt,
+    );
     state = playTurns(state, 2);
     expect(state.meta.status).toBe('won');
     expect(state.victory.outcome?.reason).toBe('survived');
@@ -166,7 +169,7 @@ describe('difficulty presets', () => {
   it('multiply with the hostile scenario of survival; the caller overrides last', () => {
     const s = newGame(9, undefined, { mode: 'survival', difficulty: 'hard' });
     expect(s.config.events.probabilityScale).toBeCloseTo(3, 9);
-    expect(s.config.scenario.playerStart.cashFactor).toBeCloseTo(0.56, 9);
+    expect(s.config.scenario.playerStart.cashFactor).toBeCloseTo(0.42, 9);
     const own = newGame(9, { events: { probabilityScale: 0 } }, { mode: 'survival' });
     expect(own.config.events.probabilityScale).toBe(0);
   });

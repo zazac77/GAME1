@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { firstSustained, gameMetrics, median, std, summarize } from '../src/metrics';
-import { formatCrossSector, formatSummary, toCsv } from '../src/report';
+import { formatCrossSector, formatModes, formatSummary, toCsv } from '../src/report';
 import { runGame } from '../src/run';
 
 describe('sim-cli', () => {
@@ -90,4 +90,20 @@ describe('sim-cli', () => {
     },
     60_000,
   );
+
+  // Lot 3.5: the outcomes of the modes with an objective, by reason.
+  it('reports the outcome of a mode with an objective, by reason', () => {
+    const overrides = { time: { standardGameTurns: 4 } };
+    const games = [31, 32].map((seed) =>
+      gameMetrics(runGame({ seed, turns: 8, player: 'premium', mode: 'survival', overrides })),
+    );
+    const summary = summarize(games);
+    expect(summary.objective.won + summary.objective.lost).toBe(2);
+    const reasons = Object.values(summary.objective.reasons).reduce((a, b) => a + b, 0);
+    expect(reasons).toBe(2);
+    expect(formatSummary(summary, 8)).toContain('Objectif : gagné');
+    const table = formatModes([{ mode: 'survival', sector: 'industry', summary }]);
+    expect(table).toContain('survival');
+    expect(table).toContain(`${summary.objective.won}/2`);
+  }, 60_000);
 });

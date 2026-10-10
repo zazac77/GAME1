@@ -977,6 +977,44 @@ const conglomerateSchema = z.strictObject({
    * positions (interest paid by the borrower, received by the lender).
    */
   groupLoanSpread: nonNeg,
+  /**
+   * Synergies of a group (the operating companies its head controls, lot 3.2),
+   * read from the registry at the start of the quarter.
+   */
+  synergies: z.strictObject({
+    /** Share of the other members' contracted volume of a commodity counted for the volume discount. */
+    pooledPurchasingShare: share,
+    /** Weight of the group brand (revenue-weighted average) in the brand customers see. */
+    sharedBrandWeight: share,
+    /** Shared support functions: these occupations' wages fall by maxSaving × (1 − 1/members). */
+    supportOccupationIds: z.array(id),
+    supportMaxSaving: share,
+  }),
+  /** Holding fees per quarter: base × price level × subsidiaries^exponent × sectors, shared by revenue. */
+  holdingFee: z.strictObject({
+    base: nonNeg,
+    subsidiaryExponent: nonNeg,
+  }),
+  /**
+   * Managerial capacity: load = members × companyLoad + (sectors − 1) × sectorLoad.
+   * Above the capacity (+ holdingBonus under a holding company), every member's
+   * efficiency = max(minEfficiency, 1 − lossPerUnit × excess): operator
+   * productivity × efficiency, attrition × (1 + attritionWeight × (1 − efficiency)).
+   */
+  management: z.strictObject({
+    capacity: nonNeg,
+    holdingBonus: nonNeg,
+    companyLoad: nonNeg,
+    sectorLoad: nonNeg,
+    lossPerUnit: nonNeg,
+    minEfficiency: z.number().min(0).max(1),
+    attritionWeight: nonNeg,
+  }),
+  /** Conglomerate discount on the sum of the parts of a holding company: perExtraSector × (sectors − 1), at most max. */
+  discount: z.strictObject({
+    perExtraSector: share,
+    max: share,
+  }),
 });
 
 const viewsSchema = z.strictObject({
@@ -1181,6 +1219,9 @@ export const gameConfigSchema = z
         issue(at('startingCompany', 'staff'), 'more staff than seats');
       }
     }
+    cfg.conglomerate.synergies.supportOccupationIds.forEach((o, i) =>
+      occupationRefs.push([['conglomerate', 'synergies', 'supportOccupationIds', i], o]),
+    );
     for (const [path, occupationId] of occupationRefs) {
       if (!(occupationId in cfg.labor.occupations)) issue(path, 'unknown occupation');
     }

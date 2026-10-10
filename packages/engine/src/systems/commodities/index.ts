@@ -3,6 +3,7 @@ import { operatingCompanies } from '../../core/companies';
 import { newId } from '../../core/ids';
 import { clamp, sum } from '../../core/math';
 import { applyModifiers } from '../../core/modifiers';
+import { groupsByMember, pooledContractVolume } from '../../core/synergies';
 import type { System } from '../../core/system';
 import type { Company } from '../../model/company';
 import type { Id } from '../../model/ids';
@@ -33,12 +34,22 @@ export function clearingPrice(ctx: TurnContext, market: CommodityMarket, demand:
   );
 }
 
-/** Contract price: expected spot + forward premium − volume discount. */
-function contractPrice(ctx: TurnContext, market: CommodityMarket, qtyPerQuarter: number): number {
+/**
+ * Contract price: expected spot + forward premium − volume discount, the
+ * discount earned on the contract's volume plus `pooledVolume` (the volume
+ * its group buys together, lot 3.2).
+ */
+function contractPrice(
+  ctx: TurnContext,
+  market: CommodityMarket,
+  qtyPerQuarter: number,
+  pooledVolume = 0,
+): number {
   const cfg = ctx.config.commodities;
   const fullVolume = market.refDemand * cfg.contractDiscountFullVolumeShare;
+  const volume = qtyPerQuarter + pooledVolume;
   const discount =
-    cfg.contractVolumeDiscountMax * (fullVolume > 0 ? Math.min(1, qtyPerQuarter / fullVolume) : 0);
+    cfg.contractVolumeDiscountMax * (fullVolume > 0 ? Math.min(1, volume / fullVolume) : 0);
   const modifier = applyModifiers(ctx.draft.modifiers, 'commodity.price', 1, [
     { kind: 'commodity', id: market.id },
   ]);
@@ -84,8 +95,29 @@ export const commoditiesSystem: System = {
     const cfg = config.commodities;
     const companies = operatingCompanies(draft);
 
-    // New contracts are priced on this quarter's world price and start now.
-    for (const company of companies) {
+    // New contracts are priced on this quarter's world price and start now. The
+    // volume discount counts what the other members of the group contract (in
+    // force and signed this quarter, whatever the order of the companies).
+    const groups = groupsByMember(draft);
+    const pooled = companies.map((company) => {
+      const profile = groups[company.id];
+      const volumes: Record<Id, number> = {};
+      for (const c of ctx.decisions[company.id]?.purchasing.newContracts ?? []) {
+        if (volumes[c.commodityId] !== undefined) continue;
+        let fresh = 0;
+        for (const id of profile?.members ?? []) {
+          if (id === company.id) continue;
+          for (const k of ctx.decisions[id]?.purchasing.newContracts ?? []) {
+            if (k.commodityId === c.commodityId) fresh += k.qtyPerQuarter;
+          }
+        }
+        volumes[c.commodityId] =
+          pooledContractVolume(draft, company, c.commodityId, groups, turn) +
+          fresh * config.conglomerate.synergies.pooledPurchasingShare;
+      }
+      return volumes;
+    });
+    companies.forEach((company, i) => {
       for (const c of ctx.decisions[company.id]?.purchasing.newContracts ?? []) {
         const market = draft.commodities[c.commodityId];
         if (!market) continue;
@@ -93,12 +125,12 @@ export const commoditiesSystem: System = {
           id: newId(draft.meta, 'ctr'),
           commodityId: c.commodityId,
           qtyPerQuarter: c.qtyPerQuarter,
-          price: contractPrice(ctx, market, c.qtyPerQuarter),
+          price: contractPrice(ctx, market, c.qtyPerQuarter, pooled[i]?.[c.commodityId] ?? 0),
           startsAt: turn,
           endsAt: turn + c.quarters,
         });
       }
-    }
+    });
 
     for (const commodityId of Object.keys(draft.commodities).sort()) {
       const market = draft.commodities[commodityId] as CommodityMarket;

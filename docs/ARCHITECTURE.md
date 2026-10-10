@@ -70,6 +70,7 @@ GAME1/
 │  │  │  │  ├─ pipeline.ts        # ordre des systèmes, resolveTurn
 │  │  │  │  ├─ context.ts         # TurnContext (draft, config, rng, log)
 │  │  │  │  ├─ modifiers.ts       # effets temporaires génériques (événements, synergies)
+│  │  │  │  ├─ group.ts  synergies.ts  # groupes : prêts, parts économiques ; profil de synergies (lot 3.2)
 │  │  │  │  └─ math.ts            # clamp, logit, lissage, utilitaires financiers
 │  │  │  ├─ systems/              # un dossier par système, chacun testable seul
 │  │  │  │  ├─ macro/  labor/  commodities/  production/  products/
@@ -316,9 +317,9 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | 7 | `production` | Capacité (machines × main-d'œuvre × matières) → production → qualité (délégué au SectorModule ; tech : qualité selon seniors et maintenance) |
 | 8 | `products` + `perishability` | Référencement (agro) → demande totale → parts de marché (logit) → ventes limitées par les stocks → report de la demande insatisfaite → marque ; puis pertes des stocks périssables. Tech : nouveaux abonnés (logit) → churn → abonnés facturés → cloud consommé |
 | 9 | `rnd` | Avance la frontière technologique (tech) ; avancement des projets (budget, ou développeurs en tech), niveau technologique, obsolescence |
-| 10 | `accounting` | Compte de résultat, impôt, intérêts, amortissements, stockage → trésorerie → bilan ; contrôle de solvabilité |
+| 10 | `conglomeratePre` + `accounting` | Groupes du début de trimestre (lot 3.2) : fonctions support partagées (salaires réduits) et frais de holding (répartis selon le CA du trimestre) passés au journal ; puis compte de résultat, impôt, intérêts, amortissements, stockage → trésorerie → bilan ; contrôle de solvabilité |
 | 11 | `stockmarket` | Valeur fondamentale (sur les comptes publiés) → cours (avec impact des ordres) → exécution des ordres → registre → indice → juste valeur des actifs financiers. Les achats/ventes d'actions et la réévaluation sont **passés dans les états du trimestre** clos à l'étape 10 (trésorerie, actifs financiers, flux d'investissement, résultat financier) |
-| 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs, OPA amicales), changements de contrôle, réévaluation des participations, sociétés mises en vente ; puis prêts intra-groupe d'une société disparue passés en perte, création des holdings, transferts intra-groupe (cessions de titres, dividendes remontés, prêts, cash pooling), réévaluation, comptes consolidés de chaque tête de groupe (lot 3.1) ; synergies et coûts de complexité (lot 3.2). Comme l'étape 11, écrit ses mouvements dans les états du trimestre ; les invariants comptables sont vérifiés après l'étape 13 |
+| 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs, OPA amicales), changements de contrôle, réévaluation des participations, sociétés mises en vente ; puis prêts intra-groupe d'une société disparue passés en perte, création des holdings, transferts intra-groupe (cessions de titres, dividendes remontés, prêts, cash pooling), réévaluation, comptes consolidés de chaque tête de groupe (lot 3.1) ; enfin malus des groupes en surcharge managériale pour le trimestre suivant (modificateurs, lot 3.2). Comme l'étape 11, écrit ses mouvements dans les états du trimestre ; les invariants comptables sont vérifiés après l'étape 13 |
 | 13 | `victory` + `reporting` | KPI, historique, journal, rapport de tour, conditions de fin |
 
 ## 8. Configuration et équilibrage
@@ -373,7 +374,7 @@ Finance & bourse), **Marchés** (travail par région et métier, matières
 premières, produits), **Concurrents** (vue partielle), **Bourse** (cotes,
 indice, portefeuille, ordres), **Rachats & OPA** (pépites et concurrents,
 valorisation, audits, rachat de bloc, OPA amicale, financement), **Groupe**
-(phase 2 : filiales et qui les dirige ; lot 3.1 : holding, flux intra-groupe, comptes consolidés et reporting par filiale), **Rapport de tour** (récit de ce qui s'est passé, événements,
+(phase 2 : filiales et qui les dirige ; lot 3.1 : holding, flux intra-groupe, comptes consolidés et reporting par filiale ; lot 3.2 : synergies et coûts de la complexité), **Rapport de tour** (récit de ce qui s'est passé, événements,
 écarts entre prévu et réalisé), **Sauvegardes**.
 
 Pour suivre beaucoup d'indicateurs sans noyer le joueur :

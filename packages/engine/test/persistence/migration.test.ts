@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deserializeGame, resolveTurn } from '../../src';
+import { deserializeGame, getPlayerView, resolveTurn } from '../../src';
 import { AI_PROFILE_IDS } from '../../src/config/schema';
 import { SCHEMA_VERSION } from '../../src/core/version';
 import { assertJsonSafe, playerCompanyId, steadyDecisions } from '../helpers';
@@ -11,6 +11,7 @@ import saveV5 from '../fixtures/save-v5.json';
 import saveV6 from '../fixtures/save-v6.json';
 import saveV7 from '../fixtures/save-v7.json';
 import saveV8 from '../fixtures/save-v8.json';
+import saveV9 from '../fixtures/save-v9.json';
 
 // A v1 save written by the lot 1.1 engine (seed 1234, after 2 quarters).
 const v1 = JSON.stringify(saveV1);
@@ -30,6 +31,9 @@ const v7 = JSON.stringify(saveV7);
 // A v8 save written by the lot 2.5 engine (seed 1234, after 11 quarters, the player owning
 // 100 % of a bought listing).
 const v8 = JSON.stringify(saveV8);
+// A v9 save written by the lot 3.1 engine (the v8 save played 2 more quarters, the player
+// having put a holding company on top of its group).
+const v9 = JSON.stringify(saveV9);
 
 describe('migrations', () => {
   it('loads a v1 save into the current schema', () => {
@@ -259,6 +263,31 @@ describe('migrations', () => {
     const cons = state.companies[id]?.books.consolidated;
     expect(cons).toHaveLength(1);
     expect(Object.keys(cons?.[0]?.members ?? {})).toEqual([id, sub]);
+    assertJsonSafe(state);
+  });
+
+  it('loads a v9 save: synergy settings, the group effects resume', () => {
+    expect(JSON.parse(v9).schemaVersion).toBe(9);
+    let state = deserializeGame(v9);
+    expect(state.meta.schemaVersion).toBe(SCHEMA_VERSION);
+    const C = state.config.conglomerate;
+    expect(C.synergies.supportOccupationIds).toEqual(['occ_manager', 'occ_sales']);
+    expect(C.holdingFee.base).toBeGreaterThan(0);
+    expect(C.management.capacity).toBeGreaterThan(0);
+    expect(C.discount.max).toBeGreaterThan(0);
+    const holdingId = playerCompanyId(state);
+    expect(state.companies[holdingId]?.sector).toBe('holding');
+    const ids = Object.keys(state.companies).filter(
+      (id) =>
+        id !== holdingId && getPlayerView(state).groupCompanies.some((c) => c.companyId === id),
+    );
+    state = resolveTurn(
+      state,
+      ids.map((id) => steadyDecisions(state, id)),
+    ).state;
+    const view = getPlayerView(state);
+    expect(view.synergies?.headId).toBe(holdingId);
+    expect(view.synergies?.subsidiaries).toBe(2);
     assertJsonSafe(state);
   });
 });

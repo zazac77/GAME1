@@ -2,6 +2,7 @@ import type { TurnContext } from '../../core/context';
 import { indexedRefPrice, isOperating } from '../../core/companies';
 import { clamp, sum } from '../../core/math';
 import { applyModifiers } from '../../core/modifiers';
+import { groupsByMember, sharedBrand } from '../../core/synergies';
 import type { Company, ProductLine } from '../../model/company';
 import type { ProductMarket } from '../../model/markets';
 import type { GameState } from '../../model/state';
@@ -26,10 +27,11 @@ export const subscriptionOffer = (
   line: ProductLine,
   price: number,
   marketing: number,
+  brand: number = company.brand,
 ): Offer => ({
   price,
   quality: line.quality,
-  brand: company.brand,
+  brand,
   marketing,
   users: line.users ?? 0,
   techGap: (line.techLevel ?? 0) - (market.techFrontier ?? 0),
@@ -68,8 +70,16 @@ export function sellSubscriptions(
   const { draft, config } = ctx;
   const P = config.products;
   const ref = indexedRefPrice(draft, market.id);
+  const groups = groupsByMember(draft);
   const offers = sellers.map((s) =>
-    subscriptionOffer(market, s.company, s.line, s.line.price, s.marketing),
+    subscriptionOffer(
+      market,
+      s.company,
+      s.line,
+      s.line.price,
+      s.marketing,
+      sharedBrand(draft, s.company, groups),
+    ),
   );
   const shares = marketShares(market.segments, offers, ref, P.marketingUnit, P.networkUnit);
   const inside = sum(shares);
@@ -188,10 +198,11 @@ export function estimateSubscriptions(
           .filter((l) => l.marketId === market.id)
           .map((l) => ({ c, l })),
       );
+    const groups = groupsByMember(state);
     const offers = sellers.map(({ c, l }) =>
       l.id === line.id
-        ? subscriptionOffer(market, c, l, price, marketing)
-        : subscriptionOffer(market, c, l, l.price, 0),
+        ? subscriptionOffer(market, c, l, price, marketing, sharedBrand(state, c, groups))
+        : subscriptionOffer(market, c, l, l.price, 0, sharedBrand(state, c, groups)),
     );
     const shares = marketShares(market.segments, offers, ref, P.marketingUnit, P.networkUnit);
     const inside = sum(shares);

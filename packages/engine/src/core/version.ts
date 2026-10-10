@@ -1,3 +1,3 @@
 /** Shape version of GameState. Every change adds a migration in persistence/migrations. */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 export const ENGINE_VERSION = '0.1.0';

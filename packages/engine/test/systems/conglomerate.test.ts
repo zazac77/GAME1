@@ -99,9 +99,11 @@ describe('holding company', () => {
     const price = next.stock.quotes[rootId]?.price ?? 0;
     expect(holding?.books.current.balance.financialAssets).toBeCloseTo(shares * price, 3);
     expect(holding?.books.current.balance.equity).toBeCloseTo(shares * price, 3);
-    // Score: the holding is worth its stake in the former root (sum of the parts).
+    // Score: the holding is worth its stake in the former root (sum of the parts),
+    // less the conglomerate discount of a group spanning several sectors (lot 3.2).
     const view = getPlayerView(next);
-    expect(view.score).toBeCloseTo(shares * price, 0);
+    const discount = view.synergies?.discount ?? 0;
+    expect(view.score).toBeCloseTo(shares * price * (1 - discount), 0);
     expect(view.canCreateHolding).toBe(false);
     expect(view.groupCompanies.map((c) => c.companyId)).toEqual([holdingId, rootId, subId]);
     expect(next.log.some((e) => e.kind === 'holding_created')).toBe(true);

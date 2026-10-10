@@ -8,6 +8,7 @@ import {
 import { createTurnContext } from '../core/context';
 import { laborPoolKey } from '../core/keys';
 import { clamp, sum } from '../core/math';
+import { feeShare, groupsByMember, sharedBrand, supportWages } from '../core/synergies';
 import type { Company, ProductLine } from '../model/company';
 import type { CompanyDecisions, IntraGroupTransfer } from '../model/decisions';
 import { maxDividend } from '../systems/finance/equity';
@@ -84,6 +85,7 @@ export function estimateDemand(
     );
   }
   const ref = market.refPrice * state.macro.priceLevel;
+  const groups = groupsByMember(state);
   const offers = Object.values(state.companies)
     .filter(isOperating)
     .flatMap((c) =>
@@ -93,7 +95,7 @@ export function estimateDemand(
           id: l.id,
           price: l.id === line.id ? price : l.price,
           quality: l.quality,
-          brand: c.brand,
+          brand: sharedBrand(state, c, groups),
           marketing: l.id === line.id ? marketing : 0,
           distribution: l.id === line.id ? nextShelf : (l.distribution ?? 0),
         })),
@@ -176,7 +178,15 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   const marketing = sum(Object.values(d.marketing)) + sum(Object.values(d.listing));
   // Tech: the developers on R&D are booked as R&D, not wages.
   const rnd = sum(d.rnd.map((r) => r.budget)) + sales.rndWages;
-  const wages = staffWages - sales.rndWages;
+  // Group (lot 3.2): shared support functions, holding fees (by last quarter's revenues).
+  const group = groupsByMember(state)[companyId];
+  const supportSaving = group ? group.supportSaving * supportWages(draft, company) : 0;
+  const holdingFees = group
+    ? feeShare(group, companyId, (id) =>
+        id === companyId ? expectedRevenue : (state.companies[id]?.books.current.pnl.revenue ?? 0),
+      )
+    : 0;
+  const wages = staffWages - sales.rndWages - supportSaving;
   const storage = storageCost(draft, company);
   const interest = interestCharge(draft, company) + netGroupInterest(draft, company);
   let installments = 0;
@@ -185,7 +195,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     const left = loan.maturity - turn;
     installments += left <= 1 ? loan.principal : loan.principal / left;
   }
-  const other = hiring + severance + training + maintenance + logistics;
+  const other = hiring + severance + training + maintenance + logistics + holdingFees;
   const expectedEbitda = expectedRevenue - cogs - wages - marketing - rnd - storage - other;
   const overdraft = sum(
     company.loans.filter((l) => l.kind === 'overdraft').map((l) => l.principal),
@@ -235,6 +245,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
       logistics,
       storage,
       interest,
+      holdingFees,
     },
     capex: ledger.capex,
     disposals: ledger.disposals,

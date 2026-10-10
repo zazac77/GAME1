@@ -1,9 +1,14 @@
 import { useState } from 'react';
-import type { ConsolidatedStatements, IntraGroupTransfer, PlayerView } from '@game/engine';
+import type {
+  ConsolidatedStatements,
+  GroupSynergiesView,
+  IntraGroupTransfer,
+  PlayerView,
+} from '@game/engine';
 import { companyNamer } from '../components/lists';
 import { Button, Card, Kpi, Notice, NumberField, Select, Stat, Table, Td } from '../components/ui';
 import { fmtInt, fmtMoney, fmtPct, quarterLabel } from '../i18n/format';
-import { fr } from '../i18n/fr';
+import { commodityName, fr } from '../i18n/fr';
 import { playerCompanyId, useGame } from '../store/game';
 
 type Kind = IntraGroupTransfer['kind'];
@@ -130,6 +135,8 @@ export function Group() {
           <Button onClick={() => navigate('deals')}>{t.toDeals}</Button>
         </div>
       </Card>
+
+      {view.synergies && <Synergies synergies={view.synergies} />}
 
       {cons && <Consolidated cons={cons} />}
 
@@ -347,6 +354,55 @@ function Transfers(props: {
         <Button variant="primary" onClick={add}>
           {t.add}
         </Button>
+      </div>
+    </Card>
+  );
+}
+
+/** What the group gains (shared support, brand, purchasing) and what its complexity costs. */
+function Synergies({ synergies: g }: { synergies: GroupSynergiesView }) {
+  const t = fr.group;
+  const pooled = Object.entries(g.pooledContracts);
+  return (
+    <Card title={t.synergies}>
+      <p className="mb-3 text-sm text-slate-600">{t.synergiesHint}</p>
+      <div className="grid gap-6 md:grid-cols-2">
+        <div>
+          <h4 className="mb-1 text-sm font-semibold">{t.synergyGains}</h4>
+          <Stat label={t.members} value={fmtInt(g.members.length)} />
+          <Stat
+            label={t.groupBrand}
+            value={`${g.brand.toFixed(1)} (${t.brandShare(fmtPct(g.sharedBrandWeight))})`}
+          />
+          <Stat
+            label={t.supportSaving}
+            value={t.supportSavingValue(fmtPct(g.supportSaving), fmtMoney(g.supportSavingAmount))}
+          />
+          <div className="mt-1 text-sm text-slate-600">{t.pooled}</div>
+          {pooled.length === 0 ? (
+            <p className="text-xs text-slate-500">{t.noPooled}</p>
+          ) : (
+            pooled.map(([id, qty]) => (
+              <Stat key={id} label={commodityName(id)} value={fmtInt(qty)} />
+            ))
+          )}
+        </div>
+        <div>
+          <h4 className="mb-1 text-sm font-semibold">{t.complexityCosts}</h4>
+          <Stat label={t.sectorsInGroup} value={g.sectors.map((s) => fr.sectors[s]).join(', ')} />
+          <Stat label={t.holdingFee} value={fmtMoney(g.holdingFee)} />
+          <Stat
+            label={t.managerial}
+            value={t.managerialValue(g.load.toFixed(1), g.capacity.toFixed(1))}
+          />
+          <Stat label={t.efficiency} value={fmtPct(g.efficiency)} strong={g.efficiency < 1} />
+          <Stat label={t.discount} value={g.discount > 0 ? fmtPct(g.discount) : t.noDiscount} />
+          {g.efficiency < 1 && (
+            <div className="mt-2">
+              <Notice severity="warning">{t.overloaded}</Notice>
+            </div>
+          )}
+        </div>
       </div>
     </Card>
   );

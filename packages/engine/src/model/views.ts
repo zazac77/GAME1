@@ -163,6 +163,31 @@ export interface GroupLoanView {
   rate: number;
 }
 
+/** Synergies and complexity costs of the player's group this quarter (lot 3.2). */
+export interface GroupSynergiesView {
+  headId: Id;
+  /** Operating companies of the group (holding companies excluded). */
+  members: Id[];
+  subsidiaries: number;
+  sectors: SectorId[];
+  /** Group brand (revenue-weighted) and its weight in the brand customers see. */
+  brand: number;
+  sharedBrandWeight: number;
+  /** Managerial load, capacity and the members' efficiency (1: no overload). */
+  load: number;
+  capacity: number;
+  efficiency: number;
+  /** Holding fees of the quarter (shared by revenue). */
+  holdingFee: Money;
+  /** Share of the support functions' wages saved, and the amount for the whole group. */
+  supportSaving: number;
+  supportSavingAmount: Money;
+  /** Conglomerate discount on the holding company's sum of the parts. */
+  discount: number;
+  /** Volume per quarter the members contract together, by commodity (in force). */
+  pooledContracts: Record<Id, number>;
+}
+
 /** What the UI shows: the player's Observation plus journal, history and alerts. */
 export interface PlayerView extends Observation {
   status: 'running' | 'won' | 'lost';
@@ -183,6 +208,8 @@ export interface PlayerView extends Observation {
   groupLoans: GroupLoanView[];
   /** Consolidated accounts of the player's group, oldest first (absent: no subsidiary). */
   consolidated?: ConsolidatedStatements[];
+  /** Synergies and complexity costs of the group (absent: no subsidiary). */
+  synergies?: GroupSynergiesView;
   /** The root company can be put under a new holding company this quarter. */
   canCreateHolding: boolean;
   /** Companies the viewed company could buy (listings, then companies by id). */
@@ -215,6 +242,8 @@ export interface CompanyPreview {
     logistics: Money;
     storage: Money;
     interest: Money;
+    /** Share of the group's holding fees (lot 3.2). */
+    holdingFees: Money;
   };
   capex: Money;
   disposals: Money;

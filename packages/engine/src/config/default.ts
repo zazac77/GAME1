@@ -739,6 +739,28 @@ export const defaultConfig: GameConfig = {
   conglomerate: {
     // Intra-group loans and cash pool positions pay the policy rate + 1.5 %.
     groupLoanSpread: 0.015,
+    synergies: {
+      // A member's new contracts earn the volume discount of the whole group's contracts.
+      pooledPurchasingShare: 1,
+      // A quarter of the brand customers see is the group's: a scandal spreads too.
+      sharedBrandWeight: 0.25,
+      // Management and sales shared: up to 30 % of their wages saved (15 % with 2 members).
+      supportOccupationIds: ['occ_manager', 'occ_sales'],
+      supportMaxSaving: 0.3,
+    },
+    // 100 k€ a quarter for one subsidiary, ≈ 1.2 M€ for 4 subsidiaries in 2 sectors.
+    holdingFee: { base: 100000, subsidiaryExponent: 1.3 },
+    // 3 companies of one sector run fine; a 4th, or a 2nd sector, needs a holding company.
+    management: {
+      capacity: 3,
+      holdingBonus: 2,
+      companyLoad: 1,
+      sectorLoad: 1,
+      lossPerUnit: 0.04,
+      minEfficiency: 0.8,
+      attritionWeight: 2,
+    },
+    discount: { perExtraSector: 0.08, max: 0.2 },
   },
 
   ai: {

@@ -7,6 +7,7 @@ import { playerCosts } from './costs';
 import { dealQuotes, groupLoansView, groupView } from './mna';
 import { canCreateHolding } from '../systems/conglomerate';
 import { shareValue } from '../systems/stockmarket';
+import { synergiesView } from './synergies';
 import { isVisible } from './visibility';
 
 /**
@@ -55,6 +56,8 @@ export function getPlayerView(state: GameState, companyId?: string): PlayerView 
     deals: viewed && isOperating(viewed) ? dealQuotes(state, viewed) : [],
   };
   if (costs) view.costs = costs;
+  const synergies = synergiesView(state, actorId);
+  if (synergies) view.synergies = synergies;
   const consolidated = root?.books.consolidated;
   if (consolidated) view.consolidated = structuredClone(consolidated);
   return view;

@@ -5,7 +5,7 @@ import { accountingSystem } from '../systems/accounting';
 import { aiSystem } from '../systems/ai';
 import { capexSystem } from '../systems/capex';
 import { commoditiesSystem } from '../systems/commodities';
-import { conglomerateSystem } from '../systems/conglomerate';
+import { conglomeratePreSystem, conglomerateSystem } from '../systems/conglomerate';
 import { eventsSystem } from '../systems/events';
 import { financePreSystem } from '../systems/finance';
 import { laborSystem } from '../systems/labor';
@@ -42,10 +42,11 @@ export const PIPELINE: readonly System[] = [
   productsSystem, // 8. listing, demand, logit shares, sales, brand
   perishabilitySystem, // 8. perishable stocks lose a share of their units
   rndSystem, // 9. obsolescence, projects, R&D levels
+  conglomeratePreSystem, // 10. shared support functions, holding fees
   accountingSystem, // 10. statements, tax, cash, solvency
   stockMarketSystem, // 11. fundamental, price, orders, registry, index
   mnaSystem, // 12. takeovers, changes of control, holdings, listings
-  conglomerateSystem, // 12. holdings, intra-group transfers, consolidation
+  conglomerateSystem, // 12. holdings, intra-group transfers, consolidation, overload
   pending('victory'), // 13. end conditions
   reportingSystem, // 13. history, journal, next quarter
 ];

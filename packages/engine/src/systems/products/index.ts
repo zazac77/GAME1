@@ -1,6 +1,7 @@
 import { indexedRefPrice, operatingCompanies } from '../../core/companies';
 import { clamp, sum } from '../../core/math';
 import { applyModifiers } from '../../core/modifiers';
+import { groupsByMember, sharedBrand } from '../../core/synergies';
 import type { System } from '../../core/system';
 import type { Company, ProductLine } from '../../model/company';
 import type { Id } from '../../model/ids';
@@ -48,6 +49,8 @@ export const productsSystem: System = {
     const { draft, config, turn } = ctx;
     const P = config.products;
     const companies = operatingCompanies(draft);
+    // Group brands from the brands at the start of the quarter (lot 3.2).
+    const groups = groupsByMember(draft);
 
     // Prices and marketing of the quarter.
     const marketingByCompany: Record<Id, number> = {};
@@ -116,7 +119,7 @@ export const productsSystem: System = {
         sellers.map((s) => ({
           price: s.line.price,
           quality: s.line.quality,
-          brand: s.company.brand,
+          brand: sharedBrand(draft, s.company, groups),
           marketing: s.marketing,
           distribution: s.line.distribution ?? 0,
         })),

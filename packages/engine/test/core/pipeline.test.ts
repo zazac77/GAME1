@@ -38,6 +38,7 @@ describe('pipeline', () => {
       'products',
       'perishability',
       'rnd',
+      'conglomeratePre',
       'accounting',
       'stockmarket',
       'mna',

@@ -1,5 +1,6 @@
 import { isOperating } from '../../core/companies';
 import { sameGroup } from '../../core/control';
+import { holdingDiscount } from '../../core/synergies';
 import type { Company } from '../../model/company';
 import type { Statements } from '../../model/finance';
 import type { Id, Money } from '../../model/ids';
@@ -12,7 +13,7 @@ const MAX_DEPTH = 4;
 /**
  * Fundamental value per share (stockmarket/fundamental.ts); the stakes of a
  * holding company count at their current value (sum of the parts) instead
- * of their carrying value.
+ * of their carrying value, less the conglomerate discount of its group.
  */
 export function fundamentalOf(
   state: GameState,
@@ -29,7 +30,13 @@ export function fundamentalOf(
     const target = state.companies[targetId];
     if (shares > 0 && target) stakes += shares * shareValue(state, target, depth + 1);
   }
-  return fundamentalValue(state, company, published, stakes);
+  // Conglomerate discount on a diversified group (lot 3.2).
+  return fundamentalValue(
+    state,
+    company,
+    published,
+    stakes * (1 - holdingDiscount(state, company)),
+  );
 }
 
 /**

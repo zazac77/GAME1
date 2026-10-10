@@ -5,10 +5,12 @@ import { revalueHoldings } from '../stockmarket/holdings';
 import { book } from './booking';
 import { consolidate, consolidationScope } from './consolidation';
 import { createHolding } from './holding';
+import { applyGroupEffects } from './synergies';
 import { cancelDeadLoans, settleTransfer, type GroupTrades } from './transfers';
 
 export { canCreateHolding } from './holding';
 export { consolidate, consolidationScope } from './consolidation';
+export { conglomeratePreSystem, groupProfiles, OVERLOAD_SOURCE } from './synergies';
 
 /**
  * Step 12 (after the takeovers), on the accounts just closed: intra-group
@@ -19,7 +21,8 @@ export { consolidate, consolidationScope } from './consolidation';
  * declared by the parents, loans and repayments, cash pools, each within
  * the cash then available. The holdings are revalued (a dividend lowers the
  * price of a listed payer), and every group with a subsidiary gets its
- * consolidated accounts of the quarter, kept by its head.
+ * consolidated accounts of the quarter, kept by its head. Last, the groups
+ * of the next quarter get their managerial overload (lot 3.2).
  */
 export const conglomerateSystem: System = {
   id: 'conglomerate',
@@ -63,5 +66,6 @@ export const conglomerateSystem: System = {
     for (const company of Object.values(draft.companies)) {
       if (!heads.has(company.id) && company.books.consolidated) delete company.books.consolidated;
     }
+    applyGroupEffects(ctx);
   },
 };

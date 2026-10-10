@@ -15,6 +15,7 @@ export type SystemId =
   | 'products'
   | 'perishability'
   | 'rnd'
+  | 'conglomeratePre'
   | 'accounting'
   | 'stockmarket'
   | 'mna'

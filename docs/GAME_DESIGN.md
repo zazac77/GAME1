@@ -266,7 +266,7 @@ l'offre selon son profil et la prime.
   `base × n_filiales^1.3 × n_secteurs` ; **capacité managériale** (chaque
   filiale consomme de l'attention et, au-delà de la capacité, toutes les
   filiales subissent un malus d'efficacité) ; décote de conglomérat sur le
-  cours de la holding.
+  cours de la holding. Formules retenues : §23.
 - **Reporting** : comptes par filiale ; comptes consolidés (intégration
   globale au-delà de 50 % avec intérêts minoritaires, élimination des flux
   intra-groupe) ; participations minoritaires à la juste valeur.
@@ -1036,7 +1036,7 @@ Limites connues, pour la phase 3 :
   courante, + trésorerie + prêts accordés − dettes). Le score du joueur est sa
   part × la valeur d'une action de sa tête (le cours si elle est cotée). Le
   joueur perd si sa tête fait faillite, ou si sous une holding il ne contrôle
-  plus aucune société opérationnelle. Frais de holding : lot 3.2.
+  plus aucune société opérationnelle. Frais de holding : lot 3.2 (§23).
 - **Transferts intra-groupe** (`intraGroup`, `systems/conglomerate/transfers.ts`) :
   décidés par l'une des deux sociétés ou par la tête du groupe, entre sociétés
   opérationnelles du même groupe ; exécutés en fin de trimestre, société par
@@ -1136,3 +1136,82 @@ low-cost industriel, souvent racheté quand il fragilise, survit plus souvent.
 Le taux global de faillite des IA s'éloigne encore de la cible de 5 % : à
 reprendre avec l'équilibrage du lot 3.5 (par exemple `ai.group.keepCashQuarters`
 plus haut, ou un plafond de soutien par filiale).
+
+## 23. Choix d'implémentation (lot 3.2 : synergies et complexité)
+
+- **Groupe** (`core/synergies.ts`, `GroupProfile`) : la tête d'un acteur (qui la
+  contrôle) et les sociétés opérationnelles qu'elle contrôle, holdings exclues
+  (les « membres »), dès qu'elle a au moins une filiale. Le profil est **lu du
+  registre** au moment où il sert (rien de nouveau dans l'état) : pendant les
+  étapes 3 à 10, c'est le groupe du début de trimestre. Il vaut pour le joueur
+  comme pour l'IA. `n_filiales` = membres hors tête ; `n_secteurs` = secteurs
+  des membres.
+- **Achats mutualisés** (étape 6) : la remise volume d'un nouveau contrat se
+  calcule sur son volume + `pooledPurchasingShare` × le volume des contrats de
+  la même matière des autres membres (en cours, et signés ce trimestre, sans
+  dépendre de l'ordre des sociétés). L'aperçu reste au prix à terme sans remise.
+- **Marque partagée** (étape 8 et aperçu) : la marque que voient les clients
+  (logit, produits et abonnements) = `(1 − w)·marque + w·marque du groupe`, avec
+  `w = sharedBrandWeight` et la marque du groupe = moyenne des marques des
+  membres pondérée par leur CA du dernier trimestre. Un scandale (chute de la
+  marque d'un membre) se propage donc aux autres. La marque stockée de chaque
+  société ne change pas ; une holding de tête affiche la marque du groupe.
+- **Fonctions support partagées** (étape 10, `conglomeratePre`, avant la
+  comptabilité) : les salaires des métiers `supportOccupationIds` (direction et
+  commerciaux) de chaque membre baissent de `supportMaxSaving × (1 − 1/membres)`
+  (15 % à 2 membres, 20 % à 3, au plus 30 %).
+- **Frais de holding** (même étape) : `base × niveau des prix × n_filiales^1,3 ×
+  n_secteurs` par trimestre (en « autres charges »), répartis entre les membres
+  selon leur CA du trimestre (à parts égales sans CA). Ils sont portés par les
+  sociétés opérationnelles et non par la holding, qui n'a pas de trésorerie
+  propre (sinon elle tomberait à découvert). L'aperçu montre la quote-part
+  (`costs.holdingFees`, selon le CA estimé) et les salaires nets de l'économie.
+- **Capacité managériale** : charge = `membres × companyLoad + (n_secteurs − 1)
+  × sectorLoad`, capacité = `capacity` (+ `holdingBonus` sous une holding de
+  tête). Au-delà, efficacité = `max(minEfficiency, 1 − lossPerUnit × excès)` pour
+  **tous** les membres : productivité des opérateurs × efficacité et attrition ×
+  `(1 + attritionWeight × (1 − efficacité))` (la seconde touche aussi la tech,
+  dont la production ne passe pas par la productivité des opérateurs). Ce sont
+  des modificateurs `company` (source `conglomerate_overload`) posés en fin
+  d'étape 12 pour le trimestre suivant et remplacés à chaque trimestre (jamais
+  cumulés). Par défaut, 3 sociétés d'un secteur passent ; une 4e ou un 2e
+  secteur demande une holding.
+- **Décote de conglomérat** : la valeur fondamentale d'une holding (somme des
+  parties) applique `min(max, perExtraSector × (n_secteurs − 1))` à ses
+  participations ; elle pèse donc sur le score du joueur sous une holding
+  diversifiée. Une tête opérationnelle n'en subit pas (sa valeur vient de ses
+  propres multiples) : créer une holding échange de la capacité managériale
+  contre cette décote.
+- **IA** : rien de nouveau dans ses décisions ; ses groupes (rachats) profitent
+  des mêmes synergies et paient les mêmes coûts.
+- **Vues et interface** : `PlayerView.synergies` (membres, secteurs, marque du
+  groupe et son poids, économie sur les fonctions support et son montant,
+  volume sous contrat par matière, frais de holding, charge et capacité,
+  efficacité, décote) ; carte « Synergies et coûts de la complexité » de
+  l'écran Groupe.
+- **Sauvegardes** : `schemaVersion` 10. La migration v9 → v10 ajoute les
+  sections `synergies`, `holdingFee`, `management` et `discount` de
+  `conglomerate` (seulement les métiers support connus de la partie). Le
+  golden ne change que par son hash (nouvelle section de config) : sans
+  groupe, la partie par défaut est identique.
+
+Équilibrage mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50) :
+
+| Indicateur (50 parties) | Lot 3.1 | Lot 3.2 |
+|---|---|---|
+| Faillite des IA (toutes) | 3,3 % | 3,3 % |
+| Faillite du low-cost industriel | 24 % | 24 % |
+| Faillite des sociétés rachetées | 0 sur 24 | 0 sur 24 |
+| Marge nette médiane | 6,0 % | 6,0 % |
+| Volatilité des matières / des cours | 12,3 / 13,1 % | 12,3 / 13,2 % |
+| Prêts intra-groupe accordés (par partie) | 0,76 | 0,72 |
+
+Les groupes restent rares dans les parties IA (0,82 prise de contrôle par
+partie, à deux sociétés le plus souvent) : à deux membres, l'économie sur les
+fonctions support (≈ 15 % de ≈ 0,45 M€ de salaires par société et par
+trimestre) compense à peu près les frais de holding d'un secteur (0,1 M€) ;
+la surcharge managériale et la décote ne jouent qu'au-delà de 3 sociétés ou
+d'un 2e secteur, c'est-à-dire pour un joueur qui bâtit un conglomérat. Leur
+calibrage fin (et l'IA qui en tiendrait compte dans ses rachats) relève du
+lot 3.5.
+

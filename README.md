@@ -4,10 +4,12 @@ Jeu de gestion au tour par tour (1 tour = 1 trimestre) avec des marchés simulé
 travail, matières premières, produits et bourse. Une IA concurrente joue avec les
 mêmes règles que le joueur, et l'objectif à long terme est de bâtir un conglomérat.
 
-Statut : **Phase 3, lot 3.1** (holding de tête, restructuration, remontée de
-dividendes, prêts intra-groupe et cash pooling ; comptes consolidés avec
-intérêts minoritaires et éliminations intra-groupe, reporting par filiale ;
-l'IA recapitalise ses filiales en difficulté). Phase 2 (lots 2.1 à 2.5) :
+Statut : **Phase 3, lot 3.2** (synergies de groupe : achats mutualisés, marque
+partagée, fonctions support ; coûts de la complexité : frais de holding,
+capacité managériale, décote de conglomérat). Lot 3.1 : holding de tête,
+restructuration, remontée de dividendes, prêts intra-groupe et cash pooling ;
+comptes consolidés avec intérêts minoritaires et éliminations intra-groupe,
+reporting par filiale ; l'IA recapitalise ses filiales en difficulté. Phase 2 (lots 2.1 à 2.5) :
 agroalimentaire, technologie, IA avancée, rachats et bourse v2, interface
 multi-secteurs. Phase 1 (lots 1.1 à 1.5) : moteur, marchés, IA, bourse v1,
 application web jouable, équilibrage.

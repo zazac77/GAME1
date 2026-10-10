@@ -1215,3 +1215,147 @@ d'un 2e secteur, c'est-à-dire pour un joueur qui bâtit un conglomérat. Leur
 calibrage fin (et l'IA qui en tiendrait compte dans ses rachats) relève du
 lot 3.5.
 
+
+## 24. Choix d'implémentation (lot 3.3 : bourse v3)
+
+- **Sociétés contestables** : les fondateurs des profils premium et innovateur ne
+  gardent que 40 % de leur société (`stockMarket.founderStakeByProfile`) ; personne
+  ne la contrôle (sa direction, le profil du fondateur, la mène), une OPA hostile
+  peut donc la prendre. Avec 60 %, une société ne se prend qu'avec l'accord de son
+  actionnaire de contrôle (low-cost, opportuniste, conglomérat, joueur). Les
+  premium et innovateurs n'achètent rien (acquisitivité nulle) : rien ne change
+  dans leur jeu. Le joueur garde 60 % de sa société.
+- **OPA hostile** (`tender_offer` avec `hostile`) : si le conseil ne la soutient
+  pas, l'offre reste **ouverte** `offers.periodQuarters` (1) trimestre au lieu
+  d'être rejetée, et va aux actionnaires par-dessus le conseil. La prime se mesure
+  sur le cours non perturbé (`basePrice`, cours d'ouverture au premier lancement
+  sur la cible). À la clôture, l'actionnaire de contrôle et les autres détenteurs
+  apportent si leur propre prime est atteinte (comme au lot 2.4), le flottant par
+  tranches avec `oppositionPremium` (5 points) de plus tant que le conseil combat
+  l'offre ; l'offre ne réussit que si le groupe acheteur passe le seuil de
+  contrôle (tout ou rien). Les sociétés du joueur ne vendent que les titres
+  qu'elles apportent (`tender_shares`) à une offre ouverte.
+- **Offres concurrentes et surenchères** : sur une cible sous offre, une nouvelle
+  OPA est une offre concurrente (au moins le meilleur prix × (1 + `minOverbid`),
+  2 %) ; l'initiateur peut relever la sienne (`raise_offer`, même minimum) ou la
+  retirer (`withdraw_offer`) une fois dépassé ou après une pilule. Une offre
+  concurrente ou une surenchère prolonge la bataille d'un trimestre, au plus
+  `maxQuarters` (3) après le premier lancement ; à la clôture, le meilleur prix
+  l'emporte, les autres échouent. Un rachat de bloc attend la fin de la bataille.
+  Une offre concurrente non hostile face à une offre hostile est un **chevalier
+  blanc** : le conseil la soutient dès sa prime × `whiteKnightAskFactor` (60 %).
+- **Défenses** (conseil mené par l'IA, au lancement de l'offre hostile) :
+  **pilule empoisonnée** avec la probabilité `poisonPill` du profil (premium 60 %,
+  innovateur 50 %, conglomérat 40 %, low-cost 30 %, opportuniste 20 %) et recherche
+  d'un chevalier blanc (publique). La pilule n'agit qu'à la clôture d'une offre
+  gagnante que le conseil combat encore : les détenteurs qui n'ont pas apporté
+  reçoivent `pillShareRatio` (0,5) action gratuite par action ; l'initiateur doit
+  garder le contrôle après cette dilution (plus de 60 % apportés au lieu de 50 %),
+  sinon l'offre échoue. Déclenchée, elle ajuste le cours, la valeur fondamentale,
+  l'historique des cours et les actions des comptes publiés comme une division
+  d'actions (fonds propres et trésorerie inchangés) : l'initiateur paie ses
+  titres au prix d'avant et voit sa part diluée. **Rachat défensif** : une société
+  cotée que personne ne contrôle rachète ses actions (dans les limites du lot 2.4,
+  avec `ai.defense.minCashQuarters` de trésorerie restante) dès qu'un groupe
+  extérieur a déclaré `buybackTrigger` (10 %) de son capital ou qu'une OPA hostile
+  la vise : la part du fondateur monte, le flottant baisse.
+- **Seuils déclaratifs** (`disclosureThresholds` : 5, 10, 20, 33 %) : en fin
+  d'étape 12, chaque groupe détenteur (un acteur avec les sociétés qu'il contrôle,
+  ou une société hors groupe) qui a franchi un seuil du capital d'une société cotée
+  depuis sa dernière déclaration, à la hausse ou à la baisse, le déclare (nouvelle
+  publique `stake_threshold`) ; `stock.declared` garde le seuil déclaré. Les
+  fondateurs sont déclarés dès le départ (sans nouvelle).
+- **Offre obligatoire** (`mandatoryOfferThreshold`, 30 %) : en bourse, un groupe
+  s'arrête à 30 % d'une société (avec `maxMinorityStake`) ; au-delà il faut une
+  offre. Le rachat du bloc de contrôle d'une société cotée oblige l'acheteur à
+  offrir le même prix à tous les autres actionnaires : chacun apporte selon sa
+  prime, le flottant par tranches, payé avec le bloc (retrait obligatoire au-delà
+  de 90 %). La validation et l'IA chiffrent donc un bloc coté sur toutes les
+  actions qu'elles ne détiennent pas.
+- **Paiement en titres** : les offres hostiles, concurrentes et surenchères
+  gardent le financement du lot 2.4 (`stockShare` en actions nouvelles de
+  l'acheteur au cours d'ouverture, dans la limite de son contrôle, et dette
+  d'acquisition), réglé à la clôture.
+- **Fonds activiste** (optionnel : `stockMarket.activist.enabled`, case de l'écran
+  de nouvelle partie, `--activist` dans sim-cli) : un acteur `fund` dont la
+  société (secteur `holding`, non cotée, 40 M€ de trésorerie) est jouée par le
+  planner à partir de son `Observation` et passe par la même validation. Il
+  achète les sociétés cotées dont le cours est à au moins `minUndervaluation`
+  (25 %) sous la valeur fondamentale, les plus décotées d'abord, au plus
+  `maxPositions` (3) lignes et `maxStake` (10 %) du capital, au plus
+  `positionShareOfCash` de sa trésorerie par ligne et par trimestre ; il vend à
+  moins de `exitUndervaluation` (5 %) de la valeur ou après `holdQuarters` (12).
+  Dès `campaignStake` (5 %), il fait campagne publiquement : pour un dividende
+  si la société a une trésorerie nette, sinon pour sa vente. Une IA visée par une
+  campagne de dividende verse `ai.dividends.campaignPayout` (60 %) de son résultat
+  ; il apporte ses titres à toute offre dès `tenderPremium` (10 %). Il n'est pas à
+  vendre et sim-cli le laisse hors des statistiques des sociétés.
+- **IA** (`ai/modules/mna.ts`, sur l'`Observation` qui montre les offres ouvertes,
+  les déclarations, les campagnes et le fondateur de chaque société) :
+  - **contre-offre** : surenchérit à meilleur prix × (1 + `counterBidStep`) si
+    l'affaire vaut encore ce prix (au plus `maxCounterBids` fois), sinon retire son
+    offre ; retire aussi après une pilule ;
+  - **chevalier blanc** : une tête de groupe acquisitive (tirage
+    `acquisitiveness`, hors délai) fait une offre concurrente amicale sur une
+    société visée par une OPA hostile dont le conseil cherche un chevalier blanc,
+    sur les comptes publiés (pas le temps d'un audit), au plus haut de l'offre
+    minimale + `knightMargin` et de la prime de son conseil × 60 % ;
+  - **réaction aux seuils (préemption)** : une cible dans laquelle un groupe rival
+    a déclaré `preemptThreshold` (10 %), ou qu'un activiste veut faire vendre,
+    passe en tête des rachats, hors tirage et hors délai, avec
+    `preemptValueMargin` de marge de valeur en plus (audit puis offre, comme au
+    lot 2.4) ; le rachat défensif ci-dessus est la réaction de la cible ;
+  - **OPA hostile** : sur une société que personne ne contrôle, quand son conseil
+    demande plus, la prime à laquelle les tranches du flottant attendues (loi
+    `tenderPremiumDist`, opposition comprise) donnent le contrôle avec
+    `hostileSafety` de marge, si elle reste sous `hostileMaxPremium` (35 %).
+  Toujours aucune offre de l'IA sur une société que le joueur contrôle : son
+  groupe en détient la majorité, aucune offre ne peut réussir sans lui.
+- **Vues et interface** : `DealQuote.contestable`, `groupStake`,
+  `minCompetingPrice` ; `PlayerView.offers` (offres ouvertes, la sienne
+  surenchérissable dès `minRaise` et retirable, titres détenus à apporter) ;
+  l'aperçu ne compte en numéraire que les rachats conclus dans le trimestre (bloc
+  coté avec l'offre obligatoire, OPA soutenue par le conseil). Écran Rachats &
+  OPA : case « OPA hostile », société contestable ou non, part du groupe, offre
+  obligatoire, carte « Offres en cours » (défenses, clôture, surenchère, retrait,
+  apport). Écran Bourse : franchissements de seuil et campagnes. Journal public :
+  `hostile_offer`, `competing_offer`, `tender_offer_raised`,
+  `tender_offer_withdrawn`, `poison_pill`, `stake_threshold`, `activist_campaign`
+  et les coups `ai_hostile_offer`, `ai_counter_bid`, `ai_white_knight`,
+  `ai_preempt`, `ai_defense_buyback`.
+- **Sauvegardes** : `schemaVersion` 11. La migration v10 → v11 complète les OPA
+  (prix de base, financement, hostilité, surenchères, défenses), déclare les
+  participations telles qu'elles sont (sans nouvelle), ajoute les campagnes
+  (aucune) et les sections de configuration ; le monde d'une ancienne partie
+  garde ses fondateurs à 60 % (`founderStakeByProfile` vide) et le fonds reste
+  absent. Le golden ne change que par son hash (registre des fondateurs, nouveaux
+  champs) : la partie de référence est identique.
+
+Équilibrage mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50) :
+
+| Indicateur (50 parties) | Lot 3.2 | Lot 3.3 | Lot 3.3, fonds activiste |
+|---|---|---|---|
+| Faillite des IA (toutes) | 3,3 % | 3,6 % | 3,6 % |
+| Faillite du low-cost industriel | 24 % | 26 % | 26 % |
+| Marge nette médiane | 6,0 % | 6,0 % | 5,9 % |
+| Volatilité des matières / des cours | 12,3 / 13,2 % | 12,3 / 13,2 % | 12,3 / 13,8 % |
+| Prises de contrôle (pépites, blocs) par partie | 0,82 (0,48 ; 0,34) | 0,66 (0,54 ; 0,12) | 0,74 (0,56 ; 0,18) |
+| Offres obligatoires / déclarations de seuil par partie | – | 0,12 / 0,1 | 0,18 / 27,7 |
+| Campagnes / rachats défensifs / préemptions par partie | – | – | 9,4 / 0,6 / 0,3 |
+
+L'offre obligatoire renchérit les blocs cotés : l'IA rachète moins souvent le
+low-cost industriel en difficulté (blocs 0,34 → 0,12 par partie), qui fait un peu
+plus souvent faillite (le taux global se rapproche de la cible de 5 %). Sans fonds,
+les déclarations de seuil ne viennent que des rachats (l'IA ne prend pas de
+participations en bourse). Le fonds entre et sort souvent (une campagne à chaque
+passage de 5 %), ce qui ajoute un peu de volatilité aux cours.
+
+Limites connues, pour le lot 3.5 :
+- l'IA ne lance presque jamais d'OPA hostile par défaut (aucune en 50 parties) :
+  les sociétés contestables sont les premium et innovateurs, grandes, et
+  `maxShareOfEquity` (60 % des fonds propres) les met hors de portée ; en levant
+  ces limites (`hostileMaxPremium` 0,6, `maxShareOfEquity` 3, `valueMargin` 1),
+  une OPA hostile de l'IA réussit dans 1 partie sur 20. Faute d'OPA hostile entre
+  IA, chevaliers blancs et contre-offres ne répondent qu'au joueur ;
+- l'IA ne monte pas au capital d'une cible avant une offre (pas de ramassage en
+  bourse) et ne fait jamais appel au marché pour diluer un raider.

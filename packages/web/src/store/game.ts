@@ -37,6 +37,8 @@ export interface NewGameInput {
   mode: GameMode;
   /** Starting sector of the player's company (default: the config's). */
   sector?: SectorId;
+  /** The optional activist fund joins the game. */
+  activist?: boolean;
 }
 
 /** What the player planned (preview at submission), kept to compare with the report. */
@@ -155,7 +157,10 @@ export const createGameStore = (saves: SaveStore) =>
           companyName: input.companyName,
           mode: input.mode,
         },
-        input.sector ? { scenario: { playerSector: input.sector } } : undefined,
+        {
+          ...(input.sector ? { scenario: { playerSector: input.sector } } : {}),
+          ...(input.activist ? { stockMarket: { activist: { enabled: true } } } : {}),
+        },
       );
       set({ ...derive(game), report: null, planned: null, screen: 'dashboard' });
     },

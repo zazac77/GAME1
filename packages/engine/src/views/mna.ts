@@ -7,7 +7,13 @@ import type { Company } from '../model/company';
 import type { HolderId, Id } from '../model/ids';
 import type { AnnualFigures } from '../model/mna';
 import type { GameState } from '../model/state';
-import type { CapitalQuotes, DealQuote, GroupCompanyView, GroupLoanView } from '../model/views';
+import type {
+  CapitalQuotes,
+  DealQuote,
+  GroupCompanyView,
+  GroupLoanView,
+  OfferView,
+} from '../model/views';
 import {
   buybackPrice,
   ipoTerms,
@@ -21,9 +27,13 @@ import {
   blockSeller,
   boardPremium,
   canTarget,
+  canWithdraw,
+  contestable,
   dueDiligenceCost,
   heldByGroup,
   listingPrice,
+  minCompetingPrice,
+  openOffers,
   pendingOrUsableDiligence,
   usableDiligence,
 } from '../systems/mna/rules';
@@ -130,9 +140,13 @@ export function dealQuotes(state: GameState, buyer: Company): DealQuote[] {
     if (asked !== undefined) quote.askedPremium = asked;
     const seller = blockSeller(state, target);
     if (seller) quote.blockShares = state.stock.registry[id]?.[seller] ?? 0;
+    const held = heldByGroup(state, buyer.id, id);
+    quote.groupStake = held / Math.max(1, target.sharesOutstanding);
     if (target.listed) {
-      quote.tenderShares = target.sharesOutstanding - heldByGroup(state, buyer.id, id);
+      quote.tenderShares = target.sharesOutstanding - held;
+      quote.contestable = contestable(state, target);
     }
+    if (openOffers(state, id).length > 0) quote.minCompetingPrice = minCompetingPrice(state, id);
     out.push(quote);
   }
   return out;
@@ -210,4 +224,19 @@ export function groupLoansView(state: GameState, actorId: Id): GroupLoanView[] {
     }
   }
   return out;
+}
+
+/** Open tender offers and what the viewed company may do: raise or withdraw its own, tender its shares. */
+export function offerViews(state: GameState, company: Company): OfferView[] {
+  return openOffers(state).map((offer) => {
+    const mine = offer.bidderId === company.id;
+    return {
+      offer: structuredClone(offer),
+      mine,
+      minRaise: minCompetingPrice(state, offer.targetId),
+      canWithdraw: mine && canWithdraw(state, offer),
+      held: mine ? 0 : (state.stock.registry[offer.targetId]?.[company.id] ?? 0),
+      bestPrice: Math.max(...openOffers(state, offer.targetId).map((o) => o.pricePerShare)),
+    };
+  });
 }

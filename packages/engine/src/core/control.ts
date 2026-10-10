@@ -31,6 +31,14 @@ export function controlledBy(state: GameState, holderId: HolderId): Id[] {
 
 /** The actor at the top of the company's chain of control (undefined: nobody controls it). */
 export function controllingActor(state: GameState, companyId: Id): Id | undefined {
+  // Fast exit: nobody can control a company whose shares outside the float do not pass the threshold.
+  const register = state.stock.registry[companyId] ?? {};
+  let blocked = 0;
+  for (const [holderId, held] of Object.entries(register)) {
+    if (holderId !== 'public' && holderId !== companyId) blocked += held;
+  }
+  const shares = state.companies[companyId]?.sharesOutstanding ?? 0;
+  if (blocked <= state.config.mna.controlThreshold * shares) return undefined;
   for (const actorId of Object.keys(state.actors).sort()) {
     if (controlledBy(state, actorId).includes(companyId)) return actorId;
   }

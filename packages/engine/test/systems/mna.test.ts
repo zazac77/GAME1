@@ -253,9 +253,9 @@ describe('friendly tender offer', () => {
 });
 
 describe('block purchase', () => {
-  it('buys the founder block above its asking premium only', () => {
+  it('buys the founder block above its asking premium, with the mandatory offer to the others', () => {
     const state = fund(playTurns(newGame(10, RICH), 2), 300_000_000);
-    const { actor, company } = rival(state, 'premium');
+    const { actor, company } = rival(state, 'low_cost');
     const ref = state.stock.quotes[company.id]?.referencePrice ?? 0;
     const block = (premium: number) =>
       play(state, {
@@ -269,11 +269,31 @@ describe('block purchase', () => {
     const high = block(0.6);
     balanced(high);
     const id = playerCompanyId(state);
+    const founderShares = state.stock.registry[company.id]?.[actor.id] ?? 0;
     expect(high.stock.registry[company.id]?.[actor.id] ?? 0).toBe(0);
-    expect(high.stock.registry[company.id]?.[id]).toBe(
-      state.stock.registry[company.id]?.[actor.id],
-    );
+    // The float tendered to the mandatory offer at the same price (squeezed out above 90 %).
+    expect(high.stock.registry[company.id]?.[id] ?? 0).toBeGreaterThan(founderShares);
+    const news = high.log.find((e) => e.kind === 'takeover' && e.data?.targetId === company.id);
+    expect(news?.data?.mode).toBe('block');
+    expect(Number(news?.data?.mandatory ?? 0)).toBeGreaterThan(0);
     expect(isOperating(high.companies[company.id] as never)).toBe(true);
+  });
+
+  it('is costed on every share of a listed target (mandatory offer)', () => {
+    const state = fund(playTurns(newGame(10, RICH), 2), 1_000_000);
+    const id = playerCompanyId(state);
+    const { company } = rival(state, 'low_cost');
+    const ref = state.stock.quotes[company.id]?.referencePrice ?? 0;
+    const d = {
+      ...steadyDecisions(state, id),
+      mna: [
+        { kind: 'private_purchase', targetId: company.id, pricePerShare: ref * 1.5 },
+      ] as MnaAction[],
+    };
+    const { issues, decisions } = normalizeDecisions(state, state.companies[id] as never, d);
+    expect(decisions.mna).toEqual([]);
+    const budget = issues.find((i) => i.path === 'mna[0]' && i.code === 'budget');
+    expect(budget?.submitted).toBeCloseTo(company.sharesOutstanding * ref * 1.5, 0);
   });
 });
 

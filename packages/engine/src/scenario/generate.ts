@@ -2,6 +2,7 @@ import type { GameConfig } from '../config/schema';
 import { newAiMemory } from '../ai/memory';
 import { profileOf } from '../ai/profiles';
 import { newStaff } from '../core/companies';
+import { declaredLevels } from '../core/disclosure';
 import { newId } from '../core/ids';
 import { laborPoolKey } from '../core/keys';
 import { clamp, sum } from '../core/math';
@@ -119,6 +120,8 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
       registry: {},
       orders: [],
       tenderOffers: [],
+      declared: {},
+      campaigns: [],
     },
     mna: { listings: [], diligence: [], integrations: [] },
     modifiers: [],
@@ -222,7 +225,11 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
     state.companies[company.id] = company;
     if (p.kind === 'player') state.meta.playerActorId = actorId;
     if (p.profileId) state.aiMemory[company.id] = newAiMemory();
-    listCompany(state, company, actorId);
+    const founderStake =
+      p.kind === 'ai' && p.profileId
+        ? config.stockMarket.founderStakeByProfile[p.profileId]
+        : undefined;
+    listCompany(state, company, actorId, founderStake);
   }
 
   // ---- close the labor accounts: initial unemployment hits its target ------
@@ -278,6 +285,8 @@ export function generateWorld(config: GameConfig, opts: NewGameOptions): GameSta
     history: [config.stockMarket.indexBase],
   };
 
+  if (config.stockMarket.activist.enabled) createFund(state);
+  state.stock.declared = declaredLevels(state);
   state.log.push({ turn: 0, kind: 'game_started', severity: 'info', data: { seed: opts.seed } });
   recordHistory(state);
   return state;
@@ -646,11 +655,60 @@ function openingBalance(company: Company, cash: number): BalanceSheet {
   };
 }
 
+/**
+ * The activist fund (optional): an unlisted company without operations,
+ * holding its capital in cash, wholly owned by a fund actor.
+ */
+function createFund(state: GameState): void {
+  const { config } = state;
+  const A = config.stockMarket.activist;
+  const shares = config.stockMarket.sharesOutstanding;
+  const actorId = newId(state.meta, 'act');
+  const fund: Company = {
+    id: newId(state.meta, 'co'),
+    name: A.name,
+    sector: 'holding',
+    hqRegionId: config.scenario.playerHqRegionId,
+    status: 'active',
+    listed: false,
+    sharesOutstanding: shares,
+    sites: {},
+    workforce: {},
+    inventory: {},
+    contracts: [],
+    productLines: {},
+    brand: 50,
+    employerBrand: 50,
+    cumulativeOutput: 0,
+    processLevel: 0,
+    rnd: [],
+    loans: [],
+    credit: { rating: config.finance.initialRating, covenantBreached: false, distressQuarters: 0 },
+    books: {
+      current: zeroStatements(
+        { ...emptyBalance(), cash: A.capital, equity: A.capital },
+        shares,
+        state.meta.turn - 1,
+      ),
+      history: [],
+      taxLossCarryforward: 0,
+    },
+    participations: {},
+    stakeValues: {},
+  };
+  state.companies[fund.id] = fund;
+  state.actors[actorId] = { id: actorId, kind: 'fund', name: A.name, rootCompanyId: fund.id };
+  state.stock.registry[fund.id] = { [actorId]: shares };
+  state.aiMemory[fund.id] = newAiMemory();
+}
+
 /** Lists the company: founder stake for the actor, the rest as public float. */
-function listCompany(state: GameState, company: Company, actorId: Id): void {
+function listCompany(state: GameState, company: Company, actorId: Id, founderStake?: number): void {
   const { stockMarket } = state.config;
   const shares = company.sharesOutstanding;
-  const publicShares = Math.round(shares * stockMarket.initialFloat);
+  const publicShares = Math.round(
+    shares * (founderStake === undefined ? stockMarket.initialFloat : 1 - founderStake),
+  );
   state.stock.registry[company.id] = { [actorId]: shares - publicShares, public: publicShares };
   const bookPerShare = company.books.current.balance.equity / shares;
   const priceToBook =

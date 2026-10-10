@@ -5,6 +5,7 @@ import type { Statements } from './finance';
 import type {
   AiProfileId,
   CreditRating,
+  HolderId,
   Id,
   LaborPoolKey,
   ModifierKey,
@@ -14,7 +15,7 @@ import type {
 } from './ids';
 import type { CommodityMarket, LaborPool, MacroState, ProductMarket, Region } from './markets';
 import type { DueDiligence, TargetListing } from './mna';
-import type { Quote, TenderOffer } from './stock';
+import type { ActivistCampaign, Quote, TenderOffer } from './stock';
 
 /** What a planner remembers about one rival company. */
 export interface RivalMemory {
@@ -77,6 +78,8 @@ export interface AiMemory {
   deal?: DealMemory;
   /** Last quarter a takeover was attempted. */
   lastDealAt?: Quarter;
+  /** Activist fund: quarter each position was opened, by company id. */
+  positions?: Record<Id, Quarter>;
 }
 
 // ---- Observation: the only input of the AI planner (and the base of PlayerView) ----
@@ -132,6 +135,8 @@ export interface CompetitorProductView {
 export interface CompetitorView {
   companyId: Id;
   name: string;
+  /** Its founder (or the actor controlling it): the shareholder register is public. */
+  actorId?: Id;
   actorName: string;
   sector: SectorId | 'holding';
   hqRegionId: Id;
@@ -175,6 +180,10 @@ export interface StockMarketView {
   float: Record<Id, number>;
   /** Shares of other companies held by the observer's company. */
   holdings: Record<Id, number>;
+  /** Holdings declared (disclosure thresholds), by listed company and holder group. */
+  declared: Record<Id, Record<HolderId, number>>;
+  /** Activist campaigns under way. */
+  campaigns: ActivistCampaign[];
 }
 
 /** A company for sale, as the public sees it (actual figures and liability are private). */
@@ -185,7 +194,7 @@ export interface MnaView {
   listings: ListingView[];
   /** The observer's own due diligences, usable this quarter. */
   diligence: DueDiligence[];
-  /** Recent tender offers (public). */
+  /** Open offers and recent ones (public). */
   tenderOffers: TenderOffer[];
 }
 
@@ -221,6 +230,8 @@ export interface Observation {
   actorId: Id;
   profileId?: AiProfileId;
   companyId: Id;
+  /** The observed company is the activist fund. */
+  fund?: boolean;
   /** The rules are public. */
   config: GameConfig;
   macro: MacroState;

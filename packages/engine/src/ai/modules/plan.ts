@@ -9,7 +9,16 @@ import type { ProductMarket } from '../../model/markets';
 /** Something worth a journal entry: every competitive move of the AI is public news. */
 export interface PlanSignal {
   kind:
-    'ai_price_war' | 'ai_price_truce' | 'ai_wage_outbid' | 'ai_counter_launch' | 'ai_targets_rival';
+    | 'ai_price_war'
+    | 'ai_price_truce'
+    | 'ai_wage_outbid'
+    | 'ai_counter_launch'
+    | 'ai_targets_rival'
+    | 'ai_hostile_offer'
+    | 'ai_counter_bid'
+    | 'ai_white_knight'
+    | 'ai_preempt'
+    | 'ai_defense_buyback';
   rivalId: Id;
   data?: Record<string, string | number | boolean>;
 }

@@ -47,6 +47,9 @@ export const fr = {
     mode: 'Mode',
     modes: { standard: 'Standard (40 trimestres)', sandbox: 'Bac à sable' },
     randomSeed: 'Au hasard',
+    activist: 'Fonds activiste',
+    activistHint:
+      'Un fonds prend jusqu’à 10 % des sociétés cotées sous-évaluées et fait campagne (dividende ou vente de la société).',
     create: 'Créer la partie',
     continue: 'Reprendre',
     load: 'Charger une sauvegarde',
@@ -377,10 +380,20 @@ export const fr = {
     orderHint:
       'Les ordres sont exécutés en fin de trimestre, au nouveau cours. Liquidité limitée par trimestre ; participation minoritaire plafonnée.',
     ownStake: 'Votre participation dans votre société',
+    declared: 'Franchissements de seuil déclarés',
+    declaredHint:
+      'Tout groupe qui franchit 5, 10, 20 ou 33 % du capital d’une société cotée le déclare. En bourse, un groupe ne peut pas dépasser 30 % : au-delà, il faut déposer une offre.',
+    noDeclared: 'Aucune participation déclarée hors fondateurs.',
+    holder: 'Détenteur',
+    level: 'Seuil franchi',
+    campaigns: 'Campagnes activistes',
+    campaign: (fund: string, demand: string) => `${fund} réclame ${demand}`,
+    demands: { payout: 'un dividende (trésorerie nette)', sale: 'la vente de la société' },
+    since: 'Depuis',
   },
   deals: {
     intro:
-      'Rachetez des sociétés non cotées mises en vente (pépites) ou prenez le contrôle d’un concurrent : rachat du bloc de son actionnaire de contrôle ou OPA amicale. Un audit (un trimestre de délai) révèle les vrais chiffres et les passifs cachés. Une seule opération par trimestre, conclue en fin de trimestre.',
+      'Rachetez des sociétés non cotées mises en vente (pépites) ou prenez le contrôle d’un concurrent : rachat du bloc de son actionnaire de contrôle (avec offre obligatoire aux minoritaires s’il est coté), OPA amicale ou OPA hostile sur une société que personne ne contrôle. Un audit (un trimestre de délai) révèle les vrais chiffres et les passifs cachés. Une seule opération par trimestre, conclue en fin de trimestre.',
     buyer: (name: string) => `Acheteur : ${name} (changez de société dans l’en-tête).`,
     noDraft:
       'Cette filiale est gérée par sa direction en place. Reprenez-la en main depuis l’écran Groupe pour décider pour elle.',
@@ -388,6 +401,13 @@ export const fr = {
     nothing: 'Aucun audit ni offre ce trimestre.',
     auditOf: (name: string) => `Audit d’acquisition de ${name}`,
     tenderOfferAt: (name: string, price: string) => `OPA amicale sur ${name} à ${price} par action`,
+    hostileAt: (name: string, price: string) =>
+      `OPA (hostile si le conseil refuse) sur ${name} à ${price} par action`,
+    competingAt: (name: string, price: string) =>
+      `Offre concurrente sur ${name} à ${price} par action`,
+    raiseAt: (name: string, price: string) => `Surenchère sur ${name} à ${price} par action`,
+    withdrawOf: (name: string) => `Retrait de votre offre sur ${name}`,
+    tenderOf: (name: string) => `Apport de vos actions ${name} à l’offre`,
     blockAt: (name: string, price: string) =>
       `Rachat du bloc de contrôle de ${name} à ${price} par action`,
     buyListing: (name: string) => `Rachat de 100 % de ${name} au prix demandé`,
@@ -431,7 +451,17 @@ export const fr = {
     blockShares: 'Actions du bloc de contrôle',
     auditAdvice: 'Sans audit, les chiffres peuvent être loin de la réalité.',
     offerKind: 'Type d’offre',
-    offerKinds: { block: 'Rachat du bloc de contrôle', tender: 'OPA amicale' },
+    offerKinds: { block: 'Rachat du bloc de contrôle', tender: 'OPA' },
+    hostile: 'Passer outre le conseil (OPA hostile)',
+    hostileHint:
+      'Sans l’accord du conseil, l’offre reste ouverte un trimestre et s’adresse directement aux actionnaires, qui demandent alors une prime plus forte. Le conseil peut adopter une pilule empoisonnée et chercher un chevalier blanc ; d’autres peuvent surenchérir.',
+    contestable: 'Personne ne contrôle cette société : une OPA hostile peut réussir.',
+    controlled: 'Un actionnaire la contrôle : sans son accord, aucune offre ne peut réussir.',
+    groupStake: 'Part déjà détenue par votre groupe',
+    underOffer: (price: string) =>
+      `Société sous offre : une offre concurrente doit atteindre ${price} par action (le rachat de bloc attend la clôture).`,
+    mandatory: (shares: string) =>
+      `Offre obligatoire : le même prix est proposé aux autres actionnaires (${shares} actions au plus).`,
     pricePerShare: 'Prix par action',
     boardAsks: (price: string) => `le conseil demande ${price}`,
     total: 'Montant total',
@@ -447,6 +477,20 @@ export const fr = {
     update: 'Mettre à jour l’offre',
     tenderOffers: 'OPA récentes',
     noOffers: 'Aucune OPA récente.',
+    openOffers: 'Offres en cours',
+    noOpenOffers: 'Aucune offre en cours.',
+    closesAt: 'Clôture',
+    defenses: 'Défenses',
+    pill: 'pilule empoisonnée',
+    knight: 'chevalier blanc recherché',
+    yours: '(la vôtre)',
+    raise: 'Surenchérir',
+    withdraw: 'Retirer',
+    tenderShares: (shares: string) => `Apporter mes ${shares} actions`,
+    cancelAction: 'Annuler',
+    hostileBadge: 'hostile',
+    pillHint:
+      'Pilule empoisonnée : si l’offre l’emporte contre l’avis du conseil, les actionnaires qui n’ont pas apporté reçoivent 0,5 action gratuite par action ; il faut garder plus de 50 % après cette dilution.',
     bidder: 'Initiateur',
     premium: 'Prime',
     status: 'Issue',
@@ -902,6 +946,16 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
       return `${who} lance une contre-offensive produit (qualité, R&D, marketing) face à ${companyName(str(d, 'rivalId'))}.`;
     case 'ai_targets_rival':
       return `${who} part à la conquête des clients de ${companyName(str(d, 'rivalId'))}, en difficulté.`;
+    case 'ai_hostile_offer':
+      return `${who} prépare une OPA hostile sur ${companyName(str(d, 'rivalId'))}.`;
+    case 'ai_counter_bid':
+      return `${who} surenchérit face à ${companyName(str(d, 'rivalId'))} sur ${companyName(str(d, 'targetId'))} (${fmtPrice(num(d, 'pricePerShare'))} par action).`;
+    case 'ai_white_knight':
+      return `${who} vole au secours de ${companyName(str(d, 'targetId'))} en chevalier blanc, face à ${companyName(str(d, 'rivalId'))}.`;
+    case 'ai_preempt':
+      return `${who} s’intéresse à ${companyName(str(d, 'rivalId'))}, convoitée par un autre groupe.`;
+    case 'ai_defense_buyback':
+      return `${who} rachète ${fmtInt(num(d, 'shares'))} de ses actions pour se défendre de ${companyName(str(d, 'rivalId'))}.`;
     case 'overdraft':
       return `${who} est à découvert : ${fmtMoney(num(d, 'amount'))}.`;
     case 'company_bankrupt':
@@ -968,12 +1022,43 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
       const mode = str(d, 'mode');
       const how =
         mode === 'tender_offer'
-          ? 'par une OPA amicale'
+          ? d?.hostile
+            ? 'par une OPA hostile'
+            : 'par une OPA amicale'
           : mode === 'block'
             ? 'en rachetant le bloc de contrôle'
             : 'de gré à gré';
-      return `${who} prend le contrôle de ${companyName(str(d, 'targetId'))} ${how} (${fmtMoney(num(d, 'price'))}).`;
+      const mandatory =
+        num(d, 'mandatory') > 0
+          ? ` ; ${fmtInt(num(d, 'mandatory'))} actions apportées à l’offre obligatoire`
+          : '';
+      return `${who} prend le contrôle de ${companyName(str(d, 'targetId'))} ${how} (${fmtMoney(num(d, 'price'))}${mandatory}).`;
     }
+    case 'hostile_offer': {
+      const defenses = [
+        d?.pill ? 'adopte une pilule empoisonnée' : '',
+        d?.whiteKnight ? 'cherche un chevalier blanc' : '',
+      ].filter(Boolean);
+      const board = defenses.length > 0 ? ` Le conseil ${defenses.join(' et ')}.` : '';
+      return `${who} lance une OPA hostile sur ${companyName(str(d, 'targetId'))} à ${fmtPrice(num(d, 'pricePerShare'))} par action (prime de ${fmtPct(num(d, 'premium'))}).${board}`;
+    }
+    case 'competing_offer':
+      return `${who} dépose une offre concurrente sur ${companyName(str(d, 'targetId'))} à ${fmtPrice(num(d, 'pricePerShare'))} par action.`;
+    case 'tender_offer_raised':
+      return `${who} relève son offre sur ${companyName(str(d, 'targetId'))} à ${fmtPrice(num(d, 'pricePerShare'))} par action.`;
+    case 'tender_offer_withdrawn':
+      return `${who} retire son offre sur ${companyName(str(d, 'targetId'))}.`;
+    case 'poison_pill':
+      return `La pilule empoisonnée de ${who} est déclenchée : ${fmtInt(num(d, 'newShares'))} actions gratuites diluent ${companyName(str(d, 'bidderId'))}.`;
+    case 'stake_threshold': {
+      const level = num(d, 'level');
+      const holder = companyName(str(d, 'holderId'));
+      return level > num(d, 'previous')
+        ? `${holder} déclare avoir franchi ${fmtPct(level, 0)} du capital de ${who} (${fmtPct(num(d, 'stake'))}).`
+        : `${holder} repasse sous ${fmtPct(num(d, 'previous'), 0)} du capital de ${who} (${fmtPct(num(d, 'stake'))}).`;
+    }
+    case 'activist_campaign':
+      return `${companyName(str(d, 'fundId'))} entre en campagne chez ${who} : ${str(d, 'demand') === 'payout' ? 'il réclame un dividende' : 'il réclame la vente de la société'}.`;
     case 'tender_offer_rejected':
       return `Le conseil de ${companyName(str(d, 'targetId'))} rejette l’offre de ${who} (prime de ${fmtPct(num(d, 'premium'))}).`;
     case 'block_purchase_rejected':
@@ -987,7 +1072,11 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
             ? 'trop peu d’actions apportées pour prendre le contrôle'
             : reason === 'outbid'
               ? 'une offre plus élevée l’emporte'
-              : 'cible indisponible';
+              : reason === 'pill'
+                ? 'la pilule empoisonnée l’aurait privé du contrôle'
+                : reason === 'under_offer'
+                  ? 'la société est déjà sous offre'
+                  : 'cible indisponible';
       return `${who} : le rachat de ${companyName(str(d, 'targetId'))} échoue (${why}).`;
     }
     case 'holding_created':
@@ -1024,6 +1113,11 @@ export const KNOWN_EVENT_KINDS = [
   'ai_wage_outbid',
   'ai_counter_launch',
   'ai_targets_rival',
+  'ai_hostile_offer',
+  'ai_counter_bid',
+  'ai_white_knight',
+  'ai_preempt',
+  'ai_defense_buyback',
   'overdraft',
   'company_bankrupt',
   'game_lost',
@@ -1051,6 +1145,13 @@ export const KNOWN_EVENT_KINDS = [
   'takeover',
   'tender_offer_rejected',
   'block_purchase_rejected',
+  'hostile_offer',
+  'competing_offer',
+  'tender_offer_raised',
+  'tender_offer_withdrawn',
+  'poison_pill',
+  'stake_threshold',
+  'activist_campaign',
   'deal_failed',
   'holding_created',
   'group_loan',

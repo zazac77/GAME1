@@ -21,8 +21,8 @@ export const SANITY = {
 export interface CompanyMetrics {
   companyId: string;
   name: string;
-  /** acquired: a listing bought during the game (not a starting competitor). */
-  kind: 'player' | 'ai' | 'acquired';
+  /** acquired: a listing bought during the game (not a starting competitor); fund: the activist fund. */
+  kind: 'player' | 'ai' | 'acquired' | 'fund';
   sector: string;
   profileId: string;
   status: string;
@@ -78,6 +78,16 @@ export interface GameMetrics {
     groupLoans: number;
     groupRepayments: number;
     groupWriteOffs: number;
+    /** Stock market v3: hostile offers launched (and succeeded), competing offers, raises, withdrawals, pills, mandatory offers, threshold declarations, activist campaigns. */
+    hostileOffers: number;
+    hostileSucceeded: number;
+    competingOffers: number;
+    raises: number;
+    withdrawals: number;
+    pills: number;
+    mandatoryOffers: number;
+    declarations: number;
+    campaigns: number;
   };
 }
 
@@ -193,7 +203,14 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     return {
       companyId: c.id,
       name: c.name,
-      kind: c.id === record.playerCompanyId ? 'player' : first.companies[c.id] ? 'ai' : 'acquired',
+      kind:
+        c.id === record.playerCompanyId
+          ? 'player'
+          : actor?.kind === 'fund'
+            ? 'fund'
+            : first.companies[c.id]
+              ? 'ai'
+              : 'acquired',
       sector: c.sector,
       profileId: actor?.profileId ?? c.managementProfileId ?? 'passive',
       status: c.status,
@@ -253,6 +270,15 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     groupLoans: 0,
     groupRepayments: 0,
     groupWriteOffs: 0,
+    hostileOffers: 0,
+    hostileSucceeded: 0,
+    competingOffers: 0,
+    raises: 0,
+    withdrawals: 0,
+    pills: 0,
+    mandatoryOffers: 0,
+    declarations: 0,
+    campaigns: 0,
   };
   record.states.slice(1).forEach((s, i) => {
     const turn = record.states[i]?.meta.turn;
@@ -264,6 +290,8 @@ export function gameMetrics(record: GameRecord): GameMetrics {
         if (e.data?.mode === 'listing') deals.listings += 1;
         else if (e.data?.mode === 'block') deals.blocks += 1;
         else deals.tenderOffers += 1;
+        if (e.data?.hostile) deals.hostileSucceeded += 1;
+        if (Number(e.data?.mandatory ?? 0) > 0) deals.mandatoryOffers += 1;
       } else if (
         e.kind === 'deal_failed' ||
         e.kind === 'tender_offer_rejected' ||
@@ -278,6 +306,13 @@ export function gameMetrics(record: GameRecord): GameMetrics {
         if (Number(e.data?.lent ?? 0) > 0) deals.groupLoans += 1;
         if (Number(e.data?.repaid ?? 0) > 0) deals.groupRepayments += 1;
       } else if (e.kind === 'group_loan_written_off') deals.groupWriteOffs += 1;
+      else if (e.kind === 'hostile_offer') deals.hostileOffers += 1;
+      else if (e.kind === 'competing_offer') deals.competingOffers += 1;
+      else if (e.kind === 'tender_offer_raised') deals.raises += 1;
+      else if (e.kind === 'tender_offer_withdrawn') deals.withdrawals += 1;
+      else if (e.kind === 'poison_pill') deals.pills += 1;
+      else if (e.kind === 'stake_threshold') deals.declarations += 1;
+      else if (e.kind === 'activist_campaign') deals.campaigns += 1;
     }
   });
   const playerActor = last.actors[last.meta.playerActorId];
@@ -349,7 +384,8 @@ export interface Summary {
 }
 
 export function summarize(games: readonly GameMetrics[]): Summary {
-  const all = games.flatMap((g) => g.companies);
+  // The activist fund has no operations: left out of the company statistics.
+  const all = games.flatMap((g) => g.companies).filter((c) => c.kind !== 'fund');
   const aiCount = games.reduce((s, g) => s + g.aiCount, 0);
   const byProfile: Summary['byProfile'] = {};
   const key = (c: CompanyMetrics) => `${c.kind}:${c.sector}:${c.profileId}`;

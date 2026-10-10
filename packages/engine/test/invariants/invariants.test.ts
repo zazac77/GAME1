@@ -85,10 +85,22 @@ const specArb = fc.record({
   }),
   deal: fc.option(
     fc.record({
-      kind: fc.constantFrom<'due_diligence' | 'tender_offer' | 'private_purchase'>(
+      kind: fc.constantFrom<
+        | 'due_diligence'
+        | 'tender_offer'
+        | 'hostile'
+        | 'private_purchase'
+        | 'raise_offer'
+        | 'withdraw_offer'
+        | 'tender_shares'
+      >(
         'due_diligence',
         'tender_offer',
+        'hostile',
         'private_purchase',
+        'raise_offer',
+        'withdraw_offer',
+        'tender_shares',
       ),
       pick: fc.nat(30),
       premium: fc.double({ min: -0.2, max: 1.5, noNaN: true }),
@@ -159,16 +171,30 @@ function decisionsFrom(state: GameState, companyId: string, spec: DecisionSpec):
     ];
     const targetId = targets[spec.deal.pick % targets.length] ?? '';
     const ref = state.stock.quotes[targetId]?.referencePrice ?? 1;
+    const offers = state.stock.tenderOffers.filter((o) => o.status === 'open');
+    const offer = offers[spec.deal.pick % Math.max(1, offers.length)];
+    const offerId = offer?.id ?? 'opa_x';
+    const kind = spec.deal.kind;
+    const financing = { stockShare: spec.deal.stockShare, debt: spec.deal.debt };
     d.mna.push(
-      spec.deal.kind === 'due_diligence'
-        ? { kind: 'due_diligence', targetId }
-        : {
-            kind: spec.deal.kind,
-            targetId,
-            pricePerShare: ref * (1 + spec.deal.premium),
-            stockShare: spec.deal.stockShare,
-            debt: spec.deal.debt,
-          },
+      kind === 'due_diligence'
+        ? { kind, targetId }
+        : kind === 'withdraw_offer' || kind === 'tender_shares'
+          ? { kind, offerId }
+          : kind === 'raise_offer'
+            ? {
+                kind,
+                offerId,
+                pricePerShare: (offer?.pricePerShare ?? 1) * (1 + spec.deal.premium),
+                ...financing,
+              }
+            : {
+                kind: kind === 'hostile' ? 'tender_offer' : kind,
+                targetId,
+                pricePerShare: ref * (1 + spec.deal.premium),
+                ...(kind === 'hostile' ? { hostile: true } : {}),
+                ...financing,
+              },
     );
   }
   const regions = Object.keys(state.regions).sort();
@@ -490,7 +516,9 @@ describe('invariants (property-based)', () => {
 
   it('hold over games played by the AI planners (investments and disposals included)', () => {
     for (const seed of [2, 99]) {
-      let state = newGame(seed, undefined, { mode: 'sandbox', playerProfileId: 'low_cost' });
+      // The activist fund trades in the second game (lot 3.3).
+      const overrides = seed === 99 ? { stockMarket: { activist: { enabled: true } } } : undefined;
+      let state = newGame(seed, overrides, { mode: 'sandbox', playerProfileId: 'low_cost' });
       for (let t = 0; t < 30; t++) {
         const next = resolveTurn(state, []).state;
         checkInvariants(state, next);

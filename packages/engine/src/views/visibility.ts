@@ -25,6 +25,19 @@ const PUBLIC_COMPANY_EVENTS: ReadonlySet<string> = new Set([
   'takeover',
   'tender_offer_rejected',
   'integration_completed',
+  // Stock market v3 (lot 3.3): offers, defenses, declarations and campaigns are public.
+  'hostile_offer',
+  'competing_offer',
+  'tender_offer_raised',
+  'tender_offer_withdrawn',
+  'poison_pill',
+  'stake_threshold',
+  'activist_campaign',
+  'ai_hostile_offer',
+  'ai_counter_bid',
+  'ai_white_knight',
+  'ai_preempt',
+  'ai_defense_buyback',
 ]);
 
 /** Whether an observer controlling `own` may see a journal entry. */

@@ -21,8 +21,8 @@ const COMPETITOR_KEYS = [
   'sites',
   'status',
 ];
-/** Public facts of the shareholder register (controller, its block, the premium it asks). */
-const OPTIONAL_COMPETITOR_KEYS = ['askedPremium', 'blockShares', 'controllerId'];
+/** Public facts of the shareholder register (founder or controller, its block, the premium it asks). */
+const OPTIONAL_COMPETITOR_KEYS = ['actorId', 'askedPremium', 'blockShares', 'controllerId'];
 
 /** Changes everything a rival keeps private: books not yet published, staff, stocks, debt, plans. */
 function scramble(state: GameState, observerCompanyId: string): GameState {

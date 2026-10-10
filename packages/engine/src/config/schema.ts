@@ -674,6 +674,46 @@ const stockMarketSchema = z.strictObject({
    * its shares when the premium offered is at least the premium it asks.
    */
   tenderPremiumDist: z.strictObject({ tranches: posInt, mean: nonNeg, std: nonNeg }),
+  /**
+   * Founder stake of an AI company at listing, by profile (others: 1 −
+   * initialFloat). Below mna.controlThreshold nobody controls the company: it
+   * is run by its management (the founder's profile) and can be taken over
+   * by a hostile offer.
+   */
+  founderStakeByProfile: z.partialRecord(aiProfileId, share),
+  /**
+   * A group (an actor with the companies it controls, or a company outside
+   * any group) crossing one of these shares of a listed company's capital,
+   * up or down, declares it publicly (end of the quarter).
+   */
+  disclosureThresholds: z.array(share),
+  /**
+   * Mandatory offer: market orders stop at this share of a listed company
+   * (with maxMinorityStake); a block purchase taking a group above it obliges
+   * the buyer to offer the same price to every other shareholder.
+   */
+  mandatoryOfferThreshold: share,
+  /** Activist fund (optional): an AI fund buying stakes in undervalued listed companies. */
+  activist: z.strictObject({
+    enabled: z.boolean(),
+    name: z.string().min(1),
+    /** Cash of the fund at the start. */
+    capital: nonNeg,
+    /** Enters a listed company whose price is at least this share below its fundamental value… */
+    minUndervaluation: share,
+    /** …up to this share of its capital, in at most maxPositions companies… */
+    maxStake: share,
+    maxPositions: posInt,
+    /** …spending at most this share of its cash per quarter on a position. */
+    positionShareOfCash: share,
+    /** Sells once the price is within exitUndervaluation of the fundamental, or after holdQuarters. */
+    exitUndervaluation: z.number(),
+    holdQuarters: posInt,
+    /** From this stake, it campaigns publicly: payout (net cash) or sale of the company. */
+    campaignStake: share,
+    /** Premium it asks to tender its shares to any offer. */
+    tenderPremium: nonNeg,
+  }),
 });
 
 const aiProfileSchema = z.strictObject({
@@ -716,6 +756,8 @@ const aiProfileSchema = z.strictObject({
   sellPremium: nonNeg,
   /** Probability per quarter of looking for a takeover (0: never buys companies). */
   acquisitiveness: share,
+  /** Probability that the board of a company run by this profile adopts a poison pill against a hostile offer. */
+  poisonPill: share,
 });
 
 const aiSchema = z.strictObject({
@@ -870,7 +912,20 @@ const aiSchema = z.strictObject({
    * when net debt / EBITDA is below maxLeverage and the cash stays above
    * minCashQuarters of cash costs.
    */
-  dividends: z.strictObject({ payout: share, maxLeverage: nonNeg, minCashQuarters: nonNeg }),
+  dividends: z.strictObject({
+    payout: share,
+    maxLeverage: nonNeg,
+    minCashQuarters: nonNeg,
+    /** Payout while an activist fund campaigns for one (net cash). */
+    campaignPayout: share,
+  }),
+  /**
+   * Defense of a listed AI company nobody controls: when an outside group has
+   * declared at least buybackTrigger of its capital, or a hostile offer is
+   * open on it, it buys its own shares back (within the limits), keeping
+   * minCashQuarters of cash costs.
+   */
+  defense: z.strictObject({ buybackTrigger: share, minCashQuarters: nonNeg }),
   /** Takeovers by the group heads whose profile has some acquisitiveness. */
   mna: z.strictObject({
     /** Quarters between two attempts. */
@@ -889,6 +944,26 @@ const aiSchema = z.strictObject({
     debtShare: share,
     /** …and at most this share paid in new shares (listed buyers, within their control). */
     stockShare: share,
+    /**
+     * Hostile offers on a company nobody controls, when cheaper than its
+     * board's premium: the premium at which the float tranches expected to
+     * tender give control with a safety margin (hostileSafety), at most
+     * hostileMaxPremium.
+     */
+    hostileMaxPremium: nonNeg,
+    hostileSafety: nonNeg,
+    /** Counter-offer when outbid: best price × (1 + counterBidStep), at most maxCounterBids times. */
+    counterBidStep: share,
+    maxCounterBids: nonNegInt,
+    /** White knight: a competing friendly offer this much above the minimum overbid. */
+    knightMargin: nonNeg,
+    /**
+     * Pre-emption: a target in which a rival group declared at least
+     * preemptThreshold (or that an activist wants sold) is looked at outside
+     * the draw and the cooldown, with valueMargin + preemptValueMargin.
+     */
+    preemptThreshold: share,
+    preemptValueMargin: nonNeg,
   }),
   /**
    * Intra-group financing by the group heads: a subsidiary whose cash falls
@@ -964,6 +1039,23 @@ const mnaSchema = z.strictObject({
     costShareOfRevenue: share,
     attritionMultiplier: z.number().min(1),
     productivityMultiplier: pos,
+  }),
+  /**
+   * Offers without the board's support (hostile) stay open periodQuarters;
+   * a competing offer or a raise extends the contest by one quarter, up to
+   * maxQuarters after the first launch. The best price wins at the close.
+   */
+  offers: z.strictObject({
+    periodQuarters: posInt,
+    maxQuarters: posInt,
+    /** A competing offer, or a raise, beats the best open price by at least this share. */
+    minOverbid: share,
+    /** When the board fights an offer, each tranche of the float asks this much more premium. */
+    oppositionPremium: nonNeg,
+    /** Against a hostile offer, the board backs a competing one (white knight) from its premium × this. */
+    whiteKnightAskFactor: share,
+    /** Poison pill: new shares given to every holder outside the bidder's group, per share held. */
+    pillShareRatio: nonNeg,
   }),
   /** Profile of the management running a subsidiary that its group does not decide for. */
   delegatedProfileId: aiProfileId,

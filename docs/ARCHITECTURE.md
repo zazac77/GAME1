@@ -71,6 +71,7 @@ GAME1/
 │  │  │  │  ├─ context.ts         # TurnContext (draft, config, rng, log)
 │  │  │  │  ├─ modifiers.ts       # effets temporaires génériques (événements, synergies)
 │  │  │  │  ├─ group.ts  synergies.ts  # groupes : prêts, parts économiques ; profil de synergies (lot 3.2)
+│  │  │  │  ├─ control.ts  disclosure.ts  # contrôle lu du registre ; seuils déclaratifs par groupe (lot 3.3)
 │  │  │  │  └─ math.ts            # clamp, logit, lissage, utilitaires financiers
 │  │  │  ├─ systems/              # un dossier par système, chacun testable seul
 │  │  │  │  ├─ macro/  labor/  commodities/  production/  products/
@@ -168,7 +169,7 @@ interface GameState {
 
 // ---- acteurs & entreprises ---------------------------------------------
 interface Actor {
-  id: Id; kind: 'player' | 'ai'; name: string;
+  id: Id; kind: 'player' | 'ai' | 'fund'; name: string;   // fund : fonds activiste optionnel (lot 3.3)
   profileId?: AiProfileId;                         // low_cost | premium | innovator | opportunist | conglomerate
   rootCompanyId: Id;                               // société de tête (simple société, puis holding)
 }
@@ -248,7 +249,9 @@ interface StockMarketState {
   registry: Record<Id, Record<HolderId, number>>;  // société → (détenteur → nb d'actions) ; HolderId = Id société | Id acteur | 'public'
                                                    // l'acteur détient en direct sa société de tête (score = cours × ces actions)
   orders: StockOrder[];                            // ordres du tour (exécutés en fin de tour)
-  tenderOffers: TenderOffer[];                     // OPA en cours
+  tenderOffers: TenderOffer[];                     // OPA en cours (hostiles, concurrentes) et récentes
+  declared: Record<Id, Record<HolderId, number>>;  // seuil déclaré par société cotée et groupe détenteur
+  campaigns: ActivistCampaign[];                   // campagnes du fonds activiste (dividende ou vente)
 }
 
 // ---- décisions (identiques pour joueur et IA) --------------------------
@@ -268,7 +271,8 @@ interface CompanyDecisions {
   finance: { borrow?: Money; repay?: Money; dividend?: Money;
              issueShares?: number; buyback?: number; ipo?: boolean };
   stockOrders: { targetId: Id; side: 'buy' | 'sell'; shares: number; limitPrice?: Money }[];
-  mna: MnaAction[];                                 // OPA, rachat de gré à gré, cession (phase 2+)
+  mna: MnaAction[];                                 // audit, OPA (amicale, hostile, concurrente), bloc, pépite ;
+                                                    // surenchère, retrait, apport de ses titres (lot 3.3)
   intraGroup?: IntraGroupTransfer[];                // dividende remonté, prêt, cash pooling, cession de titres (fin de trimestre)
   createHolding?: boolean;                          // société de tête seulement : holding créée au-dessus
 }
@@ -319,7 +323,7 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | 9 | `rnd` | Avance la frontière technologique (tech) ; avancement des projets (budget, ou développeurs en tech), niveau technologique, obsolescence |
 | 10 | `conglomeratePre` + `accounting` | Groupes du début de trimestre (lot 3.2) : fonctions support partagées (salaires réduits) et frais de holding (répartis selon le CA du trimestre) passés au journal ; puis compte de résultat, impôt, intérêts, amortissements, stockage → trésorerie → bilan ; contrôle de solvabilité |
 | 11 | `stockmarket` | Valeur fondamentale (sur les comptes publiés) → cours (avec impact des ordres) → exécution des ordres → registre → indice → juste valeur des actifs financiers. Les achats/ventes d'actions et la réévaluation sont **passés dans les états du trimestre** clos à l'étape 10 (trésorerie, actifs financiers, flux d'investissement, résultat financier) |
-| 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs, OPA amicales), changements de contrôle, réévaluation des participations, sociétés mises en vente ; puis prêts intra-groupe d'une société disparue passés en perte, création des holdings, transferts intra-groupe (cessions de titres, dividendes remontés, prêts, cash pooling), réévaluation, comptes consolidés de chaque tête de groupe (lot 3.1) ; enfin malus des groupes en surcharge managériale pour le trimestre suivant (modificateurs, lot 3.2). Comme l'étape 11, écrit ses mouvements dans les états du trimestre ; les invariants comptables sont vérifiés après l'étape 13 |
+| 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs avec offre obligatoire, OPA amicales), OPA hostiles ouvertes, retraits, surenchères et offres concurrentes, clôture des OPA en cours (pilule empoisonnée, lot 3.3), changements de contrôle, réévaluation des participations, déclarations de franchissement de seuil, campagnes activistes, sociétés mises en vente ; puis prêts intra-groupe d'une société disparue passés en perte, création des holdings, transferts intra-groupe (cessions de titres, dividendes remontés, prêts, cash pooling), réévaluation, comptes consolidés de chaque tête de groupe (lot 3.1) ; enfin malus des groupes en surcharge managériale pour le trimestre suivant (modificateurs, lot 3.2). Comme l'étape 11, écrit ses mouvements dans les états du trimestre ; les invariants comptables sont vérifiés après l'étape 13 |
 | 13 | `victory` + `reporting` | KPI, historique, journal, rapport de tour, conditions de fin |
 
 ## 8. Configuration et équilibrage
@@ -372,8 +376,8 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 (onglets Production & prix, RH, Achats, Investissements, Marketing & R&D,
 Finance & bourse), **Marchés** (travail par région et métier, matières
 premières, produits), **Concurrents** (vue partielle), **Bourse** (cotes,
-indice, portefeuille, ordres), **Rachats & OPA** (pépites et concurrents,
-valorisation, audits, rachat de bloc, OPA amicale, financement), **Groupe**
+indice, portefeuille, ordres ; lot 3.3 : franchissements de seuil, campagnes activistes), **Rachats & OPA** (pépites et concurrents,
+valorisation, audits, rachat de bloc, OPA amicale, financement ; lot 3.3 : OPA hostile, offres en cours, surenchère, retrait, apport de ses titres), **Groupe**
 (phase 2 : filiales et qui les dirige ; lot 3.1 : holding, flux intra-groupe, comptes consolidés et reporting par filiale ; lot 3.2 : synergies et coûts de la complexité), **Rapport de tour** (récit de ce qui s'est passé, événements,
 écarts entre prévu et réalisé), **Sauvegardes**.
 

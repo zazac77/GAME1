@@ -153,7 +153,14 @@ describe('world generation', () => {
     for (const c of companies) {
       const holders = state.stock.registry[c.id] ?? {};
       expect(Object.values(holders).reduce((s, n) => s + n, 0)).toBe(c.sharesOutstanding);
-      expect((holders.public ?? 0) / c.sharesOutstanding).toBeCloseTo(0.4, 6);
+      // 40 % of float, except the founders of the widely held profiles (premium, innovator).
+      const founder = Object.values(state.actors).find((a) => a.rootCompanyId === c.id);
+      const stake =
+        founder?.kind === 'ai' && founder.profileId
+          ? defaultConfig.stockMarket.founderStakeByProfile[founder.profileId]
+          : undefined;
+      const float = stake === undefined ? defaultConfig.stockMarket.initialFloat : 1 - stake;
+      expect((holders.public ?? 0) / c.sharesOutstanding).toBeCloseTo(float, 6);
       expect(state.stock.quotes[c.id]?.price).toBeGreaterThan(0);
     }
     expect(state.stock.index.value).toBe(defaultConfig.stockMarket.indexBase);

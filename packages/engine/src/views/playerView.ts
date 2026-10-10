@@ -4,7 +4,7 @@ import type { GameState, HistoryStore } from '../model/state';
 import type { PlayerView } from '../model/views';
 import { companyAlerts } from './alerts';
 import { playerCosts } from './costs';
-import { dealQuotes, groupLoansView, groupView } from './mna';
+import { dealQuotes, groupLoansView, groupView, offerViews } from './mna';
 import { canCreateHolding } from '../systems/conglomerate';
 import { shareValue } from '../systems/stockmarket';
 import { synergiesView } from './synergies';
@@ -54,6 +54,7 @@ export function getPlayerView(state: GameState, companyId?: string): PlayerView 
     groupLoans: groupLoansView(state, actorId),
     canCreateHolding: state.meta.status === 'running' && canCreateHolding(state, actor),
     deals: viewed && isOperating(viewed) ? dealQuotes(state, viewed) : [],
+    offers: viewed && isOperating(viewed) ? offerViews(state, viewed) : [],
   };
   if (costs) view.costs = costs;
   const synergies = synergiesView(state, actorId);

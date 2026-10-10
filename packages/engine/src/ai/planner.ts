@@ -10,7 +10,8 @@ import { forecast } from './modules/forecast';
 import { groupFinance } from './modules/group';
 import { hiring } from './modules/hiring';
 import { listing } from './modules/listing';
-import { dividends, takeovers } from './modules/mna';
+import { activistFund } from './modules/activist';
+import { defend, dividends, takeovers } from './modules/mna';
 import type { Plan, PlanSignal } from './modules/plan';
 import { pricing } from './modules/pricing';
 import { production } from './modules/production';
@@ -26,9 +27,10 @@ export type { PlanSignal } from './modules/plan';
  * GameState) and the actor's memory: intra-group financing → rival watch (grudges, rivals in
  * difficulty, counter-launches) → forecast → production → HR (wage
  * outbidding) → listing → price (price war) → purchasing → capex →
- * marketing, R&D and finance → dividends → takeovers (tech: rival watch →
- * subscriber forecast → staffing and R&D developers → price → purchasing →
- * offices → marketing and finance → dividends → takeovers). Heuristics with a little randomness (ripostes, counter-launches),
+ * marketing, R&D and finance → dividends → defense (buyback against a
+ * raider) → takeovers (tech: rival watch → subscriber forecast → staffing
+ * and R&D developers → price → purchasing → offices → marketing and finance
+ * → dividends → defense → takeovers). The activist fund only trades stakes. Heuristics with a little randomness (ripostes, counter-launches),
  * no optimizer. Every rival, player or AI, is watched the same way. The decisions then go
  * through the same validation as the player's. Pure: returns a new memory.
  */
@@ -40,6 +42,10 @@ export function planDecisions(
   const decisions = emptyDecisions(obs.companyId);
   const nextMemory = structuredClone(memory);
   groupFinance(obs, decisions);
+  if (obs.fund) {
+    activistFund(obs, nextMemory, decisions);
+    return { decisions, memory: nextMemory, signals: [] };
+  }
   const company = obs.self.company;
   const marketId = productMarketIdOf(obs.config, company.sector) ?? '';
   const line = Object.keys(company.productLines)
@@ -84,6 +90,7 @@ export function planDecisions(
     techCapex(plan);
     marketingAndFinance(plan);
     dividends(plan);
+    defend(plan);
     takeovers(plan);
     return { decisions, memory: nextMemory, signals: plan.signals };
   }
@@ -96,6 +103,7 @@ export function planDecisions(
   capex(plan);
   marketingAndFinance(plan);
   dividends(plan);
+  defend(plan);
   takeovers(plan);
   return { decisions, memory: nextMemory, signals: plan.signals };
 }

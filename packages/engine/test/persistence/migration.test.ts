@@ -12,6 +12,7 @@ import saveV6 from '../fixtures/save-v6.json';
 import saveV7 from '../fixtures/save-v7.json';
 import saveV8 from '../fixtures/save-v8.json';
 import saveV9 from '../fixtures/save-v9.json';
+import saveV10 from '../fixtures/save-v10.json';
 
 // A v1 save written by the lot 1.1 engine (seed 1234, after 2 quarters).
 const v1 = JSON.stringify(saveV1);
@@ -34,6 +35,8 @@ const v8 = JSON.stringify(saveV8);
 // A v9 save written by the lot 3.1 engine (the v8 save played 2 more quarters, the player
 // having put a holding company on top of its group).
 const v9 = JSON.stringify(saveV9);
+// A v10 save written by the lot 3.2 engine (the v9 save played 2 more quarters).
+const v10 = JSON.stringify(saveV10);
 
 describe('migrations', () => {
   it('loads a v1 save into the current schema', () => {
@@ -288,6 +291,42 @@ describe('migrations', () => {
     const view = getPlayerView(state);
     expect(view.synergies?.headId).toBe(holdingId);
     expect(view.synergies?.subsidiaries).toBe(2);
+    assertJsonSafe(state);
+  });
+
+  it('loads a v10 save: offers, declarations and the stock market v3 settings', () => {
+    expect(JSON.parse(v10).schemaVersion).toBe(10);
+    let state = deserializeGame(v10);
+    expect(state.meta.schemaVersion).toBe(SCHEMA_VERSION);
+    const SM = state.config.stockMarket;
+    expect(SM.disclosureThresholds).toEqual([0.05, 0.1, 0.2, 0.33]);
+    expect(SM.mandatoryOfferThreshold).toBe(0.3);
+    expect(SM.activist.enabled).toBe(false);
+    // The world keeps its founders' stakes.
+    expect(SM.founderStakeByProfile).toEqual({});
+    expect(state.config.mna.offers.periodQuarters).toBeGreaterThan(0);
+    for (const id of AI_PROFILE_IDS) {
+      expect(state.config.ai.profiles[id]?.poisonPill).toBeGreaterThanOrEqual(0);
+    }
+    for (const o of state.stock.tenderOffers) {
+      expect(o.hostile).toBe(false);
+      expect(o.basePrice).toBeGreaterThan(0);
+      expect(o.defenses).toEqual({ pill: false, whiteKnight: false });
+    }
+    expect(state.stock.campaigns).toEqual([]);
+    // Holdings are declared as they stand: the founders at 33 %, no news on load.
+    const founder = Object.values(state.actors).find((a) => a.profileId === 'premium');
+    expect(state.stock.declared[founder?.rootCompanyId ?? '']?.[founder?.id ?? '']).toBe(0.33);
+    const turn = state.meta.turn;
+    const ids = getPlayerView(state)
+      .groupCompanies.filter((c) => c.sector !== 'holding')
+      .map((c) => c.companyId);
+    state = resolveTurn(
+      state,
+      ids.map((id) => steadyDecisions(state, id)),
+    ).state;
+    expect(state.meta.turn).toBe(turn + 1);
+    expect(state.log.filter((e) => e.kind === 'stake_threshold' && e.turn === turn)).toEqual([]);
     assertJsonSafe(state);
   });
 });

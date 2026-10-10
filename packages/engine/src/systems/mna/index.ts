@@ -1,28 +1,32 @@
 import type { TurnContext } from '../../core/context';
 import { isOperating, operatingCompanies } from '../../core/companies';
-import { controlledBy, controllingActor, groupHolding } from '../../core/control';
-import { newId } from '../../core/ids';
-import { sum } from '../../core/math';
 import type { System } from '../../core/system';
 import type { Company } from '../../model/company';
-import type { MnaAction } from '../../model/decisions';
-import type { HolderId, Id, Money } from '../../model/ids';
+import type { DealAction, MnaAction } from '../../model/decisions';
+import type { Id } from '../../model/ids';
 import type { TenderOffer } from '../../model/stock';
-import { currentSpread } from '../finance/credit';
-import { maxSharesKeepingControl } from '../finance/equity';
-import { holdings, revalueHoldings, type StakeTrades } from '../stockmarket/holdings';
-import { instantiateListing, updateListings } from './listings';
+import { revalueHoldings } from '../stockmarket/holdings';
+import { announceStakes, updateCampaigns } from './disclosure';
+import { updateListings } from './listings';
 import {
-  askedPremium,
-  blockSeller,
+  buyBlock,
+  buyListing,
+  executeOffer,
+  fail,
+  flowsOf,
+  launchOffer,
+  newOffer,
+  type Flows,
+} from './offers';
+import {
   boardPremium,
   canTarget,
+  canWithdraw,
   diligenceOnCompany,
   dueDiligenceCost,
   groupHead,
-  listingPrice,
   openListing,
-  referencePrice,
+  openOffers,
 } from './rules';
 
 export * from './rules';
@@ -98,62 +102,58 @@ export const mnaPreSystem: System = {
   },
 };
 
-/** Cash moves of the step, by company, booked once every deal is settled. */
-interface Flows {
-  bought: Money;
-  sold: Money;
-  borrowed: Money;
-  /** Value of the new shares given in exchange (equity issued in kind). */
-  issued: Money;
-  /** Stakes paid for (cash and shares) and sold, by target. */
-  stakes: Record<Id, StakeTrades>;
-}
-
-type Bid = Extract<MnaAction, { kind: 'tender_offer' | 'private_purchase' }>;
-
 /**
- * Step 12: takeovers. Every bid of the quarter is settled on the cash the
- * buyer has after closing its accounts: on each target, the best offer per
- * share (then the lowest buyer id) goes ahead. A listing becomes a company
- * of the buyer at its price; a block is bought if its holder gets the
- * premium it asks; a friendly tender offer needs the board's support, then
- * each holder tenders if the premium meets its own ask (the float by
- * tranches), and it succeeds only if the buyer's group ends in control
- * (squeeze-out above squeezeOutThreshold). Payment in cash, acquisition loan
- * and new shares of the buyer. A change of control starts an integration.
- * Then every company's holdings are revalued, and the listings renewed.
+ * Step 12: takeovers, on the cash each buyer has after closing its accounts,
+ * target by target (by id):
+ * - withdrawals and raises of open offers, then the new bids. On a target
+ *   under offer, a new tender offer competes (above the best open price by
+ *   minOverbid) and a raise or a competing offer extends the contest by a
+ *   quarter (at most maxQuarters after the first launch); a block purchase
+ *   waits for the contest to end. Otherwise the best bid per share (then the
+ *   lowest buyer id) goes ahead: a listing at its price; a block, if its
+ *   holder gets its premium (listed: mandatory offer to the others); a
+ *   friendly tender offer settled at once; a hostile one opened;
+ * - open offers reaching their close: the best price wins, the others fail.
+ *   The board backs it from its premium (× whiteKnightAskFactor for an offer
+ *   competing with a hostile one); each holder tenders if its premium is
+ *   met, the float by tranches. It succeeds only if the buyer's group ends in
+ *   control (after a poison pill the board adopted against it).
+ * Then every company's holdings are revalued, holdings crossing a disclosure
+ * threshold are declared, activist campaigns updated and listings renewed.
  */
 export const mnaSystem: System = {
   id: 'mna',
   run(ctx) {
     const { draft, turn } = ctx;
     const flows: Record<Id, Flows> = {};
-    const bids: { buyer: Company; bid: Bid }[] = [];
+    const actions: { buyer: Company; action: Exclude<MnaAction, { kind: 'due_diligence' }> }[] = [];
     for (const company of operatingCompanies(draft)) {
       for (const action of ctx.decisions[company.id]?.mna ?? []) {
-        if (action.kind !== 'due_diligence') bids.push({ buyer: company, bid: action });
+        if (action.kind !== 'due_diligence') actions.push({ buyer: company, action });
       }
     }
-    const targets = [...new Set(bids.map((b) => b.bid.targetId))].sort();
+    const offerById = (id: Id) => draft.stock.tenderOffers.find((o) => o.id === id);
+    const targetOf = (a: (typeof actions)[number]['action']): Id | undefined =>
+      'targetId' in a ? a.targetId : offerById(a.offerId)?.targetId;
+    // Shares the companies tender to open offers, by offer.
+    const tendered: Record<Id, Set<Id>> = {};
+    for (const { buyer, action } of actions) {
+      if (action.kind === 'tender_shares') (tendered[action.offerId] ??= new Set()).add(buyer.id);
+    }
+    const targets = [
+      ...new Set([
+        ...actions.flatMap((a) => targetOf(a.action) ?? []),
+        ...openOffers(draft).map((o) => o.targetId),
+      ]),
+    ].sort();
     for (const targetId of targets) {
-      const ranked = bids
-        .filter((b) => b.bid.targetId === targetId)
-        .sort(
-          (a, b) =>
-            (b.bid.pricePerShare ?? 0) - (a.bid.pricePerShare ?? 0) ||
-            a.buyer.id.localeCompare(b.buyer.id),
-        );
-      ranked.forEach((b, i) => {
-        if (i === 0) settleBid(ctx, b.buyer, b.bid, flows);
-        else {
-          ctx.log({
-            kind: 'deal_failed',
-            severity: 'info',
-            companyId: b.buyer.id,
-            data: { targetId, reason: 'outbid' },
-          });
-        }
-      });
+      contest(
+        ctx,
+        targetId,
+        actions.filter((a) => targetOf(a.action) === targetId),
+        tendered,
+        flows,
+      );
     }
 
     // Revalue every company that closed this quarter: deals, new prices, groups.
@@ -184,316 +184,145 @@ export const mnaSystem: System = {
       if (history.at(-1)?.quarter === turn) history[history.length - 1] = statements;
     }
 
+    announceStakes(ctx);
+    updateCampaigns(ctx);
     updateListings(ctx);
+    // Closed offers: the last dealHistory are kept (open ones always).
     const max = draft.config.mna.dealHistory;
-    const offers = draft.stock.tenderOffers;
-    if (offers.length > max) offers.splice(0, offers.length - max);
+    const closed = draft.stock.tenderOffers.filter((o) => o.status !== 'open');
+    const drop = new Set(closed.slice(0, Math.max(0, closed.length - max)));
+    draft.stock.tenderOffers = draft.stock.tenderOffers.filter((o) => !drop.has(o));
   },
 };
 
-const flowsOf = (flows: Record<Id, Flows>, id: Id): Flows =>
-  (flows[id] ??= { bought: 0, sold: 0, borrowed: 0, issued: 0, stakes: {} });
+type Action = Exclude<MnaAction, { kind: 'due_diligence' }>;
 
-const stakeOf = (f: Flows, targetId: Id): StakeTrades =>
-  (f.stakes[targetId] ??= { bought: 0, sold: 0 });
-
-/** Cash the buyer still has in this step. */
-function cashLeft(buyer: Company, f: Flows): Money {
-  return buyer.books.current.balance.cash - f.bought + f.sold + f.borrowed;
-}
-
-/**
- * Pays `total`: stockShare of it in new shares of the buyer (listed, at its
- * opening price, within what keeps its controller in control), the rest in
- * cash, drawing on an acquisition loan up to `debtRoom` when the cash runs
- * short. Returns false (nothing done) if the buyer cannot pay.
- */
-function pay(
+/** Everything that happens on one target this quarter (see mnaSystem). */
+function contest(
   ctx: TurnContext,
-  buyer: Company,
-  total: Money,
-  stockShare: number,
-  debtRoom: Money,
+  targetId: Id,
+  entries: { buyer: Company; action: Action }[],
+  tendered: Record<Id, Set<Id>>,
   flows: Record<Id, Flows>,
-): { ok: boolean; debtUsed: Money } {
-  const { draft, config, turn } = ctx;
-  const f = flowsOf(flows, buyer.id);
-  const price = ctx.openingPrices[buyer.id] ?? draft.stock.quotes[buyer.id]?.referencePrice ?? 0;
-  const newShares =
-    stockShare > 0 && buyer.listed && price > 0 ? Math.floor((total * stockShare) / price) : 0;
-  if (newShares > maxSharesKeepingControl(draft, buyer)) return { ok: false, debtUsed: 0 };
-  const inShares = newShares * price;
-  const cashPart = total - inShares;
-  const need = Math.max(0, cashPart - Math.max(0, cashLeft(buyer, f)));
-  if (need > debtRoom + 1e-6) return { ok: false, debtUsed: 0 };
-  if (need > 0) {
-    buyer.loans.push({
-      id: newId(draft.meta, 'loan'),
-      kind: 'term',
-      principal: need,
-      spread: currentSpread(config, buyer) + config.mna.financing.spreadPremium,
-      maturity: turn + 1 + config.finance.loanTermQuarters,
-    });
-    f.borrowed += need;
-  }
-  f.bought += cashPart;
-  f.issued += inShares;
-  if (newShares > 0) {
-    const register = (draft.stock.registry[buyer.id] ??= {});
-    // The sellers sell the shares they receive on the market (they join the float).
-    register.public = (register.public ?? 0) + newShares;
-    buyer.sharesOutstanding += newShares;
-  }
-  return { ok: true, debtUsed: need };
-}
-
-/** Moves shares from sellers to the buyer; companies that sell are paid in cash. */
-function transfer(
-  ctx: TurnContext,
-  target: Company,
-  buyer: Company,
-  sellers: Record<HolderId, number>,
-  pricePerShare: Money,
-  flows: Record<Id, Flows>,
-): number {
-  const register = (ctx.draft.stock.registry[target.id] ??= {});
-  let moved = 0;
-  for (const holderId of Object.keys(sellers).sort()) {
-    const shares = Math.min(sellers[holderId] ?? 0, register[holderId] ?? 0);
-    if (shares <= 0) continue;
-    register[holderId] = (register[holderId] ?? 0) - shares;
-    register[buyer.id] = (register[buyer.id] ?? 0) + shares;
-    if (ctx.draft.companies[holderId]) {
-      const f = flowsOf(flows, holderId);
-      f.sold += shares * pricePerShare;
-      stakeOf(f, target.id).sold += shares * pricePerShare;
-    }
-    moved += shares;
-  }
-  return moved;
-}
-
-function fail(ctx: TurnContext, buyer: Company, targetId: Id, reason: string): void {
-  ctx.log({
-    kind: 'deal_failed',
-    severity: 'info',
-    companyId: buyer.id,
-    data: { targetId, reason },
-  });
-}
-
-function settleBid(ctx: TurnContext, buyer: Company, bid: Bid, flows: Record<Id, Flows>): void {
-  const { draft, turn } = ctx;
-  if (!isOperating(buyer)) return;
-  const stockShare = Math.min(1, Math.max(0, bid.stockShare ?? 0));
-  const debtRoom = Math.max(0, bid.debt ?? 0);
-
-  // ---- a listing: 100 % at its price --------------------------------------
-  const listing = openListing(draft, bid.targetId);
-  if (listing) {
-    if (bid.kind !== 'private_purchase') return fail(ctx, buyer, listing.id, 'invalid');
-    const price = listingPrice(draft, buyer.id, listing);
-    if (!pay(ctx, buyer, price, stockShare, debtRoom, flows).ok) {
-      return fail(ctx, buyer, listing.id, 'financing');
-    }
-    const company = instantiateListing(ctx, listing, buyer.id);
-    buyer.participations[company.id] = { shares: company.sharesOutstanding, cost: price };
-    stakeOf(flowsOf(flows, buyer.id), company.id).bought += price;
-    draft.mna.listings = draft.mna.listings.filter((l) => l.id !== listing.id);
-    startIntegration(ctx, company, buyer, listing.hiddenLiability);
-    ctx.log({
-      kind: 'takeover',
-      severity: 'warning',
-      companyId: buyer.id,
-      data: { targetId: company.id, mode: 'listing', price, shares: company.sharesOutstanding },
-    });
-    return;
-  }
-
-  // ---- an existing company --------------------------------------------------
-  const target = draft.companies[bid.targetId];
-  if (!target || !canTarget(draft, buyer, target)) return fail(ctx, buyer, bid.targetId, 'invalid');
-  const pricePerShare = bid.pricePerShare ?? 0;
-  const reference = target.listed
-    ? (ctx.openingPrices[target.id] ?? referencePrice(draft, target))
-    : referencePrice(draft, target);
-  const premium = reference > 0 ? pricePerShare / reference - 1 : 0;
-  const register = draft.stock.registry[target.id] ?? {};
-  const head = groupHead(draft, buyer.id);
-  const group = new Set<HolderId>([head, buyer.id, ...controlledBy(draft, head)]);
-  const controllerBefore = controllingActor(draft, target.id);
-  const priorCarrying = holdings(draft, buyer)[target.id]?.carrying ?? 0;
-  const threshold = draft.config.mna.controlThreshold * target.sharesOutstanding;
-  const sellers: Record<HolderId, number> = {};
-
-  if (bid.kind === 'private_purchase') {
-    const seller = blockSeller(draft, target);
-    if (!seller || group.has(seller)) return fail(ctx, buyer, target.id, 'invalid');
-    const asked = askedPremium(draft, seller, target);
-    if (asked === undefined || premium < asked) {
-      ctx.log({
-        kind: 'block_purchase_rejected',
-        severity: 'info',
-        companyId: buyer.id,
-        data: { targetId: target.id, premium },
-      });
-      return;
-    }
-    sellers[seller] = register[seller] ?? 0;
-  } else {
-    if (!target.listed) return fail(ctx, buyer, target.id, 'invalid');
-    const offer: TenderOffer = {
-      id: newId(draft.meta, 'opa'),
-      bidderId: buyer.id,
-      targetId: target.id,
-      pricePerShare,
-      premium,
-      stockShare,
-      launchedAt: turn,
-      expiresAt: turn,
-      status: 'rejected',
-      acquired: 0,
-    };
-    draft.stock.tenderOffers.push(offer);
-    const board = boardPremium(draft, target);
-    if (board === undefined || premium < board) {
-      ctx.log({
-        kind: 'tender_offer_rejected',
-        severity: 'warning',
-        companyId: buyer.id,
-        data: { targetId: target.id, premium, pricePerShare },
-      });
-      return;
-    }
-    // Each holder outside the buyer's group decides; the float by tranches.
-    const D = draft.config.stockMarket.tenderPremiumDist;
-    for (const holderId of Object.keys(register).sort()) {
-      const held = register[holderId] ?? 0;
-      if (held <= 0 || group.has(holderId)) continue;
-      if (holderId === 'public') {
-        const size = Math.floor(held / D.tranches);
-        let tendered = 0;
-        for (let k = 0; k < D.tranches; k++) {
-          const asked = Math.max(0, ctx.rng.normal(D.mean, D.std));
-          const shares = k === D.tranches - 1 ? held - size * (D.tranches - 1) : size;
-          if (premium >= asked) tendered += shares;
-        }
-        if (tendered > 0) sellers.public = tendered;
-      } else if (holderId === controllerBefore) sellers[holderId] = held;
-      else {
-        const asked = askedPremium(draft, holderId, target);
-        if (asked !== undefined && premium >= asked) sellers[holderId] = held;
-      }
-    }
-    const after = groupHolding(draft, head, target.id) + sum(Object.values(sellers));
-    if (after <= threshold) {
-      offer.status = 'failed';
-      return fail(ctx, buyer, target.id, 'no_control');
-    }
-    offer.status = 'succeeded';
-  }
-
-  const wanted = sum(Object.values(sellers));
-  const total = wanted * pricePerShare;
-  if (!pay(ctx, buyer, total, stockShare, debtRoom, flows).ok) {
-    const offer = draft.stock.tenderOffers.at(-1);
-    if (bid.kind === 'tender_offer' && offer?.targetId === target.id) offer.status = 'failed';
-    return fail(ctx, buyer, target.id, 'financing');
-  }
-  let acquired = transfer(ctx, target, buyer, sellers, pricePerShare, flows);
-  let paid = total;
-
-  // Squeeze-out: above the threshold, the rest is bought in cash at the same price.
-  if (
-    bid.kind === 'tender_offer' &&
-    groupHolding(draft, head, target.id) >=
-      draft.config.mna.squeezeOutThreshold * target.sharesOutstanding
-  ) {
-    const rest: Record<HolderId, number> = {};
-    for (const [holderId, held] of Object.entries(draft.stock.registry[target.id] ?? {})) {
-      if (!group.has(holderId) && held > 0) rest[holderId] = held;
-    }
-    const restTotal = sum(Object.values(rest)) * pricePerShare;
-    const debtUsed = flowsOf(flows, buyer.id).borrowed;
-    if (
-      restTotal > 0 &&
-      pay(ctx, buyer, restTotal, 0, Math.max(0, debtRoom - debtUsed), flows).ok
-    ) {
-      acquired += transfer(ctx, target, buyer, rest, pricePerShare, flows);
-      paid += restTotal;
-      target.listed = false;
-      draft.stock.quotes = Object.fromEntries(
-        Object.entries(draft.stock.quotes).filter(([id]) => id !== target.id),
-      );
-      ctx.log({ kind: 'delisted', severity: 'critical', companyId: target.id });
-    }
-  }
-  const offer = draft.stock.tenderOffers.at(-1);
-  if (bid.kind === 'tender_offer' && offer?.targetId === target.id) offer.acquired = acquired;
-  const quote = draft.stock.quotes[target.id];
-  if (quote) {
-    quote.price = Math.max(quote.price, pricePerShare);
-    quote.referencePrice = quote.price;
-  }
-
-  const held = draft.stock.registry[target.id]?.[buyer.id] ?? 0;
-  buyer.participations[target.id] = { shares: held, cost: priorCarrying + paid };
-  stakeOf(flowsOf(flows, buyer.id), target.id).bought += paid;
-  if (controllingActor(draft, target.id) !== controllerBefore) {
-    startIntegration(ctx, target, buyer, 0);
-  }
-  ctx.log({
-    kind: 'takeover',
-    severity: 'warning',
-    companyId: buyer.id,
-    data: {
-      targetId: target.id,
-      mode: bid.kind === 'tender_offer' ? 'tender_offer' : 'block',
-      price: paid,
-      pricePerShare,
-      premium,
-      shares: acquired,
-    },
-  });
-}
-
-/**
- * A change of control: integration costs for `quarters` quarters, talent
- * departures and a productivity dip (modifiers on the company), and the
- * undeclared liability of a bought listing, booked in its first quarter.
- */
-function startIntegration(
-  ctx: TurnContext,
-  company: Company,
-  acquirer: Company,
-  pendingCharge: Money,
 ): void {
   const { draft, turn } = ctx;
-  const I = draft.config.mna.integration;
-  draft.mna.integrations = draft.mna.integrations.filter((i) => i.companyId !== company.id);
-  draft.mna.integrations.push({
-    companyId: company.id,
-    acquirerId: acquirer.id,
-    startedAt: turn + 1,
-    until: turn + 1 + I.quarters,
-    pendingCharge,
-  });
-  if (I.quarters <= 0) return;
-  // Modifiers age at the start of the next quarter: they act over `quarters` quarters.
-  for (const [key, value] of [
-    ['labor.attrition', I.attritionMultiplier],
-    ['labor.productivity', I.productivityMultiplier],
-  ] as const) {
-    if (value === 1) continue;
-    draft.modifiers.push({
-      id: newId(draft.meta, 'mod'),
-      sourceId: 'mna_integration',
-      target: { kind: 'company', id: company.id },
-      key,
-      op: 'mul',
-      value,
-      remaining: I.quarters + 1,
-      decay: 0,
+  const O = draft.config.mna.offers;
+  const ownOpen = (buyer: Company, offerId: Id): TenderOffer | undefined =>
+    openOffers(draft, targetId).find(
+      (o) => o.id === offerId && o.bidderId === buyer.id && o.launchedAt < turn,
+    );
+  let extended = false;
+
+  for (const { buyer, action } of entries) {
+    if (action.kind !== 'withdraw_offer') continue;
+    const offer = ownOpen(buyer, action.offerId);
+    if (!offer || !canWithdraw(draft, offer)) continue;
+    offer.status = 'withdrawn';
+    offer.expiresAt = turn;
+    ctx.log({
+      kind: 'tender_offer_withdrawn',
+      severity: 'info',
+      companyId: buyer.id,
+      data: { targetId, pricePerShare: offer.pricePerShare },
     });
   }
+  for (const { buyer, action } of entries) {
+    if (action.kind !== 'raise_offer') continue;
+    const offer = ownOpen(buyer, action.offerId);
+    if (!offer || !(action.pricePerShare > offer.pricePerShare)) continue;
+    offer.pricePerShare = action.pricePerShare;
+    offer.premium = offer.basePrice > 0 ? action.pricePerShare / offer.basePrice - 1 : 0;
+    if (action.stockShare !== undefined)
+      offer.stockShare = Math.min(1, Math.max(0, action.stockShare));
+    if (action.debt !== undefined) offer.debt = Math.max(0, action.debt);
+    offer.raises += 1;
+    extended = true;
+    ctx.log({
+      kind: 'tender_offer_raised',
+      severity: 'warning',
+      companyId: buyer.id,
+      data: { targetId, pricePerShare: offer.pricePerShare, premium: offer.premium },
+    });
+  }
+
+  const bids = entries
+    .filter(
+      (e): e is { buyer: Company; action: DealAction } =>
+        e.action.kind === 'tender_offer' || e.action.kind === 'private_purchase',
+    )
+    .sort(
+      (a, b) =>
+        (b.action.pricePerShare ?? 0) - (a.action.pricePerShare ?? 0) ||
+        a.buyer.id.localeCompare(b.buyer.id),
+    );
+  const open = openOffers(draft, targetId);
+  if (open.length > 0) {
+    // A contest under way: tender offers compete, blocks wait.
+    for (const { buyer, action } of bids) {
+      const target = draft.companies[targetId];
+      const best = Math.max(...openOffers(draft, targetId).map((o) => o.pricePerShare));
+      if (
+        action.kind !== 'tender_offer' ||
+        !target ||
+        !canTarget(draft, buyer, target) ||
+        action.pricePerShare < best * (1 + O.minOverbid) - 1e-9 ||
+        openOffers(draft, targetId).some(
+          (o) => groupHead(draft, o.bidderId) === groupHead(draft, buyer.id),
+        )
+      ) {
+        fail(ctx, buyer, targetId, 'under_offer');
+        continue;
+      }
+      const offer = newOffer(ctx, buyer, target, action, open[0]?.basePrice);
+      offer.status = 'open';
+      offer.hostile = action.hostile === true;
+      offer.expiresAt = turn + O.periodQuarters;
+      draft.stock.tenderOffers.push(offer);
+      extended = true;
+      ctx.log({
+        kind: 'competing_offer',
+        severity: 'warning',
+        companyId: buyer.id,
+        data: { targetId, pricePerShare: offer.pricePerShare, premium: offer.premium },
+      });
+    }
+  } else {
+    bids.forEach(({ buyer, action }, i) => {
+      if (i > 0) return fail(ctx, buyer, targetId, 'outbid');
+      if (!isOperating(buyer)) return;
+      const listing = openListing(draft, targetId);
+      if (listing) return buyListing(ctx, buyer, listing, action, flows);
+      const target = draft.companies[targetId];
+      if (!target || !canTarget(draft, buyer, target)) return fail(ctx, buyer, targetId, 'invalid');
+      if (action.kind === 'private_purchase') return buyBlock(ctx, buyer, target, action, flows);
+      launchOffer(ctx, buyer, target, action, flows);
+    });
+  }
+
+  const contested = openOffers(draft, targetId);
+  if (contested.length === 0) return;
+  const cap = Math.min(...contested.map((o) => o.launchedAt)) + O.maxQuarters;
+  if (extended) {
+    for (const o of contested) o.expiresAt = Math.min(Math.max(o.expiresAt, turn + 1), cap);
+  }
+  if (contested.some((o) => o.expiresAt > turn)) return;
+
+  // The close: the best price wins.
+  const ranked = [...contested].sort(
+    (a, b) =>
+      b.pricePerShare - a.pricePerShare || a.launchedAt - b.launchedAt || a.id.localeCompare(b.id),
+  );
+  const hostile = ranked.some((o) => o.hostile);
+  ranked.forEach((offer, i) => {
+    if (i === 0) return;
+    offer.status = 'failed';
+    offer.expiresAt = turn;
+    fail(ctx, offer.bidderId, targetId, 'outbid');
+  });
+  const winner = ranked[0] as TenderOffer;
+  const target = draft.companies[targetId];
+  const board = target ? boardPremium(draft, target) : undefined;
+  const factor = hostile && !winner.hostile ? O.whiteKnightAskFactor : 1;
+  const backs = board !== undefined && winner.premium >= board * factor;
+  executeOffer(ctx, winner, backs, tendered[winner.id] ?? new Set(), flows);
 }

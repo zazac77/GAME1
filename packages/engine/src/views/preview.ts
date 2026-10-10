@@ -29,7 +29,15 @@ import { mainProductLine, siteCeilings } from '../sectors/plant';
 import { interestCharge, netGroupInterest, storageCost } from '../systems/accounting';
 import { capexSystem } from '../systems/capex';
 import { financePreSystem } from '../systems/finance';
-import { blockSeller, heldByGroup, listingPrice, mnaPreSystem, openListing } from '../systems/mna';
+import {
+  blockSeller,
+  boardPremium,
+  heldByGroup,
+  listingPrice,
+  mnaPreSystem,
+  openListing,
+  openOffers,
+} from '../systems/mna';
 import { unemployed } from '../systems/labor/pools';
 import { nextDistribution } from '../systems/products';
 import { marketShares } from '../systems/products/logit';
@@ -263,25 +271,41 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   };
 }
 
-/** Cash part of the deals submitted (at the asked size) and the acquisition loans allowed. */
+/**
+ * Cash part of the deals settled this quarter (at their full size: a block
+ * of a listed company with its mandatory offer on every other share, a
+ * tender offer its board backs) and the acquisition loans allowed. Hostile,
+ * competing and raised offers are settled at the close of their contest.
+ */
 function dealCash(state: GameState, companyId: string, d: CompanyDecisions) {
   let cash = 0;
   let debt = 0;
   for (const a of d.mna) {
-    if (a.kind === 'due_diligence') continue;
+    if (a.kind !== 'tender_offer' && a.kind !== 'private_purchase') continue;
     const listing = openListing(state, a.targetId);
     const target = state.companies[a.targetId];
     let total = 0;
+    const others = (t: Company) => t.sharesOutstanding - heldByGroup(state, companyId, t.id);
     if (listing) total = listingPrice(state, companyId, listing);
     else if (target && a.kind === 'tender_offer') {
-      total =
-        (target.sharesOutstanding - heldByGroup(state, companyId, target.id)) *
-        (a.pricePerShare ?? 0);
+      const base = state.stock.quotes[target.id]?.referencePrice ?? 0;
+      const board = boardPremium(state, target);
+      const friendly =
+        openOffers(state, target.id).length === 0 &&
+        board !== undefined &&
+        base > 0 &&
+        a.pricePerShare / base - 1 >= board;
+      total = friendly ? others(target) * a.pricePerShare : 0;
     } else if (target) {
       const seller = blockSeller(state, target);
-      total =
-        (seller ? (state.stock.registry[target.id]?.[seller] ?? 0) : 0) * (a.pricePerShare ?? 0);
+      const shares = target.listed
+        ? others(target)
+        : seller
+          ? (state.stock.registry[target.id]?.[seller] ?? 0)
+          : 0;
+      total = shares * (a.pricePerShare ?? 0);
     }
+    if (total <= 0) continue;
     cash += total * (1 - (a.stockShare ?? 0));
     debt += a.debt ?? 0;
   }

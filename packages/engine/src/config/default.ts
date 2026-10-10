@@ -698,6 +698,24 @@ export const defaultConfig: GameConfig = {
     ipo: { floatShare: 0.3, discount: 0.1, feeShare: 0.04, minQuarters: 2 },
     // Most investors tender between 10 and 30 % of premium.
     tenderPremiumDist: { tranches: 10, mean: 0.2, std: 0.1 },
+    // Premium and innovator founders keep 40 %: nobody controls them, a hostile offer can.
+    founderStakeByProfile: { premium: 0.4, innovator: 0.4 },
+    disclosureThresholds: [0.05, 0.1, 0.2, 0.33],
+    mandatoryOfferThreshold: 0.3,
+    // Optional (new game screen): a 40 M€ fund taking up to 10 % of undervalued companies.
+    activist: {
+      enabled: false,
+      name: 'Vautour Capital',
+      capital: 40_000_000,
+      minUndervaluation: 0.25,
+      maxStake: 0.1,
+      maxPositions: 3,
+      positionShareOfCash: 0.25,
+      exitUndervaluation: 0.05,
+      holdQuarters: 12,
+      campaignStake: 0.05,
+      tenderPremium: 0.1,
+    },
   },
 
   mna: {
@@ -731,6 +749,15 @@ export const defaultConfig: GameConfig = {
       costShareOfRevenue: 0.02,
       attritionMultiplier: 1.6,
       productivityMultiplier: 0.95,
+    },
+    // A hostile offer is open one quarter; rivals may outbid it (+2 %) up to 3 quarters.
+    offers: {
+      periodQuarters: 1,
+      maxQuarters: 3,
+      minOverbid: 0.02,
+      oppositionPremium: 0.05,
+      whiteKnightAskFactor: 0.6,
+      pillShareRatio: 0.5,
     },
     delegatedProfileId: 'conglomerate',
     dealHistory: 20,
@@ -790,6 +817,8 @@ export const defaultConfig: GameConfig = {
         // Premium asked to back a friendly offer or sell its block.
         sellPremium: 0.25,
         acquisitiveness: 0,
+        // Probability of a poison pill against a hostile offer.
+        poisonPill: 0.3,
       },
       premium: {
         priceMarkup: 0.35,
@@ -812,6 +841,7 @@ export const defaultConfig: GameConfig = {
         opportunism: 0,
         sellPremium: 0.45,
         acquisitiveness: 0,
+        poisonPill: 0.6,
       },
       // Technology race: high R&D, talent hunting (skilled wages, outbidding), risk taker.
       innovator: {
@@ -834,6 +864,7 @@ export const defaultConfig: GameConfig = {
         opportunism: 0,
         sellPremium: 0.5,
         acquisitiveness: 0,
+        poisonPill: 0.5,
       },
       opportunist: {
         priceMarkup: 0.2,
@@ -857,6 +888,7 @@ export const defaultConfig: GameConfig = {
         sellPremium: 0.3,
         // Buys rivals in difficulty when they come cheap.
         acquisitiveness: 0.25,
+        poisonPill: 0.2,
       },
       // Middle of the road, moderate risk; watches weak rivals and buys companies.
       conglomerate: {
@@ -880,6 +912,7 @@ export const defaultConfig: GameConfig = {
         sellPremium: 0.35,
         // Buys companies (listings, rivals in difficulty) to diversify.
         acquisitiveness: 0.5,
+        poisonPill: 0.4,
       },
     },
     // Agrifood runs on thin margins (3 to 8 % net): smaller markups, tighter positioning.
@@ -992,7 +1025,9 @@ export const defaultConfig: GameConfig = {
     },
     finance: { cashBufferQuarters: 0.3, repayAboveQuarters: 1.5 },
     // Listed AI companies with little debt pay a quarter of their published earnings.
-    dividends: { payout: 0.25, maxLeverage: 1.5, minCashQuarters: 1.5 },
+    dividends: { payout: 0.25, maxLeverage: 1.5, minCashQuarters: 1.5, campaignPayout: 0.6 },
+    // A company nobody controls buys its shares back when a raider reaches 10 % or bids.
+    defense: { buybackTrigger: 0.1, minCashQuarters: 1.5 },
     mna: {
       cooldownQuarters: 6,
       valueMargin: 0.1,
@@ -1002,6 +1037,13 @@ export const defaultConfig: GameConfig = {
       maxLeverage: 2.5,
       debtShare: 0.5,
       stockShare: 0.5,
+      hostileMaxPremium: 0.35,
+      hostileSafety: 0.1,
+      counterBidStep: 0.05,
+      maxCounterBids: 2,
+      knightMargin: 0.03,
+      preemptThreshold: 0.1,
+      preemptValueMargin: 0.25,
     },
     // A head tops up a subsidiary short of cash (under a quarter of its quarterly cash costs, or
     // on the overdraft) to three quarters of them, keeping one quarter of its own; group debt is

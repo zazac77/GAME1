@@ -4,7 +4,8 @@ import type { Books, CreditStatus, Loan } from './finance';
 
 export interface Actor {
   id: Id;
-  kind: 'player' | 'ai';
+  /** fund: the activist fund (optional), an AI investor without operations. */
+  kind: 'player' | 'ai' | 'fund';
   name: string;
   profileId?: AiProfileId;
   /** Top company of the actor (a plain company, later a holding). */

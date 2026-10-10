@@ -16,6 +16,7 @@ export function StartScreen() {
   const [companyName, setCompanyName] = useState<string>(fr.start.defaultCompanies.industry);
   const [seed, setSeed] = useState(randomSeed);
   const [mode, setMode] = useState<GameMode>('standard');
+  const [activist, setActivist] = useState(false);
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
@@ -28,7 +29,7 @@ export function StartScreen() {
           className="grid gap-4 sm:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
-            newGame({ playerName, companyName, seed: seed >>> 0, mode, sector });
+            newGame({ playerName, companyName, seed: seed >>> 0, mode, sector, activist });
           }}
         >
           <fieldset className="space-y-2 text-sm sm:col-span-2">
@@ -111,6 +112,18 @@ export function StartScreen() {
                 { value: 'sandbox', label: fr.start.modes.sandbox },
               ]}
             />
+          </label>
+          <label className="flex items-start gap-2 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={activist}
+              onChange={(e) => setActivist(e.target.checked)}
+            />
+            <span>
+              <span className="block font-medium">{fr.start.activist}</span>
+              <span className="block text-slate-500">{fr.start.activistHint}</span>
+            </span>
           </label>
           <div className="sm:col-span-2">
             <Button type="submit" variant="primary">

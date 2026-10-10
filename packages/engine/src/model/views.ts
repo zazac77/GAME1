@@ -6,6 +6,7 @@ import type { GameMode, HolderId, Id, ModifierKey, Money, Quarter, SectorId } fr
 import type { HistoryStore } from './state';
 import type { AnnualFigures } from './mna';
 import type { ConsolidatedStatements } from './finance';
+import type { TenderOffer } from './stock';
 
 export type AlertKind =
   | 'material_low' // stored material + contract deliveries below the alert cover
@@ -108,14 +109,37 @@ export interface DealQuote {
   /** Company: share price at the start of the quarter and premium its board asks (absent: not for sale). */
   referencePrice?: Money;
   askedPremium?: number;
-  /** Company: shares of the block of its controlling shareholder, and shares a tender offer would seek. */
+  /**
+   * Company: shares of the block of its controlling shareholder, and shares a
+   * tender offer would seek (a block of a listed company comes with the
+   * mandatory offer on these too).
+   */
   blockShares?: number;
   tenderShares?: number;
+  /** Company: no holder group controls it (listed): a hostile offer can take it over. */
+  contestable?: boolean;
+  /** Company: share of its capital the buyer's group holds. */
+  groupStake?: number;
+  /** Company under offer: the lowest price of a competing offer (blocks wait for the close). */
+  minCompetingPrice?: Money;
   /** Listing: price for 100 % (less the liability a due diligence revealed). */
   price?: Money;
   dueDiligenceCost: Money;
   /** Acquisition loan the bank would grant for it. */
   debtCapacity: Money;
+}
+
+/** An open tender offer, as the viewed company can act on it. */
+export interface OfferView {
+  offer: TenderOffer;
+  /** The viewed company's own offer: it may raise it (from minRaise), or withdraw it (canWithdraw). */
+  mine: boolean;
+  minRaise: Money;
+  canWithdraw: boolean;
+  /** Shares of the target the viewed company holds (it may tender them). */
+  held: number;
+  /** Best price on the target (all open offers). */
+  bestPrice: Money;
 }
 
 /** A company of the player's group. */
@@ -214,6 +238,8 @@ export interface PlayerView extends Observation {
   canCreateHolding: boolean;
   /** Companies the viewed company could buy (listings, then companies by id). */
   deals: DealQuote[];
+  /** Open tender offers (oldest first), with what the viewed company can do about them. */
+  offers: OfferView[];
 }
 
 /** Deterministic estimate of a quarter under the submitted decisions. */

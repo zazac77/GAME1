@@ -6,7 +6,7 @@ import { runGame, type PlayerMode } from './run';
 
 // npm run sim -- --games 50 --turns 40 [--seed 1] [--player opportunist|passive]
 //                [--sector industry|agri|tech|all] [--overrides file.json] [--out stats.json]
-//                [--csv stats.csv]
+//                [--csv stats.csv] [--activist]
 const { values } = parseArgs({
   options: {
     games: { type: 'string', default: '50' },
@@ -17,6 +17,7 @@ const { values } = parseArgs({
     overrides: { type: 'string' },
     out: { type: 'string' },
     csv: { type: 'string' },
+    activist: { type: 'boolean', default: false },
   },
 });
 
@@ -31,16 +32,30 @@ const fromFile = values.overrides
   : undefined;
 // --sector: the player's starting sector (on top of the overrides file); "all" runs
 // one campaign per sector and ends with a cross-sector table.
+// --activist: the optional activist fund joins every game.
+const base = values.activist
+  ? {
+      ...fromFile,
+      stockMarket: {
+        ...(fromFile?.stockMarket as object | undefined),
+        activist: {
+          ...((fromFile?.stockMarket as Record<string, unknown> | undefined)?.activist as
+            object | undefined),
+          enabled: true,
+        },
+      },
+    }
+  : fromFile;
 const withSector = (sector: string | undefined) =>
   sector
     ? {
-        ...fromFile,
+        ...base,
         scenario: {
-          ...(fromFile?.scenario as object | undefined),
+          ...(base?.scenario as object | undefined),
           playerSector: sector,
         },
       }
-    : fromFile;
+    : base;
 
 const sectors = values.sector === 'all' ? ['industry', 'agri', 'tech'] : [values.sector];
 const campaigns = [];

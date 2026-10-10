@@ -6,6 +6,8 @@ import type { Company, RndType } from '../../model/company';
 import type {
   CapexOrder,
   CompanyDecisions,
+  DealAction,
+  DealFinancing,
   HrDecision,
   IntraGroupTransfer,
   ValidationIssue,
@@ -33,10 +35,14 @@ import {
   acquisitionDebtCapacity,
   blockSeller,
   canTarget,
+  canWithdraw,
   dueDiligenceCost,
+  groupHead,
   heldByGroup,
   listingPrice,
+  minCompetingPrice,
   openListing,
+  openOffers,
   pendingOrUsableDiligence,
 } from '../mna/rules';
 import {
@@ -440,7 +446,14 @@ export function normalizeDecisions(
         ? Math.min(
             tradable,
             float,
-            Math.max(0, Math.floor(SM.maxMinorityStake * target.sharesOutstanding) - held),
+            // Mandatory offer: the market stops the group at the threshold (with maxMinorityStake).
+            Math.max(
+              0,
+              Math.floor(
+                Math.min(SM.maxMinorityStake, SM.mandatoryOfferThreshold) *
+                  target.sharesOutstanding,
+              ) - heldByGroup(state, company.id, target.id),
+            ),
             Math.floor(Math.max(0, cash) / quote.price),
           )
         : Math.min(tradable, held);
@@ -610,13 +623,19 @@ function normalizeGroup(
 
 /**
  * Takeovers: due diligences (one per target while its results are valid,
- * paid now), then at most one deal per quarter (a friendly tender offer on a
- * listed company, the block of a controlling shareholder, or a listing),
- * outside the buyer's group and never on the player's companies for an AI.
- * Payment: stockShare in new shares (listed buyers), an acquisition loan
- * within the bank's limit, and cash: a deal whose cash part exceeds the
- * cash at hand plus that loan is dropped (the quarter's flows may still
- * make it fail at settlement). Returns the cost of the due diligences.
+ * paid now), then at most one deal per quarter: a tender offer on a listed
+ * company (friendly, or `hostile`; on a target under offer, competing: at
+ * least the best open price × (1 + minOverbid), one open offer per group),
+ * the block of a controlling shareholder (a listed one with the mandatory
+ * offer on every other share; not while the target is under offer), a
+ * listing, or a raise of the company's own open offer — outside the buyer's
+ * group and never on the player's companies for an AI. Withdrawals (own open
+ * offer, once outbid or after a poison pill) and tenders of the shares held
+ * to an open offer are free. Payment: stockShare in new shares (listed
+ * buyers), an acquisition loan within the bank's limit, and cash: a deal
+ * whose cash part exceeds the cash at hand plus that loan is dropped (the
+ * quarter's flows may still make it fail at settlement). Returns the cost of
+ * the due diligences.
  */
 function normalizeMna(
   state: GameState,
@@ -630,8 +649,75 @@ function normalizeMna(
   let spent = 0;
   let dealDone = false;
   const seen = new Set<Id>();
+  const seenOffers = new Set<Id>();
+  const financing = (
+    a: DealFinancing,
+    path: string,
+    targetId: Id,
+  ): { stockShare: number; debt: number } => {
+    let stockShare = 0;
+    if (a.stockShare !== undefined) {
+      if (!isNum(a.stockShare)) flag(`${path}.stockShare`, 'invalid_value');
+      else if (a.stockShare > 0 && !company.listed) flag(`${path}.stockShare`, 'invalid_state');
+      else stockShare = bound(`${path}.stockShare`, a.stockShare, 0, 1);
+    }
+    let debt = 0;
+    if (a.debt !== undefined) {
+      if (!isNum(a.debt) || a.debt < 0) flag(`${path}.debt`, 'invalid_value', a.debt);
+      else
+        debt = bound(`${path}.debt`, a.debt, 0, acquisitionDebtCapacity(state, company, targetId));
+    }
+    return { stockShare, debt };
+  };
+  const tenderShares = (targetId: Id, target: Company) =>
+    target.sharesOutstanding - heldByGroup(state, company.id, targetId);
   (input.mna ?? []).forEach((a, i) => {
     const path = `mna[${i}]`;
+    if (a?.kind === 'withdraw_offer' || a?.kind === 'tender_shares' || a?.kind === 'raise_offer') {
+      const offer = openOffers(state).find((o) => o.id === a.offerId);
+      if (!offer) return flag(`${path}.offerId`, 'unknown_id');
+      if (seenOffers.has(offer.id)) return flag(path, 'duplicate');
+      const own = offer.bidderId === company.id;
+      if (a.kind === 'tender_shares') {
+        if (own || (state.stock.registry[offer.targetId]?.[company.id] ?? 0) <= 0) {
+          return flag(path, 'invalid_state');
+        }
+        seenOffers.add(offer.id);
+        out.mna.push({ kind: 'tender_shares', offerId: offer.id });
+        return;
+      }
+      if (!own) return flag(path, 'invalid_state');
+      if (a.kind === 'withdraw_offer') {
+        if (!canWithdraw(state, offer)) return flag(path, 'invalid_state');
+        seenOffers.add(offer.id);
+        out.mna.push({ kind: 'withdraw_offer', offerId: offer.id });
+        return;
+      }
+      if (dealDone) return flag(path, 'duplicate');
+      if (!isNum(a.pricePerShare) || a.pricePerShare <= 0) {
+        return flag(`${path}.pricePerShare`, 'invalid_value', a.pricePerShare);
+      }
+      const min = minCompetingPrice(state, offer.targetId);
+      if (a.pricePerShare < min - 1e-9)
+        return flag(`${path}.pricePerShare`, 'limit', a.pricePerShare, min);
+      const target = state.companies[offer.targetId];
+      if (!target) return flag(path, 'unknown_id');
+      const { stockShare, debt } = financing(a, path, offer.targetId);
+      const cashPart = tenderShares(target.id, target) * a.pricePerShare * (1 - stockShare);
+      if (cashPart > room - spent + debt)
+        return flag(path, 'budget', cashPart, room - spent + debt);
+      const raise: CompanyDecisions['mna'][number] = {
+        kind: 'raise_offer',
+        offerId: offer.id,
+        pricePerShare: a.pricePerShare,
+      };
+      if (a.stockShare !== undefined) raise.stockShare = stockShare;
+      if (a.debt !== undefined) raise.debt = debt;
+      seenOffers.add(offer.id);
+      out.mna.push(raise);
+      dealDone = true;
+      return;
+    }
     const targetId = typeof a?.targetId === 'string' ? a.targetId : '';
     const listing = openListing(state, targetId);
     const target = listing ? undefined : state.companies[targetId];
@@ -652,23 +738,9 @@ function normalizeMna(
       return flag(`${path}.kind`, 'invalid_value');
     }
     if (dealDone) return flag(path, 'duplicate');
-    let stockShare = 0;
-    if (a.stockShare !== undefined) {
-      if (!isNum(a.stockShare)) flag(`${path}.stockShare`, 'invalid_value');
-      else if (a.stockShare > 0 && !company.listed) flag(`${path}.stockShare`, 'invalid_state');
-      else stockShare = bound(`${path}.stockShare`, a.stockShare, 0, 1);
-    }
-    let debt = 0;
-    if (a.debt !== undefined) {
-      if (!isNum(a.debt) || a.debt < 0) flag(`${path}.debt`, 'invalid_value', a.debt);
-      else
-        debt = bound(`${path}.debt`, a.debt, 0, acquisitionDebtCapacity(state, company, targetId));
-    }
+    const { stockShare, debt } = financing(a, path, targetId);
     let total = 0;
-    const deal = { kind: a.kind, targetId } as Extract<
-      CompanyDecisions['mna'][number],
-      { kind: 'tender_offer' | 'private_purchase' }
-    >;
+    const deal = { kind: a.kind, targetId } as DealAction;
     if (listing) {
       if (a.kind !== 'private_purchase') return flag(`${path}.kind`, 'invalid_value');
       total = listingPrice(state, company.id, listing);
@@ -677,14 +749,31 @@ function normalizeMna(
         return flag(`${path}.pricePerShare`, 'invalid_value', a.pricePerShare);
       }
       deal.pricePerShare = a.pricePerShare;
+      const underOffer = openOffers(state, target.id);
       let shares: number;
       if (a.kind === 'tender_offer') {
         if (!target.listed) return flag(path, 'invalid_state');
-        shares = target.sharesOutstanding - heldByGroup(state, company.id, target.id);
+        if (underOffer.length > 0) {
+          const head = groupHead(state, company.id);
+          if (underOffer.some((o) => groupHead(state, o.bidderId) === head)) {
+            return flag(path, 'duplicate');
+          }
+          const min = minCompetingPrice(state, target.id);
+          if (a.pricePerShare < min - 1e-9) {
+            return flag(`${path}.pricePerShare`, 'limit', a.pricePerShare, min);
+          }
+        }
+        if (a.hostile === true)
+          (deal as Extract<DealAction, { kind: 'tender_offer' }>).hostile = true;
+        shares = tenderShares(target.id, target);
       } else {
+        if (underOffer.length > 0) return flag(path, 'invalid_state');
         const seller = blockSeller(state, target);
         if (!seller) return flag(path, 'invalid_state');
-        shares = state.stock.registry[target.id]?.[seller] ?? 0;
+        // Listed: the mandatory offer covers every other share.
+        shares = target.listed
+          ? tenderShares(target.id, target)
+          : (state.stock.registry[target.id]?.[seller] ?? 0);
       }
       total = shares * a.pricePerShare;
     }

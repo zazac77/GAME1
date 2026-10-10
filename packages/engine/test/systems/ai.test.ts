@@ -672,3 +672,140 @@ describe('AI takeovers and dividends (lot 2.4)', () => {
     expect(paid).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe('AI and the stock market v3 (lot 3.3)', () => {
+  /** A conglomerate head with cash to spare, deals always worth it, and a premium rival nobody controls. */
+  function v3Setup(seed = 16) {
+    const state = playTurns(newGame(seed), 3);
+    const actor = actorOf(state, 'conglomerate');
+    const obs = healthy(observe(state, actor.id));
+    const profile = obs.config.ai.profiles.conglomerate;
+    if (profile) profile.acquisitiveness = 1;
+    obs.config.ai.mna.valueMargin = 10;
+    const b = obs.self.company.books.current.balance;
+    b.cash += 500_000_000;
+    b.equity += 500_000_000;
+    const target = obs.competitors.find(
+      (c) => c.listed && c.controllerId === undefined && c.blockShares === undefined,
+    );
+    if (!target) throw new Error('no contestable rival');
+    for (const c of obs.competitors) if (c !== target) delete c.askedPremium;
+    obs.mna.listings = [];
+    return { state, obs, target };
+  }
+
+  const offerOn = (
+    obs: Observation,
+    targetId: string,
+    bidderId: string,
+    price: number,
+    extra: Partial<Observation['mna']['tenderOffers'][number]> = {},
+  ): Observation['mna']['tenderOffers'][number] => ({
+    id: `opa_9${obs.mna.tenderOffers.length}`,
+    bidderId,
+    targetId,
+    pricePerShare: price,
+    premium: 0.2,
+    basePrice: price / 1.2,
+    stockShare: 0,
+    debt: 0,
+    hostile: true,
+    launchedAt: obs.turn - 1,
+    expiresAt: obs.turn,
+    status: 'open',
+    acquired: 0,
+    raises: 0,
+    defenses: { pill: false, whiteKnight: true },
+    ...extra,
+  });
+
+  it('comes to the rescue of a company under hostile offer as a white knight', () => {
+    const { obs, target, state } = v3Setup();
+    const raider = playerCompanyId(state);
+    const price = (obs.stock.quotes[target.companyId]?.referencePrice ?? 0) * 1.2;
+    obs.mna.tenderOffers.push(offerOn(obs, target.companyId, raider, price));
+    const out = plan(obs);
+    const bid = out.decisions.mna.find((a) => a.kind === 'tender_offer');
+    expect(bid?.kind === 'tender_offer' && bid.targetId).toBe(target.companyId);
+    expect(bid?.kind === 'tender_offer' && bid.hostile).toBeFalsy();
+    expect(bid?.kind === 'tender_offer' ? bid.pricePerShare : 0).toBeGreaterThanOrEqual(
+      price * (1 + obs.config.mna.offers.minOverbid),
+    );
+    expect(out.signals.map((s) => s.kind)).toContain('ai_white_knight');
+  });
+
+  it('counter-bids when outbid, then gives up after maxCounterBids', () => {
+    const { obs, target, state } = v3Setup();
+    const price = (obs.stock.quotes[target.companyId]?.referencePrice ?? 0) * 1.2;
+    const mine = offerOn(obs, target.companyId, obs.companyId, price, { hostile: false });
+    obs.mna.tenderOffers.push(mine);
+    obs.mna.tenderOffers.push(offerOn(obs, target.companyId, playerCompanyId(state), price * 1.1));
+    const out = plan(obs);
+    const raise = out.decisions.mna.find((a) => a.kind === 'raise_offer');
+    expect(raise?.kind === 'raise_offer' ? raise.pricePerShare : 0).toBeCloseTo(
+      price * 1.1 * (1 + obs.config.ai.mna.counterBidStep),
+      6,
+    );
+    expect(out.signals.map((s) => s.kind)).toContain('ai_counter_bid');
+    mine.raises = obs.config.ai.mna.maxCounterBids;
+    expect(plan(obs).decisions.mna).toEqual([{ kind: 'withdraw_offer', offerId: mine.id }]);
+  });
+
+  it('goes hostile on a company nobody controls when its board asks too much', () => {
+    const { obs, target } = v3Setup();
+    obs.config.ai.mna.hostileMaxPremium = 1;
+    obs.mna.diligence = [
+      {
+        buyerId: obs.companyId,
+        targetId: target.companyId,
+        orderedAt: obs.turn - 1,
+        expiresAt: obs.turn + 4,
+        figures: { revenue: 100_000_000, ebitda: 20_000_000 },
+        netDebt: 0,
+        hiddenLiability: 0,
+      },
+    ];
+    const memory = { ...newAiMemory(), deal: { targetId: target.companyId, since: obs.turn - 1 } };
+    const out = plan(obs, memory);
+    const bid = out.decisions.mna.find((a) => a.kind === 'tender_offer');
+    expect(bid?.kind === 'tender_offer' && bid.hostile).toBe(true);
+    const ref = obs.stock.quotes[target.companyId]?.referencePrice ?? 0;
+    const premium = (bid?.kind === 'tender_offer' ? bid.pricePerShare : 0) / ref - 1;
+    expect(premium).toBeLessThan(target.askedPremium ?? 0);
+    expect(out.signals.map((s) => s.kind)).toContain('ai_hostile_offer');
+  });
+
+  it('a company nobody controls buys its shares back against a raider', () => {
+    const state = playTurns(newGame(16), 3);
+    const actor = actorOf(state, 'premium');
+    const obs = healthy(observe(state, actor.id));
+    expect(obs.group.actorId).toBeUndefined();
+    const b = obs.self.company.books.current.balance;
+    b.cash += 100_000_000;
+    b.equity += 100_000_000;
+    expect(plan(obs).decisions.finance.buyback).toBeUndefined();
+    obs.stock.declared[obs.companyId] = {
+      ...obs.stock.declared[obs.companyId],
+      [state.meta.playerActorId]: 0.1,
+    };
+    const out = plan(obs);
+    expect(out.decisions.finance.buyback ?? 0).toBeGreaterThan(0);
+    expect(out.signals.map((s) => s.kind)).toContain('ai_defense_buyback');
+  });
+
+  it('pays out more while an activist fund campaigns for it', () => {
+    const state = playTurns(newGame(16), 3);
+    const obs = healthy(observe(state, actorOf(state, 'premium').id));
+    const b = obs.self.company.books.current.balance;
+    const pnl = obs.self.company.books.current.pnl;
+    b.cash += 100_000_000;
+    b.equity += 100_000_000;
+    pnl.netIncome = 2_000_000;
+    const D = obs.config.ai.dividends;
+    expect(plan(obs).decisions.finance.dividend).toBeCloseTo(D.payout * pnl.netIncome, 3);
+    obs.stock.campaigns = [
+      { fundId: 'co_999', targetId: obs.companyId, demand: 'payout', since: obs.turn - 1 },
+    ];
+    expect(plan(obs).decisions.finance.dividend).toBeCloseTo(D.campaignPayout * pnl.netIncome, 3);
+  });
+});

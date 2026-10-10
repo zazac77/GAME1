@@ -1,7 +1,15 @@
 import { PALETTE, SeriesChart } from '../charts/SeriesChart';
 import { companyNamer } from '../components/lists';
 import { Button, Card, Notice, Stat, Table, Td } from '../components/ui';
-import { fmtChange, fmtDec, fmtInt, fmtMoney, fmtPrice } from '../i18n/format';
+import {
+  fmtChange,
+  fmtDec,
+  fmtInt,
+  fmtMoney,
+  fmtPct,
+  fmtPrice,
+  quarterLabel,
+} from '../i18n/format';
 import { fr } from '../i18n/fr';
 import { useGame } from '../store/game';
 
@@ -16,6 +24,21 @@ export function Bourse() {
   const indexBefore = index.history.at(-2);
   const own = view.companyId;
   const holdings = Object.entries(view.stock.holdings);
+  // Declared stakes, founders and controlling holders of their own company left aside.
+  const founders = new Set(view.competitors.flatMap((c) => (c.actorId ? [c.actorId] : [])));
+  founders.add(view.actor.id);
+  const declared = Object.entries(view.stock.declared)
+    .flatMap(([targetId, levels]) =>
+      Object.entries(levels).map(([holderId, level]) => ({ targetId, holderId, level })),
+    )
+    .filter(
+      (d) =>
+        !(
+          founders.has(d.holderId) &&
+          (view.competitors.find((c) => c.companyId === d.targetId)?.actorId === d.holderId ||
+            (d.holderId === view.actor.id && d.targetId === view.actor.rootCompanyId))
+        ),
+    );
 
   return (
     <div className="space-y-4">
@@ -58,6 +81,39 @@ export function Bourse() {
             </Button>
           </div>
         </Card>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card title={t.declared}>
+          {declared.length === 0 ? (
+            <p className="text-sm text-slate-500">{t.noDeclared}</p>
+          ) : (
+            <Table head={[t.company, t.holder, t.level]}>
+              {declared.map((d) => (
+                <tr key={`${d.targetId}-${d.holderId}`}>
+                  <Td left>{name(d.targetId)}</Td>
+                  <Td>{name(d.holderId)}</Td>
+                  <Td>{fmtPct(d.level, 0)}</Td>
+                </tr>
+              ))}
+            </Table>
+          )}
+          <p className="mt-2 text-xs text-slate-500">{t.declaredHint}</p>
+        </Card>
+        {view.stock.campaigns.length > 0 && (
+          <Card title={t.campaigns}>
+            <ul className="space-y-1 text-sm">
+              {view.stock.campaigns.map((c) => (
+                <li key={`${c.fundId}-${c.targetId}`}>
+                  <span className="font-medium">{name(c.targetId)}</span> :{' '}
+                  {t.campaign(name(c.fundId), t.demands[c.demand])}{' '}
+                  <span className="text-slate-500">
+                    ({t.since} {quarterLabel(c.since)})
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
       </div>
       <Card title={t.quotes}>
         <Table head={[t.company, t.price, t.change, t.fundamental, t.float]}>

@@ -5,6 +5,7 @@ import type { Company } from '../../model/company';
 import type { AiProfileId, HolderId, Id, Money } from '../../model/ids';
 import type { DueDiligence, TargetListing } from '../../model/mna';
 import type { GameState } from '../../model/state';
+import type { TenderOffer } from '../../model/stock';
 import { trailingAnnual } from '../finance/credit';
 import { shareValue } from '../stockmarket/holdings';
 
@@ -17,8 +18,8 @@ export function referencePrice(state: GameState, company: Company): Money {
 /**
  * Profile deciding for a holder whether to sell: an AI actor's own, the
  * profile of the actor controlling a company (else its management's).
- * Undefined when the player decides (the player is not asked in phase 2:
- * negotiation comes with phase 3).
+ * Undefined when the player decides: the player's companies sell only
+ * the shares they tender to an open offer (tender_shares).
  */
 function holderProfile(state: GameState, holderId: HolderId): AiProfileId | undefined {
   const player = state.meta.playerActorId;
@@ -35,12 +36,19 @@ function holderProfile(state: GameState, holderId: HolderId): AiProfileId | unde
   return owner?.profileId ?? managementProfile(state, company);
 }
 
+/** Whether a holder is the activist fund (its actor, or a company that actor controls). */
+export function isFundHolder(state: GameState, holderId: HolderId): boolean {
+  const actorId = state.actors[holderId] ? holderId : controllingActor(state, holderId);
+  return actorId !== undefined && state.actors[actorId]?.kind === 'fund';
+}
+
 /** Premium a holder asks to sell its shares of the target (undefined: it will not sell). */
 export function askedPremium(
   state: GameState,
   holderId: HolderId,
   target: Company,
 ): number | undefined {
+  if (isFundHolder(state, holderId)) return state.config.stockMarket.activist.tenderPremium;
   const profileId = holderProfile(state, holderId);
   if (!profileId) return undefined;
   const ask = profileOf(state.config, profileId, target.sector).sellPremium;
@@ -59,6 +67,43 @@ export function boardPremium(state: GameState, target: Company): number | undefi
   if (!profileId) return undefined;
   const ask = profileOf(state.config, profileId, target.sector).sellPremium;
   return target.status === 'distressed' ? ask * state.config.mna.distressedSellFactor : ask;
+}
+
+/**
+ * Profile of the target's board when the AI runs it (its controlling
+ * actor's, else its management's); undefined when the player decides.
+ */
+export function boardProfile(state: GameState, target: Company): AiProfileId | undefined {
+  const controller = controllingActor(state, target.id);
+  if (controller) return holderProfile(state, controller);
+  return managementProfile(state, target);
+}
+
+/** A listed company no holder group controls: a hostile offer can take it over. */
+export const contestable = (state: GameState, target: Company): boolean =>
+  target.listed &&
+  isOperating(target) &&
+  !blockSeller(state, target) &&
+  controllingActor(state, target.id) === undefined;
+
+/** Offers still open (on one target if given), oldest first. */
+export const openOffers = (state: GameState, targetId?: Id): TenderOffer[] =>
+  state.stock.tenderOffers.filter(
+    (o) => o.status === 'open' && (targetId === undefined || o.targetId === targetId),
+  );
+
+/** Lowest price of a competing offer, or of a raise, on a target under offer (0: no offer open). */
+export function minCompetingPrice(state: GameState, targetId: Id): Money {
+  const best = Math.max(0, ...openOffers(state, targetId).map((o) => o.pricePerShare));
+  return best * (1 + state.config.mna.offers.minOverbid);
+}
+
+/** A bidder may withdraw its open offer once outbid, or after a poison pill. */
+export function canWithdraw(state: GameState, offer: TenderOffer): boolean {
+  const others = openOffers(state, offer.targetId);
+  return others.some(
+    (o) => o.defenses.pill || (o.id !== offer.id && o.pricePerShare >= offer.pricePerShare),
+  );
 }
 
 /** The holder with more than the control threshold of the target on its own (its block). */
@@ -80,14 +125,17 @@ export const heldByGroup = (state: GameState, buyerId: Id, targetId: Id): number
 
 /**
  * Whether a company may bid for a target: operating, outside the buyer's
- * group, and not controlled by the player when the buyer is not the
- * player's (no hostile takeover of the player in phase 2).
+ * group, not the activist fund, and not controlled by the player when the
+ * buyer is not the player's (the player's group holds control: no offer can
+ * succeed without the player).
  */
 export function canTarget(state: GameState, buyer: Company, target: Company): boolean {
   if (!isOperating(target) || target.id === buyer.id) return false;
   if (sameGroup(state, buyer.id, target.id)) return false;
   const player = state.meta.playerActorId;
   const controller = controllingActor(state, target.id);
+  // The activist fund is not for sale.
+  if (controller !== undefined && state.actors[controller]?.kind === 'fund') return false;
   return controller !== player || controllingActor(state, buyer.id) === player;
 }
 

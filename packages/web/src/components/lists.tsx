@@ -7,7 +7,11 @@ import { Notice } from './ui';
 export function companyNamer(view: PlayerView): (id: string) => string {
   const names: Record<string, string> = {};
   for (const l of view.mna.listings) names[l.id] = l.name;
-  for (const c of view.competitors) names[c.companyId] = c.name;
+  for (const c of view.competitors) {
+    names[c.companyId] = c.name;
+    if (c.actorId) names[c.actorId] = c.actorName;
+  }
+  names[view.actor.id] = view.actor.name;
   for (const c of view.groupCompanies) names[c.companyId] = c.name;
   names[view.companyId] = view.self.company.name;
   return (id) => names[id] ?? id;

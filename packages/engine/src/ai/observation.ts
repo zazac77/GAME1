@@ -127,6 +127,8 @@ export function observe(state: GameState, actorId: Id, companyId?: Id): Observat
       quotes: state.stock.quotes,
       float,
       holdings,
+      declared: state.stock.declared,
+      campaigns: state.stock.campaigns,
     },
     mna,
     group,
@@ -134,6 +136,7 @@ export function observe(state: GameState, actorId: Id, companyId?: Id): Observat
   };
   const profileId = managementProfile(state, own);
   if (profileId) observation.profileId = profileId;
+  if (actorOfGroup && state.actors[actorOfGroup]?.kind === 'fund') observation.fund = true;
   return structuredClone(observation);
 }
 
@@ -254,6 +257,7 @@ function competitorView(state: GameState, company: Company, lastClosed: number):
       : [],
     shares: company.sharesOutstanding,
   };
+  if (actor) view.actorId = actor.id;
   const controller = controllingActor(state, company.id);
   if (controller) view.controllerId = controller;
   const asked = isOperating(company) ? boardPremium(state, company) : undefined;

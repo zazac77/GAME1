@@ -22,24 +22,43 @@ export interface DealFinancing {
 }
 
 /**
- * Takeovers (phase 2). Settled at the end of the quarter (step 12), on the
- * cash then available; a due diligence is paid at the start of the quarter
- * and its results are known from the next one.
+ * Takeovers. Settled at the end of the quarter (step 12), on the cash then
+ * available; a due diligence is paid at the start of the quarter and its
+ * results are known from the next one.
  */
 export type MnaAction =
   | { kind: 'due_diligence'; targetId: Id }
   /**
-   * Friendly tender offer on a listed company, for every share the buyer's
-   * group does not hold: needs the support of the target's board, succeeds
-   * only if the group ends with control.
+   * Tender offer on a listed company, for every share the buyer's group does
+   * not hold. With the support of the target's board it is settled at once
+   * (friendly); otherwise it is rejected, unless `hostile`: it then stays open
+   * (periodQuarters) and goes to the shareholders over the board's head. On a
+   * target already under offer, it is a competing offer (at least the best
+   * open price × (1 + minOverbid)). It succeeds only if the group ends with
+   * control.
    */
-  | ({ kind: 'tender_offer'; targetId: Id; pricePerShare: Money } & DealFinancing)
+  | ({
+      kind: 'tender_offer';
+      targetId: Id;
+      pricePerShare: Money;
+      hostile?: boolean;
+    } & DealFinancing)
   /**
    * Over-the-counter purchase: the block of the target's controlling
-   * shareholder at pricePerShare, or 100 % of a listing (targetId = listing
-   * id) at its asking price.
+   * shareholder at pricePerShare (a listed target: with a mandatory offer at
+   * the same price to every other shareholder), or 100 % of a listing
+   * (targetId = listing id) at its asking price.
    */
-  | ({ kind: 'private_purchase'; targetId: Id; pricePerShare?: Money } & DealFinancing);
+  | ({ kind: 'private_purchase'; targetId: Id; pricePerShare?: Money } & DealFinancing)
+  /** Raises the buyer's own open offer (at least the best open price × (1 + minOverbid)). */
+  | ({ kind: 'raise_offer'; offerId: Id; pricePerShare: Money } & DealFinancing)
+  /** Withdraws the buyer's own open offer: only once outbid, or after a poison pill. */
+  | { kind: 'withdraw_offer'; offerId: Id }
+  /** Tenders the shares the company holds of the target of an open offer (at its close). */
+  | { kind: 'tender_shares'; offerId: Id };
+
+/** The actions that buy a company (one per quarter). */
+export type DealAction = Extract<MnaAction, { kind: 'tender_offer' | 'private_purchase' }>;
 
 /**
  * Flows between companies of a group, settled at the end of the quarter

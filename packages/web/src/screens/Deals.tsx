@@ -1,4 +1,4 @@
-import type { DealQuote, MnaAction } from '@game/engine';
+import type { DealAction, DealQuote, MnaAction, OfferView } from '@game/engine';
 import { useState } from 'react';
 import { companyNamer, IssueList } from '../components/lists';
 import { Button, Card, Notice, NumberField, Select, Stat, Table, Td } from '../components/ui';
@@ -6,8 +6,13 @@ import { fmtInt, fmtMoney, fmtPct, fmtPrice, quarterLabel } from '../i18n/format
 import { fr } from '../i18n/fr';
 import { useGame } from '../store/game';
 
-type Deal = Extract<MnaAction, { kind: 'tender_offer' | 'private_purchase' }>;
-const isDeal = (a: MnaAction): a is Deal => a.kind !== 'due_diligence';
+type Deal = DealAction | Extract<MnaAction, { kind: 'raise_offer' }>;
+/** The quarter's one deal: a purchase, a tender offer or a raise. */
+const isDeal = (a: MnaAction): a is Deal =>
+  a.kind === 'tender_offer' || a.kind === 'private_purchase' || a.kind === 'raise_offer';
+type OfferMove = Extract<MnaAction, { kind: 'withdraw_offer' | 'tender_shares' }>;
+const isMove = (a: MnaAction): a is OfferMove =>
+  a.kind === 'withdraw_offer' || a.kind === 'tender_shares';
 
 /** Price per share a board asks for (its premium over the reference price). */
 const askedPrice = (q: DealQuote): number =>
@@ -26,6 +31,13 @@ export function Deals() {
   if (!draft) return <Notice severity="info">{t.noDraft}</Notice>;
 
   const deal = draft.mna.find(isDeal);
+  const moves = draft.mna.filter(isMove);
+  const toggleMove = (move: OfferMove) =>
+    edit((d) => {
+      const same = (a: MnaAction) => a.kind === move.kind && a.offerId === move.offerId;
+      if (d.mna.some(same)) d.mna = d.mna.filter((a) => !same(a));
+      else d.mna.push(move);
+    });
   const ordered = new Set(
     draft.mna.filter((a) => a.kind === 'due_diligence').map((a) => a.targetId),
   );
@@ -106,7 +118,7 @@ export function Deals() {
         <p className="text-sm text-slate-600">{t.buyer(view.self.company.name)}</p>
       )}
       <Card title={t.thisQuarter}>
-        {!deal && ordered.size === 0 ? (
+        {!deal && ordered.size === 0 && moves.length === 0 ? (
           <p className="text-sm text-slate-500">{t.nothing}</p>
         ) : (
           <ul className="space-y-1 text-sm">
@@ -118,9 +130,17 @@ export function Deals() {
                 </Button>
               </li>
             ))}
+            {moves.map((m) => (
+              <li key={`${m.kind}-${m.offerId}`} className="flex items-center gap-2">
+                <span>{moveText(m, view.offers, name)}</span>
+                <Button variant="ghost" onClick={() => toggleMove(m)}>
+                  {fr.decisions.cancel}
+                </Button>
+              </li>
+            ))}
             {deal && (
               <li className="flex items-center gap-2">
-                <span>{dealText(deal, view.deals)}</span>
+                <span>{dealText(deal, view.deals, view.offers, name)}</span>
                 <Button variant="ghost" onClick={() => setDeal(undefined)}>
                   {fr.decisions.cancel}
                 </Button>
@@ -135,7 +155,11 @@ export function Deals() {
           key={quote.targetId}
           quote={quote}
           canPayInShares={view.self.company.listed}
-          current={deal?.targetId === quote.targetId ? deal : undefined}
+          current={
+            deal && deal.kind !== 'raise_offer' && deal.targetId === quote.targetId
+              ? deal
+              : undefined
+          }
           onSubmit={setDeal}
           onClose={() => setSelected(null)}
         />
@@ -156,6 +180,14 @@ export function Deals() {
         )}
         <p className="mt-2 text-xs text-slate-500">{t.companiesHint}</p>
       </Card>
+      <OpenOffers
+        offers={view.offers}
+        name={name}
+        moves={moves}
+        raise={deal?.kind === 'raise_offer' ? deal : undefined}
+        onToggle={toggleMove}
+        onRaise={setDeal}
+      />
       <Card title={t.tenderOffers}>
         {offers.length === 0 ? (
           <p className="text-sm text-slate-500">{t.noOffers}</p>
@@ -167,7 +199,12 @@ export function Deals() {
                 <Td>{name(o.targetId)}</Td>
                 <Td>{fmtPrice(o.pricePerShare)}</Td>
                 <Td>{fmtPct(o.premium)}</Td>
-                <Td>{t.offerStatus[o.status]}</Td>
+                <Td>
+                  {t.offerStatus[o.status]}
+                  {o.hostile && (
+                    <span className="ml-1 text-xs text-rose-700">({t.hostileBadge})</span>
+                  )}
+                </Td>
                 <Td>{quarterLabel(o.launchedAt)}</Td>
               </tr>
             ))}
@@ -178,12 +215,26 @@ export function Deals() {
   );
 }
 
-function dealText(deal: Deal, quotes: DealQuote[]): string {
+function dealText(
+  deal: Deal,
+  quotes: DealQuote[],
+  offers: OfferView[],
+  name: (id: string) => string,
+): string {
   const t = fr.deals;
+  if (deal.kind === 'raise_offer') {
+    const offer = offers.find((o) => o.offer.id === deal.offerId)?.offer;
+    return t.raiseAt(name(offer?.targetId ?? ''), fmtPrice(deal.pricePerShare));
+  }
   const target = quotes.find((q) => q.targetId === deal.targetId)?.name ?? deal.targetId;
+  const underOffer = offers.some((o) => o.offer.targetId === deal.targetId);
   const how =
     deal.kind === 'tender_offer'
-      ? t.tenderOfferAt(target, fmtPrice(deal.pricePerShare))
+      ? underOffer
+        ? t.competingAt(target, fmtPrice(deal.pricePerShare))
+        : deal.hostile
+          ? t.hostileAt(target, fmtPrice(deal.pricePerShare))
+          : t.tenderOfferAt(target, fmtPrice(deal.pricePerShare))
       : deal.pricePerShare !== undefined
         ? t.blockAt(target, fmtPrice(deal.pricePerShare))
         : t.buyListing(target);
@@ -193,13 +244,136 @@ function dealText(deal: Deal, quotes: DealQuote[]): string {
   return parts.join(', ');
 }
 
+function moveText(move: OfferMove, offers: OfferView[], name: (id: string) => string): string {
+  const offer = offers.find((o) => o.offer.id === move.offerId)?.offer;
+  const target = name(offer?.targetId ?? '');
+  return move.kind === 'withdraw_offer' ? fr.deals.withdrawOf(target) : fr.deals.tenderOf(target);
+}
+
+/** Open offers: raise or withdraw one's own, tender the shares held. */
+function OpenOffers(props: {
+  offers: OfferView[];
+  name: (id: string) => string;
+  moves: OfferMove[];
+  raise?: Extract<MnaAction, { kind: 'raise_offer' }>;
+  onToggle: (move: OfferMove) => void;
+  onRaise: (raise: Deal | undefined) => void;
+}) {
+  const t = fr.deals;
+  const { offers, name } = props;
+  const has = (kind: OfferMove['kind'], offerId: string) =>
+    props.moves.some((m) => m.kind === kind && m.offerId === offerId);
+  return (
+    <Card title={t.openOffers}>
+      {offers.length === 0 ? (
+        <p className="text-sm text-slate-500">{t.noOpenOffers}</p>
+      ) : (
+        <>
+          <Table
+            head={[t.bidder, t.target, t.pricePerShare, t.premium, t.defenses, t.closesAt, '']}
+          >
+            {offers.map((v) => {
+              const o = v.offer;
+              const defenses = [
+                o.defenses.pill ? t.pill : '',
+                o.defenses.whiteKnight ? t.knight : '',
+              ].filter(Boolean);
+              return (
+                <tr key={o.id} className={v.mine ? 'bg-sky-50' : ''}>
+                  <Td left>
+                    {name(o.bidderId)} {v.mine && <span className="text-xs">{t.yours}</span>}
+                    {o.hostile && (
+                      <span className="ml-1 text-xs text-rose-700">({t.hostileBadge})</span>
+                    )}
+                  </Td>
+                  <Td>{name(o.targetId)}</Td>
+                  <Td>{fmtPrice(o.pricePerShare)}</Td>
+                  <Td>{fmtPct(o.premium)}</Td>
+                  <Td>{defenses.join(', ') || '–'}</Td>
+                  <Td>{quarterLabel(o.expiresAt)}</Td>
+                  <Td>
+                    <span className="flex justify-end gap-1">
+                      {v.mine && (
+                        <RaiseButton
+                          view={v}
+                          current={props.raise?.offerId === o.id ? props.raise : undefined}
+                          onRaise={props.onRaise}
+                        />
+                      )}
+                      {v.canWithdraw && (
+                        <Button
+                          variant={has('withdraw_offer', o.id) ? 'primary' : 'secondary'}
+                          onClick={() => props.onToggle({ kind: 'withdraw_offer', offerId: o.id })}
+                        >
+                          {t.withdraw}
+                        </Button>
+                      )}
+                      {v.held > 0 && (
+                        <Button
+                          variant={has('tender_shares', o.id) ? 'primary' : 'secondary'}
+                          onClick={() => props.onToggle({ kind: 'tender_shares', offerId: o.id })}
+                        >
+                          {t.tenderShares(fmtInt(v.held))}
+                        </Button>
+                      )}
+                    </span>
+                  </Td>
+                </tr>
+              );
+            })}
+          </Table>
+          {offers.some((v) => v.offer.defenses.pill) && (
+            <p className="mt-2 text-xs text-slate-500">{t.pillHint}</p>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function RaiseButton(props: {
+  view: OfferView;
+  current?: Extract<MnaAction, { kind: 'raise_offer' }>;
+  onRaise: (raise: Deal | undefined) => void;
+}) {
+  const { view: v, current } = props;
+  const [price, setPrice] = useState(current?.pricePerShare ?? v.minRaise);
+  return (
+    <span className="flex items-center gap-1">
+      <NumberField
+        ariaLabel={fr.deals.pricePerShare}
+        min={v.minRaise}
+        value={price}
+        className="w-24"
+        onChange={(x) => x !== undefined && setPrice(x)}
+      />
+      <Button
+        variant={current ? 'primary' : 'secondary'}
+        onClick={() =>
+          props.onRaise(
+            current
+              ? undefined
+              : {
+                  kind: 'raise_offer',
+                  offerId: v.offer.id,
+                  pricePerShare: Math.max(price, v.minRaise),
+                },
+          )
+        }
+      >
+        {current ? fr.deals.cancelAction : fr.deals.raise}
+      </Button>
+    </span>
+  );
+}
+
 type OfferKind = 'block' | 'tender';
 
 function OfferForm(props: {
   quote: DealQuote;
   canPayInShares: boolean;
-  current?: Deal;
-  onSubmit: (deal: Deal) => void;
+  current?: DealAction;
+  onSubmit: (deal: DealAction) => void;
   onClose: () => void;
 }) {
   const { quote: q, current } = props;
@@ -212,12 +386,17 @@ function OfferForm(props: {
   const [kind, setKind] = useState<OfferKind>(
     current?.kind === 'tender_offer' ? 'tender' : (kinds[0] ?? 'block'),
   );
-  const [price, setPrice] = useState(current?.pricePerShare ?? askedPrice(q));
+  const [price, setPrice] = useState(
+    current?.pricePerShare ?? Math.max(askedPrice(q), q.minCompetingPrice ?? 0),
+  );
+  const [hostile, setHostile] = useState(current?.kind === 'tender_offer' && !!current.hostile);
   const [debt, setDebt] = useState(current?.debt ?? 0);
   const [stockShare, setStockShare] = useState(current?.stockShare ?? 0);
-  const shares = kind === 'block' ? (q.blockShares ?? 0) : (q.tenderShares ?? 0);
+  // A listed block comes with the mandatory offer on every other share (at most).
+  const shares = kind === 'block' ? (q.tenderShares ?? q.blockShares ?? 0) : (q.tenderShares ?? 0);
   const total = listing ? (q.price ?? 0) : shares * price;
-  const forSale = listing || (q.askedPremium !== undefined && kinds.length > 0);
+  const forSale =
+    listing || (kinds.length > 0 && (q.askedPremium !== undefined || q.contestable === true));
   const submit = () => {
     const financing = {
       ...(debt > 0 ? { debt: Math.min(debt, q.debtCapacity) } : {}),
@@ -229,6 +408,7 @@ function OfferForm(props: {
         kind: 'tender_offer',
         targetId: q.targetId,
         pricePerShare: price,
+        ...(hostile && q.minCompetingPrice === undefined ? { hostile: true } : {}),
         ...financing,
       });
     } else {
@@ -273,6 +453,14 @@ function OfferForm(props: {
           {q.blockShares !== undefined && (
             <Stat label={t.blockShares} value={fmtInt(q.blockShares)} />
           )}
+          {q.groupStake !== undefined && q.groupStake > 0 && (
+            <Stat label={t.groupStake} value={fmtPct(q.groupStake)} />
+          )}
+          {q.contestable !== undefined && (
+            <p className="mt-2 text-xs text-slate-600">
+              {q.contestable ? t.contestable : t.controlled}
+            </p>
+          )}
           {q.diligence !== 'done' && <p className="mt-2 text-xs text-amber-700">{t.auditAdvice}</p>}
         </div>
         <div className="space-y-3 text-sm">
@@ -303,6 +491,28 @@ function OfferForm(props: {
                     onChange={(v) => v !== undefined && setPrice(v)}
                   />
                 </label>
+              )}
+              {q.minCompetingPrice !== undefined && (
+                <Notice severity="warning">{t.underOffer(fmtPrice(q.minCompetingPrice))}</Notice>
+              )}
+              {!listing && kind === 'tender' && q.minCompetingPrice === undefined && (
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={hostile}
+                    onChange={(e) => setHostile(e.target.checked)}
+                  />
+                  <span>
+                    <span className="block">{t.hostile}</span>
+                    <span className="block text-xs text-slate-500">{t.hostileHint}</span>
+                  </span>
+                </label>
+              )}
+              {!listing && kind === 'block' && q.tenderShares !== undefined && (
+                <p className="text-xs text-slate-500">
+                  {t.mandatory(fmtInt(Math.max(0, q.tenderShares - (q.blockShares ?? 0))))}
+                </p>
               )}
               <Stat label={t.total} value={fmtMoney(total)} strong />
               <label className="flex items-center justify-between gap-2">

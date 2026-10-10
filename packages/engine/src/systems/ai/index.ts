@@ -22,7 +22,11 @@ export const aiSystem: System = {
     for (const company of operatingCompanies(draft)) {
       if (ctx.decisions[company.id]) continue;
       if (!managementProfile(draft, company)) continue;
-      const actorId = controllingActor(draft, company.id) ?? '';
+      // A company nobody controls observes for its founder (or for nobody).
+      const actorId =
+        controllingActor(draft, company.id) ??
+        Object.values(draft.actors).find((a) => a.rootCompanyId === company.id)?.id ??
+        '';
       const memory = draft.aiMemory[company.id] ?? newAiMemory();
       const plan = planDecisions(observe(draft, actorId, company.id), memory, ctx.rng);
       ctx.decisions[company.id] = plan.decisions;

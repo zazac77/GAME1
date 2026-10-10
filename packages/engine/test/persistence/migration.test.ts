@@ -10,6 +10,7 @@ import saveV4 from '../fixtures/save-v4.json';
 import saveV5 from '../fixtures/save-v5.json';
 import saveV6 from '../fixtures/save-v6.json';
 import saveV7 from '../fixtures/save-v7.json';
+import saveV8 from '../fixtures/save-v8.json';
 
 // A v1 save written by the lot 1.1 engine (seed 1234, after 2 quarters).
 const v1 = JSON.stringify(saveV1);
@@ -26,6 +27,9 @@ const v6 = JSON.stringify(saveV6);
 // A v7 save written by the lot 2.3 engine (seed 1234, after 4 quarters, the player holding
 // 20 000 shares of an AI company).
 const v7 = JSON.stringify(saveV7);
+// A v8 save written by the lot 2.5 engine (seed 1234, after 11 quarters, the player owning
+// 100 % of a bought listing).
+const v8 = JSON.stringify(saveV8);
 
 describe('migrations', () => {
   it('loads a v1 save into the current schema', () => {
@@ -229,6 +233,32 @@ describe('migrations', () => {
     }
     expect(state.meta.turn).toBe(7);
     expect(state.companies[id]?.books.current.balance.financialAssets).toBeGreaterThan(0);
+    assertJsonSafe(state);
+  });
+
+  it('loads a v8 save: intra-group fields, booked stake values, consolidation resumes', () => {
+    expect(JSON.parse(v8).schemaVersion).toBe(8);
+    let state = deserializeGame(v8);
+    expect(state.meta.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(state.config.conglomerate.groupLoanSpread).toBeGreaterThan(0);
+    expect(state.config.ai.group.targetCashQuarters).toBeGreaterThan(0);
+    for (const c of Object.values(state.companies)) {
+      for (const s of [c.books.current, ...c.books.history]) {
+        expect(s.balance.groupLoans).toBe(0);
+        expect(s.pnl.groupFinancial).toBe(0);
+        expect(s.cashFlow.groupInvesting).toBe(0);
+      }
+      const booked = Object.values(c.stakeValues).reduce((a, b) => a + b, 0);
+      expect(booked).toBeCloseTo(c.books.current.balance.financialAssets, 6);
+      expect(c.books.consolidated).toBeUndefined();
+    }
+    const id = playerCompanyId(state);
+    const sub = Object.keys(state.companies[id]?.participations ?? {})[0] ?? '';
+    expect(state.companies[id]?.stakeValues[sub]).toBeGreaterThan(0);
+    state = resolveTurn(state, [steadyDecisions(state, id)]).state;
+    const cons = state.companies[id]?.books.consolidated;
+    expect(cons).toHaveLength(1);
+    expect(Object.keys(cons?.[0]?.members ?? {})).toEqual([id, sub]);
     assertJsonSafe(state);
   });
 });

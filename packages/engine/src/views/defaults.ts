@@ -11,8 +11,9 @@ import { sectorProductLine } from '../sectors/config';
  * "Same as last quarter": prices, quality aimed at, wages, production
  * targets, marketing, listing and R&D budgets (tech: developers) carry over (an R&D
  * budget whose project completed starts the next project of its type); one-shot parts (investments, new
- * contracts, loans, repayments, stock orders, hires, dismissals, trainings)
- * do not. Spot purchases are recomputed to cover the planned output with the
+ * contracts, loans, repayments, stock orders, hires, dismissals, trainings,
+ * intra-group dividends, loans and restructurings) do not; cash pools stay.
+ * Spot purchases are recomputed to cover the planned output with the
  * stock and contracts at hand (a copied quantity would not match the stock).
  * Before the first quarter: current prices and wages.
  */
@@ -41,6 +42,8 @@ export function defaultDecisions(state: GameState, companyId: Id): CompanyDecisi
       fire: 0,
       wageOffer: h.wageOffer,
     }));
+    const pools = (last.intraGroup ?? []).filter((t) => t.kind === 'cash_pool');
+    if (pools.length > 0) d.intraGroup = structuredClone(pools);
   } else {
     for (const staff of Object.values(company.workforce)) {
       d.hr.push({

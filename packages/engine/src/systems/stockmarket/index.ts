@@ -5,11 +5,11 @@ import type { System } from '../../core/system';
 import type { Company } from '../../model/company';
 import type { Id, Money } from '../../model/ids';
 import type { Quote } from '../../model/stock';
-import { fundamentalValue, publishedStatements } from './fundamental';
-import { holdings } from './holdings';
+import { publishedStatements } from './fundamental';
+import { fundamentalOf, revalueHoldings, type StakeTrades } from './holdings';
 
 export { fundamentalValue, publishedStatements } from './fundamental';
-export { holdings, holdingsCarrying, shareValue } from './holdings';
+export { fundamentalOf, holdings, holdingsCarrying, revalueHoldings, shareValue } from './holdings';
 
 interface Fill {
   buyerId: Id;
@@ -71,11 +71,9 @@ export const stockMarketSystem: System = {
     const rMarket = marketFactor(ctx);
     const operating = operatingCompanies(draft);
     const cashLeft: Record<Id, Money> = {};
-    const traded: Record<Id, { bought: Money; sold: Money }> = {};
-    for (const c of operating) {
-      cashLeft[c.id] = c.books.current.balance.cash;
-      traded[c.id] = { bought: 0, sold: 0 };
-    }
+    // By company, then by target.
+    const traded: Record<Id, Record<Id, StakeTrades>> = {};
+    for (const c of operating) cashLeft[c.id] = c.books.current.balance.cash;
 
     const previousCaps: Record<Id, Money> = {};
     const targets = Object.keys(draft.companies).sort();
@@ -98,7 +96,7 @@ export const stockMarketSystem: System = {
 
       const surprise = publish(ctx, company, quote);
       const fundamental =
-        fundamentalValue(draft, company, publishedStatements(draft, company, turn)) ??
+        fundamentalOf(draft, company, publishedStatements(draft, company, turn)) ??
         quote.fundamental;
       const base =
         Math.log(p0) +
@@ -159,7 +157,7 @@ export const stockMarketSystem: System = {
         register.public = (register.public ?? 0) - sign * f.fill;
         register[f.buyerId] = (register[f.buyerId] ?? 0) + sign * f.fill;
         cashLeft[f.buyerId] = (cashLeft[f.buyerId] ?? 0) - sign * value;
-        const t = (traded[f.buyerId] ??= { bought: 0, sold: 0 });
+        const t = ((traded[f.buyerId] ??= {})[targetId] ??= { bought: 0, sold: 0 });
         if (f.side === 'buy') t.bought += value;
         else t.sold += value;
         ctx.log({
@@ -200,17 +198,18 @@ export const stockMarketSystem: System = {
       const company = draft.companies[id] as Company;
       const statements = company.books.current;
       if (statements.quarter !== turn) continue;
-      const fairValue = sum(Object.values(holdings(draft, company, true)).map((h) => h.carrying));
-      const t = traded[company.id] ?? { bought: 0, sold: 0 };
+      const trades = traded[company.id] ?? {};
+      const cash = sum(Object.values(trades).map((t) => t.sold - t.bought));
+      const { carrying, result, groupResult } = revalueHoldings(draft, company, trades);
       const b = statements.balance;
-      const result = fairValue - b.financialAssets - t.bought + t.sold;
-      b.cash += t.sold - t.bought;
-      b.financialAssets = fairValue;
+      b.cash += cash;
+      b.financialAssets = carrying;
       b.equity += result;
       statements.pnl.financial += result;
+      statements.pnl.groupFinancial += groupResult;
       statements.pnl.netIncome += result;
-      statements.cashFlow.investing += t.sold - t.bought;
-      statements.cashFlow.netChange += t.sold - t.bought;
+      statements.cashFlow.investing += cash;
+      statements.cashFlow.netChange += cash;
       const history = company.books.history;
       if (history.at(-1)?.quarter === turn) history[history.length - 1] = statements;
     }

@@ -34,6 +34,10 @@ export interface TurnLedger {
   dividendsPaid: Money;
   /** Dividends received from stakes in other companies (financial result, investing). */
   dividendsReceived: Money;
+  /** Part of dividendsReceived paid by companies of the same group. */
+  groupDividends: Money;
+  /** Net interest on intra-group loans (paid > 0, received < 0), booked with interest. */
+  groupInterest: Money;
   /** Net cash raised by share issues and public offerings (financing). */
   equityIssued: Money;
   /** Cash paid to buy back own shares (financing). */
@@ -60,6 +64,8 @@ export const emptyLedger = (): TurnLedger => ({
   repaid: 0,
   dividendsPaid: 0,
   dividendsReceived: 0,
+  groupDividends: 0,
+  groupInterest: 0,
   equityIssued: 0,
   buybacks: 0,
   unitsProduced: 0,

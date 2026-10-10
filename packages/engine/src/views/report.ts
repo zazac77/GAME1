@@ -1,4 +1,5 @@
 import { controlledCompanyIds } from '../core/companies';
+import { mainCompanyOf } from '../core/group';
 import type { TurnContext } from '../core/context';
 import { sum } from '../core/math';
 import type { ValidationIssue } from '../model/decisions';
@@ -107,13 +108,15 @@ export function buildTurnReport(
 ): TurnReport {
   const actor = after.actors[after.meta.playerActorId];
   const own = controlledCompanyIds(before, after.meta.playerActorId);
+  // Under a holding, the group's main operating company.
+  const main = actor ? mainCompanyOf(after, actor.id) : undefined;
   const report: TurnReport = {
     turn: ctx.turn,
     events: ctx.events.filter((e) => isVisible(e, own)),
     issues: [...preIssues, ...ctx.issues.filter((i) => own.has(i.companyId))],
-    alerts: actor ? companyAlerts(after, actor.rootCompanyId) : [],
+    alerts: main ? companyAlerts(after, main) : [],
   };
-  const summary = actor ? summarize(before, after, ctx, actor.rootCompanyId) : undefined;
+  const summary = main ? summarize(before, after, ctx, main) : undefined;
   if (summary) report.summary = summary;
   return report;
 }

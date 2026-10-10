@@ -2,10 +2,13 @@ import type { TurnContext } from '../../core/context';
 import {
   fixedAssetValue,
   inventoryValue,
+  isOperating,
   operatingCompanies,
   operationalSites,
   totalDebt,
 } from '../../core/companies';
+import { controlledBy } from '../../core/control';
+import { groupDebt, groupLoansGranted } from '../../core/group';
 import { newId } from '../../core/ids';
 import { sum } from '../../core/math';
 import type { System } from '../../core/system';
@@ -58,16 +61,43 @@ export function depreciate(company: Company): number {
   return charge;
 }
 
-/** Interest of the quarter on the loans outstanding after the start-of-quarter financing. */
+/** Bank interest of the quarter on the loans outstanding after the start-of-quarter financing. */
 export function interestCharge(state: GameState, company: Company): number {
   const { policyRate } = state.macro;
   const penalty = company.credit.covenantBreached ? state.config.finance.covenant.spreadPenalty : 0;
   return sum(
-    company.loans.map(
-      (l) =>
-        (l.principal * Math.max(0, policyRate + l.spread + (l.kind === 'term' ? penalty : 0))) / 4,
+    company.loans.map((l) =>
+      l.kind === 'group'
+        ? 0
+        : (l.principal * Math.max(0, policyRate + l.spread + (l.kind === 'term' ? penalty : 0))) /
+          4,
     ),
   );
+}
+
+/** Interest of the quarter on an intra-group loan (paid by the borrower to the lender). */
+export const groupLoanInterest = (state: GameState, principal: number, spread: number): number =>
+  (principal * Math.max(0, state.macro.policyRate + spread)) / 4;
+
+/**
+ * Net intra-group interest of a company this quarter: paid on what it owes,
+ * less what it receives on what it lent (to operating companies).
+ */
+export function netGroupInterest(state: GameState, company: Company): number {
+  let net = 0;
+  for (const id of Object.keys(state.companies).sort()) {
+    const other = state.companies[id] as Company;
+    if (!isOperating(other)) continue;
+    for (const loan of other.loans) {
+      if (loan.kind !== 'group') continue;
+      const lender = state.companies[loan.lenderId ?? ''];
+      if (!lender || !isOperating(lender)) continue;
+      const interest = groupLoanInterest(state, loan.principal, loan.spread);
+      if (other.id === company.id) net += interest;
+      if (lender.id === company.id) net -= interest;
+    }
+  }
+  return net;
 }
 
 /** Pays the scheduled installments of term loans; returns the amount repaid. */
@@ -128,11 +158,17 @@ function goBankrupt(ctx: TurnContext, company: Company): void {
   }
   ctx.log({ kind: 'company_bankrupt', severity: 'critical', companyId: company.id });
   const player = draft.actors[draft.meta.playerActorId];
-  if (
-    player?.rootCompanyId === company.id &&
-    draft.meta.mode === 'standard' &&
-    config.victory.bankruptcyEndsGame
-  ) {
+  const root = draft.companies[player?.rootCompanyId ?? ''];
+  // The player loses with its root company, or with the last operating company under its holding.
+  const lost =
+    root?.id === company.id ||
+    (root?.sector === 'holding' &&
+      company.sector !== 'holding' &&
+      !controlledBy(draft, player?.id ?? '').some((id) => {
+        const c = draft.companies[id];
+        return c !== undefined && c.sector !== 'holding' && isOperating(c);
+      }));
+  if (lost && draft.meta.mode === 'standard' && config.victory.bankruptcyEndsGame) {
     draft.meta.status = 'lost';
     ctx.log({ kind: 'game_lost', severity: 'critical', companyId: company.id });
   }
@@ -152,14 +188,19 @@ export const accountingSystem: System = {
   run(ctx) {
     const { draft, config, turn } = ctx;
     const F = config.finance;
-    for (const company of operatingCompanies(draft)) {
+    const companies = operatingCompanies(draft);
+    // Intra-group interest, on the loans outstanding before any company closes.
+    for (const company of companies) {
+      ctx.ledger(company.id).groupInterest += netGroupInterest(draft, company);
+    }
+    for (const company of companies) {
       const ledger = ctx.ledger(company.id);
       const opening = company.books.current.balance;
 
       ledger.storage += storageCost(draft, company);
       // Book value lost on disposals is charged with depreciation.
       const depreciation = depreciate(company) + ledger.writeOffs;
-      const interest = interestCharge(draft, company);
+      const interest = interestCharge(draft, company) + ledger.groupInterest;
 
       const ebitda =
         ledger.revenue -
@@ -223,15 +264,23 @@ export const accountingSystem: System = {
           ebit,
           interest,
           financial: ledger.dividendsReceived, // + fair value of financial assets: stock market step
+          groupFinancial: ledger.groupDividends,
           tax,
           netIncome,
         },
-        cashFlow: { operating, investing, financing, netChange: operating + investing + financing },
+        cashFlow: {
+          operating,
+          investing,
+          financing,
+          netChange: operating + investing + financing,
+          groupInvesting: ledger.groupDividends,
+        },
         balance: {
           cash,
           inventory: inventoryValue(company),
           fixedAssets: fixedAssetValue(company),
           financialAssets: opening.financialAssets, // revalued by the stock market step
+          groupLoans: groupLoansGranted(draft, company.id),
           debt: totalDebt(company),
           // Equity moves with the net income and the equity transactions only.
           equity:
@@ -250,10 +299,15 @@ export const accountingSystem: System = {
         company.books.history.splice(0, company.books.history.length - max);
       }
 
-      // Rating and covenant on trailing (annualized) figures.
+      // Rating and covenant on trailing (annualized) figures; the bank ignores intra-group debt.
       const annual = trailingAnnual(company);
       const { balance } = statements;
-      const credit = rate(config, balance.debt - balance.cash, annual.ebitda, annual.interest);
+      const credit = rate(
+        config,
+        balance.debt - groupDebt(company) - balance.cash,
+        annual.ebitda,
+        annual.interest,
+      );
       if (credit.rating !== company.credit.rating) {
         ctx.log({
           kind: 'credit_rating',

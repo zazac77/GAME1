@@ -187,8 +187,10 @@ interface Company {
   brand: number;                                   // réputation client 0..100
   employerBrand: number;                           // attractivité employeur 0..100
   rnd: RndProject[];
-  loans: Loan[];
+  loans: Loan[];                                   // kind 'term' | 'overdraft' | 'group' (prêt intra-groupe, lenderId)
   books: Books;                                    // comptes du trimestre + historique (cf. finance.ts)
+  participations: Record<Id, { shares; cost }>;    // titres de sociétés du groupe, au coût (dépréciés)
+  stakeValues: Record<Id, Money>;                  // valeur comptable de chaque participation (Σ = financialAssets)
   sectorState?: unknown;                           // état spécifique, typé par le SectorModule
 }
 
@@ -224,13 +226,19 @@ interface ProductMarket {
 // ---- finance & bourse --------------------------------------------------
 interface Books {
   current: Statements; history: Statements[];      // un élément par trimestre
+  consolidated?: ConsolidatedStatements[];         // têtes de groupe avec filiale (lot 3.1)
 }
 interface Statements {
   pnl: { revenue; cogs; wages; marketing; rnd; storage; other; ebitda;
-         depreciation; ebit; interest; tax; netIncome };          // Money
-  cashFlow: { operating; investing; financing; netChange };
-  balance: { cash; inventory; fixedAssets; financialAssets;
+         depreciation; ebit; interest; financial; groupFinancial; tax; netIncome };  // Money
+  cashFlow: { operating; investing; financing; netChange; groupInvesting };
+  balance: { cash; inventory; fixedAssets; financialAssets; groupLoans;
              debt; equity; minorityInterests };                    // actif = passif (invariant)
+}
+interface ConsolidatedStatements extends Statements {             // intégration globale
+  members: Record<Id, { share; revenue; ebitda; netIncome }>;      // part économique, contribution
+  minorityNetIncome: Money;                                        // inclus dans pnl.netIncome
+  eliminations: { loans; stakes; financial; flows };               // flux intra-groupe retirés
 }
 
 interface StockMarketState {
@@ -260,7 +268,8 @@ interface CompanyDecisions {
              issueShares?: number; buyback?: number; ipo?: boolean };
   stockOrders: { targetId: Id; side: 'buy' | 'sell'; shares: number; limitPrice?: Money }[];
   mna: MnaAction[];                                 // OPA, rachat de gré à gré, cession (phase 2+)
-  intraGroup?: IntraGroupTransfer[];                // phase 3
+  intraGroup?: IntraGroupTransfer[];                // dividende remonté, prêt, cash pooling, cession de titres (fin de trimestre)
+  createHolding?: boolean;                          // société de tête seulement : holding créée au-dessus
 }
 ```
 
@@ -268,8 +277,9 @@ Le contrôle d'une société se lit dans `stock.registry` : une société A
 contrôle B si A détient plus de 50 % de B, directement ou par une chaîne de
 contrôle. Le joueur dirige la société de tête de son acteur et tout ce
 qu'elle contrôle. Au MVP, c'est une société seule ; la holding n'est qu'un
-`Company` de secteur `holding` posé au-dessus (phase 3). La bourse et les
-rachats n'ont donc pas besoin d'un modèle de données différent plus tard.
+`Company` de secteur `holding` posé au-dessus (lot 3.1 : l'acteur lui apporte
+ses actions et elle devient sa société de tête). La bourse et les rachats
+n'ont donc pas besoin d'un modèle de données différent.
 
 ## 6. API publique du moteur (`packages/engine/src/index.ts`)
 
@@ -308,7 +318,7 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | 9 | `rnd` | Avance la frontière technologique (tech) ; avancement des projets (budget, ou développeurs en tech), niveau technologique, obsolescence |
 | 10 | `accounting` | Compte de résultat, impôt, intérêts, amortissements, stockage → trésorerie → bilan ; contrôle de solvabilité |
 | 11 | `stockmarket` | Valeur fondamentale (sur les comptes publiés) → cours (avec impact des ordres) → exécution des ordres → registre → indice → juste valeur des actifs financiers. Les achats/ventes d'actions et la réévaluation sont **passés dans les états du trimestre** clos à l'étape 10 (trésorerie, actifs financiers, flux d'investissement, résultat financier) |
-| 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs, OPA amicales), changements de contrôle, réévaluation des participations, sociétés mises en vente ; synergies, coûts de complexité, consolidation (phase 3). Comme l'étape 11, écrit ses mouvements dans les états du trimestre ; les invariants comptables sont vérifiés après l'étape 13 |
+| 12 | `mna` / `conglomerate` | Rachats conclus (pépites, blocs, OPA amicales), changements de contrôle, réévaluation des participations, sociétés mises en vente ; puis prêts intra-groupe d'une société disparue passés en perte, création des holdings, transferts intra-groupe (cessions de titres, dividendes remontés, prêts, cash pooling), réévaluation, comptes consolidés de chaque tête de groupe (lot 3.1) ; synergies et coûts de complexité (lot 3.2). Comme l'étape 11, écrit ses mouvements dans les états du trimestre ; les invariants comptables sont vérifiés après l'étape 13 |
 | 13 | `victory` + `reporting` | KPI, historique, journal, rapport de tour, conditions de fin |
 
 ## 8. Configuration et équilibrage
@@ -347,7 +357,7 @@ Ordre fixe, défini dans `core/pipeline.ts`. Chaque étape est une fonction
 | Niveau | Exemples |
 |---|---|
 | Unitaires par système | Les salaires montent quand la tension dépasse la cible ; le prix spot croît avec la demande agrégée ; les parts logit somment à 1 et baissent quand le prix monte ; l'attrition augmente sous le salaire de marché |
-| Invariants (fast-check) | Conservation de la main-d'œuvre (aucun effectif négatif, embauches ≤ chômeurs) ; jamais de stock négatif ; **actif = passif** à chaque tour ; variation de trésorerie = flux opérationnels + investissement + financement ; actions en circulation = Σ registre ; pas de NaN ni d'Infinity |
+| Invariants (fast-check) | Conservation de la main-d'œuvre (aucun effectif négatif, embauches ≤ chômeurs) ; jamais de stock négatif ; **actif = passif** à chaque tour, pour chaque société et pour les comptes consolidés (avec les intérêts minoritaires) ; variation de trésorerie = flux opérationnels + investissement + financement ; prêts intra-groupe accordés = dettes intra-groupe des emprunteurs ; actifs financiers = Σ valeurs des participations ; actions en circulation = Σ registre ; pas de NaN ni d'Infinity |
 | Anti-triche | Le planner IA ne reçoit qu'une `Observation`, ce qui est vérifié au niveau des types et par un test sur les champs exposés |
 | Déterminisme | Deux exécutions avec la même seed et les mêmes décisions produisent le même hash d'état |
 | Golden | Snapshot d'une partie seedée de 8 tours ; toute dérive d'équilibrage est visible dans la revue |
@@ -363,7 +373,7 @@ Finance & bourse), **Marchés** (travail par région et métier, matières
 premières, produits), **Concurrents** (vue partielle), **Bourse** (cotes,
 indice, portefeuille, ordres), **Rachats & OPA** (pépites et concurrents,
 valorisation, audits, rachat de bloc, OPA amicale, financement), **Groupe**
-(phase 2 : filiales et qui les dirige ; phase 3 : consolidé), **Rapport de tour** (récit de ce qui s'est passé, événements,
+(phase 2 : filiales et qui les dirige ; lot 3.1 : holding, flux intra-groupe, comptes consolidés et reporting par filiale), **Rapport de tour** (récit de ce qui s'est passé, événements,
 écarts entre prévu et réalisé), **Sauvegardes**.
 
 Pour suivre beaucoup d'indicateurs sans noyer le joueur :

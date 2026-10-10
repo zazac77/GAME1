@@ -41,13 +41,29 @@ export type MnaAction =
    */
   | ({ kind: 'private_purchase'; targetId: Id; pricePerShare?: Money } & DealFinancing);
 
-/** Phase 3. */
-export interface IntraGroupTransfer {
-  kind: 'dividend' | 'loan' | 'cash_pool';
-  fromId: Id;
-  toId: Id;
-  amount: Money;
-}
+/**
+ * Flows between companies of a group, settled at the end of the quarter
+ * (step 12) on the cash then available, in the order given. Decided by
+ * either company or by the group head.
+ */
+export type IntraGroupTransfer =
+  /**
+   * Dividend of `fromId` (a subsidiary) declared by its parent `toId`:
+   * `amount` is the total paid, pro rata to every shareholder (minorities included).
+   */
+  | { kind: 'dividend'; fromId: Id; toId: Id; amount: Money }
+  /** Cash lent by fromId to toId: repays first what fromId owes toId, then lends the rest. */
+  | { kind: 'loan'; fromId: Id; toId: Id; amount: Money }
+  /**
+   * Cash pool: the member fromId keeps `amount` of cash; the excess is lent
+   * to the pool leader toId, a shortfall lent by the leader (within its cash).
+   */
+  | { kind: 'cash_pool'; fromId: Id; toId: Id; amount: Money }
+  /**
+   * Restructuring: fromId sells `shares` (default: all it holds) of targetId
+   * to toId at their value, paid by an intra-group loan (toId owes fromId).
+   */
+  | { kind: 'stake'; fromId: Id; toId: Id; targetId: Id; shares?: number };
 
 export interface HrDecision {
   regionId: Id;
@@ -95,7 +111,14 @@ export interface CompanyDecisions {
   };
   stockOrders: { targetId: Id; side: 'buy' | 'sell'; shares: number; limitPrice?: Money }[];
   mna: MnaAction[];
+  /** Flows with the other companies of the group (end of the quarter). */
   intraGroup?: IntraGroupTransfer[];
+  /**
+   * The actor's root company only: a holding company is created on top of
+   * it at the end of the quarter (the actor's shares exchanged for 100 % of
+   * the holding, which becomes the root company).
+   */
+  createHolding?: boolean;
 }
 
 export type ValidationIssueCode =

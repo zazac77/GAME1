@@ -736,6 +736,11 @@ export const defaultConfig: GameConfig = {
     dealHistory: 20,
   },
 
+  conglomerate: {
+    // Intra-group loans and cash pool positions pay the policy rate + 1.5 %.
+    groupLoanSpread: 0.015,
+  },
+
   ai: {
     profiles: {
       // The fragile volume player: thin markup, priced under the market. It is the
@@ -975,6 +980,15 @@ export const defaultConfig: GameConfig = {
       maxLeverage: 2.5,
       debtShare: 0.5,
       stockShare: 0.5,
+    },
+    // A head tops up a subsidiary short of cash (under a quarter of its quarterly cash costs, or
+    // on the overdraft) to three quarters of them, keeping one quarter of its own; group debt is
+    // repaid with the cash above one quarter and a half.
+    group: {
+      rescueCashQuarters: 0.25,
+      targetCashQuarters: 0.75,
+      keepCashQuarters: 1,
+      repayAboveQuarters: 1.5,
     },
   },
 

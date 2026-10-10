@@ -7,6 +7,7 @@ import type { CompanyDecisions } from '../model/decisions';
 import { capex } from './modules/capex';
 import { marketingAndFinance } from './modules/finance';
 import { forecast } from './modules/forecast';
+import { groupFinance } from './modules/group';
 import { hiring } from './modules/hiring';
 import { listing } from './modules/listing';
 import { dividends, takeovers } from './modules/mna';
@@ -22,7 +23,7 @@ export type { PlanSignal } from './modules/plan';
 
 /**
  * Plans the decisions of one company from its Observation only (never the
- * GameState) and the actor's memory: rival watch (grudges, rivals in
+ * GameState) and the actor's memory: intra-group financing → rival watch (grudges, rivals in
  * difficulty, counter-launches) → forecast → production → HR (wage
  * outbidding) → listing → price (price war) → purchasing → capex →
  * marketing, R&D and finance → dividends → takeovers (tech: rival watch →
@@ -38,6 +39,7 @@ export function planDecisions(
 ): { decisions: CompanyDecisions; memory: AiMemory; signals: PlanSignal[] } {
   const decisions = emptyDecisions(obs.companyId);
   const nextMemory = structuredClone(memory);
+  groupFinance(obs, decisions);
   const company = obs.self.company;
   const marketId = productMarketIdOf(obs.config, company.sector) ?? '';
   const line = Object.keys(company.productLines)

@@ -9,11 +9,12 @@ import { createTurnContext } from '../core/context';
 import { laborPoolKey } from '../core/keys';
 import { clamp, sum } from '../core/math';
 import type { Company, ProductLine } from '../model/company';
-import type { CompanyDecisions } from '../model/decisions';
+import type { CompanyDecisions, IntraGroupTransfer } from '../model/decisions';
+import { maxDividend } from '../systems/finance/equity';
 import type { GameState } from '../model/state';
 import type { CompanyPreview, DecisionPreview } from '../model/views';
 import { sectorModule } from '../sectors';
-import { plantConfig, sectorProductLine, techConfigOf } from '../sectors/config';
+import { plantConfigOf, sectorProductLine, techConfigOf } from '../sectors/config';
 import { estimateSubscriptions } from '../sectors/tech/market';
 import {
   assignedDevelopers,
@@ -24,7 +25,7 @@ import {
   techTeam,
 } from '../sectors/tech/team';
 import { mainProductLine, siteCeilings } from '../sectors/plant';
-import { interestCharge, storageCost } from '../systems/accounting';
+import { interestCharge, netGroupInterest, storageCost } from '../systems/accounting';
 import { capexSystem } from '../systems/capex';
 import { financePreSystem } from '../systems/finance';
 import { blockSeller, heldByGroup, listingPrice, mnaPreSystem, openListing } from '../systems/mna';
@@ -177,7 +178,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
   const rnd = sum(d.rnd.map((r) => r.budget)) + sales.rndWages;
   const wages = staffWages - sales.rndWages;
   const storage = storageCost(draft, company);
-  const interest = interestCharge(draft, company);
+  const interest = interestCharge(draft, company) + netGroupInterest(draft, company);
   let installments = 0;
   for (const loan of company.loans) {
     if (loan.kind !== 'term') continue;
@@ -237,6 +238,7 @@ function previewCompany(state: GameState, companyId: string, d: CompanyDecisions
     },
     capex: ledger.capex,
     disposals: ledger.disposals,
+    groupTransfers: 0,
     borrowing: ledger.borrowed,
     repayment: ledger.repaid,
     installments,
@@ -337,9 +339,26 @@ function nonStorableCost(
   return contracted.cost + Math.max(0, need - contracted.qty) * spot;
 }
 
+/** Nothing produced nor sold (a holding company). */
+const noSales = (): SalesEstimate => ({
+  outputCeiling: 0,
+  plannedOutput: 0,
+  materialNeeds: {},
+  materials: 0,
+  expectedDemand: 0,
+  expectedUnitsSold: 0,
+  expectedRevenue: 0,
+  cogs: 0,
+  maintenance: 0,
+  logistics: 0,
+  rndWages: 0,
+});
+
 /** Plants: production within the crew, the lines and the materials at hand, then sales from stock. */
 function plantSales({ state, draft, company, d }: SalesInput): SalesEstimate {
   const { config } = draft;
+  const cfg = plantConfigOf(config, company.sector);
+  if (!cfg) return noSales();
   const { priceLevel } = draft.macro;
   const line = mainProductLine(draft, company);
   const outputCeiling = Math.floor(sum(siteCeilings(draft, company).map((c) => c.ceiling)));
@@ -394,7 +413,6 @@ function plantSales({ state, draft, company, d }: SalesInput): SalesEstimate {
     : 0;
   const lot = line ? company.inventory[line.id] : undefined;
   const expectedUnitsSold = Math.min(expectedDemand, (lot?.qty ?? 0) + plannedOutput);
-  const cfg = plantConfig(config, company.sector);
   const producing = operationalSites(company).flatMap(producingLines).length;
   return {
     outputCeiling,
@@ -424,20 +442,7 @@ function techSales({ state, draft, company, d }: SalesInput): SalesEstimate {
   const { config } = draft;
   const tech = techConfigOf(config, company.sector);
   const line = sectorProductLine(config, company);
-  const empty: SalesEstimate = {
-    outputCeiling: 0,
-    plannedOutput: 0,
-    materialNeeds: {},
-    materials: 0,
-    expectedDemand: 0,
-    expectedUnitsSold: 0,
-    expectedRevenue: 0,
-    cogs: 0,
-    maintenance: 0,
-    logistics: 0,
-    rndWages: 0,
-  };
-  if (!tech || !line) return empty;
+  if (!tech || !line) return noSales();
   const team = techTeam(config, tech, company, assignedDevelopers(d));
   const price = d.pricing[line.id]?.price ?? line.price;
   const estimate = estimateSubscriptions(
@@ -476,6 +481,7 @@ export function previewDecisions(
   const { kept, issues } = filterControlled(state, actorId, decisions);
   const companies: DecisionPreview['companies'] = {};
   const own = controlledCompanyIds(state, actorId);
+  const transfers: IntraGroupTransfer[] = [];
   for (const d of kept) {
     const company = state.companies[d.companyId];
     if (!company || !own.has(company.id)) continue;
@@ -483,7 +489,59 @@ export function previewDecisions(
     issues.push(...normalized.issues);
     if (isOperating(company)) {
       companies[company.id] = previewCompany(state, company.id, normalized.decisions);
+      transfers.push(...(normalized.decisions.intraGroup ?? []));
     }
   }
+  previewTransfers(state, companies, transfers);
   return { issues, companies };
+}
+
+/**
+ * Cash moved by the intra-group transfers at the end of the quarter, settled
+ * in order on the estimated cash (the current cash of a company without a
+ * preview), as the settlement bounds them (dividends: pro rata to the
+ * group's shareholders; restructurings move no cash).
+ */
+function previewTransfers(
+  state: GameState,
+  companies: DecisionPreview['companies'],
+  transfers: readonly IntraGroupTransfer[],
+): void {
+  const cash: Record<string, number> = {};
+  const cashOf = (id: string): number =>
+    (cash[id] ??= Math.max(
+      0,
+      companies[id]?.expectedCashEnd ?? state.companies[id]?.books.current.balance.cash ?? 0,
+    ));
+  const move = (from: string, to: string, amount: number): void => {
+    const x = Math.max(0, Math.min(amount, cashOf(from)));
+    cash[from] = cashOf(from) - x;
+    cash[to] = cashOf(to) + x;
+  };
+  for (const t of transfers) {
+    if (t.kind === 'loan') move(t.fromId, t.toId, t.amount);
+    else if (t.kind === 'cash_pool') {
+      const excess = cashOf(t.fromId) - t.amount;
+      if (excess > 0) move(t.fromId, t.toId, excess);
+      else move(t.toId, t.fromId, -excess);
+    } else if (t.kind === 'dividend') {
+      const payer = state.companies[t.fromId];
+      if (!payer) continue;
+      const paid = Math.min(t.amount, cashOf(t.fromId), maxDividend(payer));
+      cash[t.fromId] = cashOf(t.fromId) - paid;
+      const register = state.stock.registry[t.fromId] ?? {};
+      for (const [holderId, shares] of Object.entries(register)) {
+        if (state.companies[holderId] && companies[holderId]) {
+          cash[holderId] =
+            cashOf(holderId) + (paid * shares) / Math.max(1, payer.sharesOutstanding);
+        }
+      }
+    }
+  }
+  for (const [id, preview] of Object.entries(companies)) {
+    if (cash[id] === undefined) continue;
+    const change = cash[id] - Math.max(0, preview.expectedCashEnd);
+    preview.groupTransfers = change;
+    preview.expectedCashEnd += change;
+  }
 }

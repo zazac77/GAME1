@@ -1,12 +1,13 @@
 import { isOperating } from '../core/companies';
 import { controlledBy } from '../core/control';
+import { effectiveShares, groupDebt, groupLoansGranted } from '../core/group';
 import { sum } from '../core/math';
 import { valueEquity } from '../core/valuation';
 import type { Company } from '../model/company';
 import type { HolderId, Id } from '../model/ids';
 import type { AnnualFigures } from '../model/mna';
 import type { GameState } from '../model/state';
-import type { CapitalQuotes, DealQuote, GroupCompanyView } from '../model/views';
+import type { CapitalQuotes, DealQuote, GroupCompanyView, GroupLoanView } from '../model/views';
 import {
   buybackPrice,
   ipoTerms,
@@ -117,7 +118,7 @@ export function dealQuotes(state: GameState, buyer: Company): DealQuote[] {
         figures,
         0,
         netDebt,
-        b.financialAssets,
+        b.financialAssets + b.groupLoans,
       ),
       referencePrice: target.listed
         ? (state.stock.quotes[id]?.referencePrice ?? 0)
@@ -144,6 +145,7 @@ export function groupView(state: GameState, actorId: Id): GroupCompanyView[] {
     a === root ? -1 : b === root ? 1 : a.localeCompare(b),
   );
   const members = new Set<HolderId>([actorId, ...ids]);
+  const shares = root ? effectiveShares(state, root, ids) : {};
   return ids.flatMap((id) => {
     const c = state.companies[id];
     if (!c) return [];
@@ -154,6 +156,7 @@ export function groupView(state: GameState, actorId: Id): GroupCompanyView[] {
     const held = sum(holders.map((h) => register[h] ?? 0));
     const cost = sum(ids.map((h) => state.companies[h]?.participations[id]?.cost ?? 0));
     const { pnl, balance } = c.books.current;
+    const groupShare = shares[id] ?? 0;
     const view: GroupCompanyView = {
       companyId: id,
       name: c.name,
@@ -165,13 +168,46 @@ export function groupView(state: GameState, actorId: Id): GroupCompanyView[] {
       stake: held / Math.max(1, c.sharesOutstanding),
       value: held * shareValue(state, c),
       revenue: pnl.revenue,
+      ebitda: pnl.ebitda,
       netIncome: pnl.netIncome,
       cash: balance.cash,
       equity: balance.equity,
+      debt: balance.debt,
+      groupShare,
+      contribution: groupShare * (pnl.netIncome - pnl.groupFinancial),
+      groupLoans: groupLoansGranted(state, id),
+      groupDebt: groupDebt(c),
+      stakes: ids
+        .filter((t) => t !== id && (state.stock.registry[t]?.[id] ?? 0) > 0)
+        .map((t) => ({
+          targetId: t,
+          shares: state.stock.registry[t]?.[id] ?? 0,
+          value: c.stakeValues[t] ?? 0,
+        })),
     };
     if (id !== root) view.cost = cost;
     const integration = state.mna.integrations.find((i) => i.companyId === id);
     if (integration && isOperating(c)) view.integrationUntil = integration.until;
     return [view];
   });
+}
+
+/** Intra-group loans owed by the companies of the actor's group, or granted by them. */
+export function groupLoansView(state: GameState, actorId: Id): GroupLoanView[] {
+  const ids = new Set(controlledBy(state, actorId));
+  const out: GroupLoanView[] = [];
+  for (const id of Object.keys(state.companies).sort()) {
+    for (const loan of state.companies[id]?.loans ?? []) {
+      if (loan.kind !== 'group') continue;
+      const lenderId = loan.lenderId ?? '';
+      if (!ids.has(id) && !ids.has(lenderId)) continue;
+      out.push({
+        lenderId,
+        borrowerId: id,
+        principal: loan.principal,
+        rate: Math.max(0, state.macro.policyRate + loan.spread),
+      });
+    }
+  }
+  return out;
 }

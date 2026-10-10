@@ -1019,3 +1019,120 @@ Limites connues, pour la phase 3 :
   joueur attentif, mène rarement en agro et en tech ;
 - l'IA ne lance toujours pas d'OPA (elle préfère le bloc) et les pépites
   rachetées restent souvent déficitaires.
+
+## 22. Choix d'implémentation (lot 3.1 : holding et consolidation)
+
+- **Holding de tête** (`systems/conglomerate/holding.ts`) : la société de tête
+  d'un acteur qui la contrôle demande `createHolding` ; en fin de trimestre
+  (étape 12), une société de secteur `holding` est créée, non cotée, sans
+  dette ni trésorerie. L'acteur lui apporte toutes ses actions de l'ancienne
+  tête contre autant d'actions de la holding (100 %) ; la holding les inscrit à
+  leur valeur (actifs financiers = fonds propres) et devient
+  `Actor.rootCompanyId`. Le trimestre de sa création compte comme clos (son bilan
+  d'ouverture). Les comptes consolidés suivent la nouvelle tête ; un fondateur
+  IA garde la direction de l'ancienne tête (`managementProfileId`). La holding
+  n'a pas d'activité : pas de valorisation par les multiples, sa valeur
+  fondamentale est la **somme des parties** (ses participations à leur valeur
+  courante, + trésorerie + prêts accordés − dettes). Le score du joueur est sa
+  part × la valeur d'une action de sa tête (le cours si elle est cotée). Le
+  joueur perd si sa tête fait faillite, ou si sous une holding il ne contrôle
+  plus aucune société opérationnelle. Frais de holding : lot 3.2.
+- **Transferts intra-groupe** (`intraGroup`, `systems/conglomerate/transfers.ts`) :
+  décidés par l'une des deux sociétés ou par la tête du groupe, entre sociétés
+  opérationnelles du même groupe ; exécutés en fin de trimestre, société par
+  société (par id) puis dans l'ordre donné, sur la trésorerie de clôture
+  (validation : structure seulement ; les montants sont bornés à l'exécution) :
+  - **prêt** : de A vers B, rembourse d'abord ce que A doit à B, puis prête le
+    reste (un prêt par couple prêteur-emprunteur, `Loan.kind = 'group'`, sans
+    échéances). Intérêts au taux directeur + `conglomerate.groupLoanSpread`,
+    payés par l'emprunteur et reçus par le prêteur (charge d'intérêts nette,
+    imposable). La banque ignore la dette intra-groupe (notation, covenant,
+    capacité d'emprunt) ; elle reste une dette au bilan et dans la valeur
+    fondamentale. Hors du groupe (changement de contrôle), on ne peut plus que
+    rembourser ;
+  - **dividende remonté** : la filiale verse un dividende total décidé par sa
+    mère, au prorata du registre (les minoritaires touchent leur part), dans
+    sa trésorerie et ses fonds propres ; interdit en difficulté ou en bris de
+    covenant ; le cours d'une filiale cotée baisse du dividende par action ;
+  - **cash pooling** : le membre garde le montant indiqué ; l'excédent est
+    prêté au chef de pool, un manque est comblé par le chef de pool (dans sa
+    trésorerie). C'est un ordre permanent (`defaultDecisions` le reconduit) ;
+  - **cession de titres** (restructuration) : A cède à B des actions d'une
+    société du groupe à leur valeur, payées par un prêt intra-groupe (B doit à
+    A) ; jamais à une société que la cible contrôle (la chaîne de contrôle
+    bouclerait). Le résultat de cession du vendeur est intra-groupe.
+  Un prêt dont une partie ne fonctionne plus (faillite) est annulé : le prêteur
+  le passe en perte, l'emprunteur survivant en est libéré.
+- **Suivi comptable** : `balance.groupLoans` (prêts accordés, à l'actif),
+  `pnl.groupFinancial` (part du résultat financier venant du groupe :
+  dividendes, dépréciations et résultats sur titres, pertes sur prêts),
+  `cashFlow.groupInvesting` (part des flux d'investissement échangés avec le
+  groupe : dividendes reçus, prêts accordés ou remboursés ; la contrepartie est
+  dans le financement de l'autre société). Chaque participation a sa valeur
+  comptable (`Company.stakeValues`, Σ = actifs financiers) : une réévaluation
+  sait ainsi quelle part du résultat porte sur le groupe (une participation qui
+  est, ou était, dans `participations`).
+- **Comptes consolidés** (`systems/conglomerate/consolidation.ts`) : pour
+  chaque acteur qui contrôle sa tête, si le groupe compte au moins deux
+  sociétés opérationnelles, intégration globale de toutes celles que la tête
+  contrôle, pour tout le trimestre (une société rachetée en cours de trimestre
+  est consolidée sur le trimestre entier) : somme des comptes, moins les prêts
+  entre membres (prêts accordés et dettes), les participations entre membres
+  (actifs financiers et fonds propres : l'écart d'acquisition est imputé sur
+  les fonds propres, pas d'amortissement de goodwill), le résultat financier
+  intra-groupe (résultat financier et net) et les flux intra-groupe (déplacés
+  de l'investissement vers le financement). Les intérêts intra-groupe
+  s'annulent dans la somme. Partage avec les minoritaires par la **part
+  économique** de chaque membre : e(tête) = 1, e(s) = Σ part du capital de s
+  détenue par un membre m × e(m) (chaînes et participations croisées,
+  résolu par itération) ; fonds propres part du groupe = Σ e × (fonds propres −
+  participations dans des membres), intérêts minoritaires = le reste ; même
+  partage pour le résultat net. Actif = dettes + fonds propres + minoritaires
+  par construction (testé par fast-check). Historique dans
+  `Books.consolidated` de la tête (borné comme l'historique).
+- **IA** (`ai/modules/group.ts`, avant les autres modules, sur l'`Observation`
+  qui montre désormais les finances des sociétés de son propre groupe) : une
+  tête de groupe prête à chaque filiale à découvert ou sous
+  `ai.group.rescueCashQuarters` trimestre de charges décaissées de quoi revenir
+  à `targetCashQuarters`, sur sa trésorerie au-delà de `keepCashQuarters` ;
+  toute société rembourse sa dette intra-groupe avec la trésorerie au-delà de
+  `repayAboveQuarters`. L'IA ne crée pas de holding, ne fait ni cash pooling ni
+  restructuration.
+- **Vues** : `PlayerView.groupCompanies` (part économique, contribution au
+  résultat part du groupe, prêts accordés et dette intra-groupe, participations
+  dans le groupe), `groupLoans`, `consolidated`, `canCreateHolding` ; l'aperçu
+  estime les flux intra-groupe de fin de trimestre (`groupTransfers`) ; le
+  rapport de tour résume, sous une holding, la société opérationnelle du groupe
+  au plus gros chiffre d'affaires. Journal : `holding_created` (public),
+  `group_loan`, `stake_transferred`, `group_loan_written_off` (privés) ; un
+  dividende remonté est un `dividend_paid`.
+- **Interface** : l'écran Groupe montre les comptes consolidés (résultat,
+  bilan avec intérêts minoritaires, éliminations), le reporting par filiale,
+  les prêts en cours, la création de la holding et l'édition des flux du
+  trimestre (rangés dans le brouillon de la tête) ; les décisions d'une holding
+  se limitent à l'onglet Finance. L'ancienne tête reste gérée par le joueur
+  (au chargement d'une partie, la société opérationnelle principale du groupe
+  est affichée et reprise en main).
+- **Sauvegardes** : `schemaVersion` 9. La migration v8 → v9 ajoute les champs
+  intra-groupe des états (à 0), la valeur comptable de chaque participation
+  (au coût pour le groupe, le reste réparti au prorata de la valeur de marché),
+  la section `conglomerate` et `ai.group`. Le golden ne change que par son hash
+  (nouveaux champs) : la partie par défaut est identique.
+
+Équilibrage mesuré avec `npm run sim -- --games 50 --turns 40` (seeds 1 à 50) :
+
+| Indicateur (50 parties) | Lot 2.5 | Lot 3.1 |
+|---|---|---|
+| Faillite des IA (toutes) | 3,8 % | 3,3 % |
+| Faillite du low-cost industriel | 28 % | 24 % |
+| Faillite des sociétés rachetées | 2 sur 24 | 0 sur 24 |
+| Marge nette médiane | 6,0 % | 6,0 % |
+| Volatilité des matières / des cours | 12,3 / 13,2 % | 12,3 / 13,1 % |
+| Prêts intra-groupe accordés (par partie) | – | 0,76 (0,08 remboursements) |
+
+Les têtes de groupe recapitalisent désormais leurs filiales en difficulté
+(limite du lot 2.4) : les sociétés rachetées ne font plus faillite et le
+low-cost industriel, souvent racheté quand il fragilise, survit plus souvent.
+Le taux global de faillite des IA s'éloigne encore de la cible de 5 % : à
+reprendre avec l'équilibrage du lot 3.5 (par exemple `ai.group.keepCashQuarters`
+plus haut, ou un plafond de soutien par filiale).

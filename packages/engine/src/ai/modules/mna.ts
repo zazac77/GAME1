@@ -67,7 +67,12 @@ function candidates(plan: Plan): Candidate[] {
     const figures = dd?.figures ?? annualOf(c);
     if (!figures) continue;
     const b = published.balance;
-    const whole = value(c.sector, figures, dd?.netDebt ?? b.debt - b.cash, b.financialAssets);
+    const whole = value(
+      c.sector,
+      figures,
+      dd?.netDebt ?? b.debt - b.cash,
+      b.financialAssets + b.groupLoans,
+    );
     const pricePerShare = quote.referencePrice * (1 + c.askedPremium + extra);
     const shares = c.blockShares ?? Math.max(0, c.shares - (obs.stock.holdings[c.companyId] ?? 0));
     if (shares <= 0) continue;

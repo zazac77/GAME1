@@ -128,7 +128,7 @@ exports[`golden game > seed 20240 over 8 quarters 1`] = `
       "ev_rate_hike",
     ],
   ],
-  "hash": "608c995d82b20c34",
+  "hash": "d7472453a01929bf",
   "index": 1191.76,
   "macro": {
     "inflation": 0.015,

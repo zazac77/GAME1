@@ -61,7 +61,7 @@ describe('validation', () => {
     expect(issues.every((i) => i.code === 'clamped' || i.code === 'budget')).toBe(true);
   });
 
-  it('drops unknown ids, garbage numbers and features of later lots', () => {
+  it('drops unknown ids and garbage numbers', () => {
     const { state, company } = setup();
     const d: CompanyDecisions = {
       ...emptyDecisions(company.id),
@@ -96,7 +96,7 @@ describe('validation', () => {
       'purchasing.spot[2]:invalid_value', // energy is bought at consumption
       'purchasing.newContracts[0].qtyPerQuarter:invalid_value',
       'rnd[0].budget:invalid_value',
-      'intraGroup:not_available',
+      'intraGroup[0]:unknown_id',
       'finance.borrow:invalid_value',
       'finance.dividend:invalid_value',
       'capex[0]:unknown_id',

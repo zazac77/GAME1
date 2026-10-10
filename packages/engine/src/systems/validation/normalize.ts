@@ -7,9 +7,13 @@ import type {
   CapexOrder,
   CompanyDecisions,
   HrDecision,
+  IntraGroupTransfer,
   ValidationIssue,
   ValidationIssueCode,
 } from '../../model/decisions';
+import { controlledBy, controllingActor, sameGroup } from '../../core/control';
+import { groupHeadOf, owedTo } from '../../core/group';
+import { canCreateHolding } from '../conglomerate/holding';
 import type { Id } from '../../model/ids';
 import type { GameState } from '../../model/state';
 import { farmlandLeft, isFarm } from '../../sectors/agri/farm';
@@ -285,8 +289,8 @@ export function normalizeDecisions(
     out.rnd.push(entry);
   });
 
-  // ---- features of later lots --------------------------------------------
-  if ((input.intraGroup ?? []).length > 0) flag('intraGroup', 'not_available');
+  // ---- group: holding company, intra-group transfers (end of quarter) -----
+  normalizeGroup(state, company, input, out, flag, bound);
   const fin = input.finance ?? {};
 
   // ---- debt ---------------------------------------------------------------
@@ -519,6 +523,90 @@ export function normalizeDecisions(
 
 type Flag = (path: string, code: ValidationIssueCode, submitted?: number, applied?: number) => void;
 type Bound = (path: string, x: number, min: number, max: number) => number;
+
+/**
+ * Holding company (root companies only, not already a holding) and
+ * intra-group transfers. A transfer is decided by one of its two companies
+ * or by the head of their group; both must operate and belong to the same
+ * group (outside it, a loan can only repay what is owed). Amounts are
+ * bounded at settlement by the cash then available. A dividend goes to a
+ * shareholder of the payer; a stake goes to a company the target does not
+ * control, within the shares held.
+ */
+function normalizeGroup(
+  state: GameState,
+  company: Company,
+  input: CompanyDecisions,
+  out: CompanyDecisions,
+  flag: Flag,
+  bound: Bound,
+): void {
+  if (input.createHolding !== undefined && input.createHolding !== false) {
+    const actor = Object.values(state.actors).find((a) => a.rootCompanyId === company.id);
+    if (input.createHolding !== true) flag('createHolding', 'invalid_value');
+    else if (!actor || !canCreateHolding(state, actor)) flag('createHolding', 'invalid_state');
+    else out.createHolding = true;
+  }
+  const kept: IntraGroupTransfer[] = [];
+  const pools = new Set<Id>();
+  (Array.isArray(input.intraGroup) ? input.intraGroup : []).forEach((t, i) => {
+    const path = `intraGroup[${i}]`;
+    const kinds = ['dividend', 'loan', 'cash_pool', 'stake'];
+    if (!kinds.includes(t?.kind)) return flag(`${path}.kind`, 'invalid_value');
+    const from = state.companies[t.fromId];
+    const to = state.companies[t.toId];
+    if (!from || !to) return flag(path, 'unknown_id');
+    if (from.id === to.id) return flag(path, 'invalid_value');
+    if (!isOperating(from) || !isOperating(to)) return flag(path, 'invalid_state');
+    const actorId = controllingActor(state, from.id);
+    const head = actorId ? groupHeadOf(state, actorId) : undefined;
+    if (company.id !== from.id && company.id !== to.id && company.id !== head) {
+      return flag(path, 'not_controlled');
+    }
+    const inGroup = sameGroup(state, from.id, to.id);
+    if (t.kind === 'stake') {
+      const target = state.companies[t.targetId];
+      if (!target) return flag(`${path}.targetId`, 'unknown_id');
+      const held = state.stock.registry[target.id]?.[from.id] ?? 0;
+      if (!inGroup || !sameGroup(state, from.id, target.id) || held <= 0) {
+        return flag(path, 'invalid_state');
+      }
+      if (to.id === target.id || controlledBy(state, target.id).includes(to.id)) {
+        return flag(path, 'invalid_state');
+      }
+      const transfer: IntraGroupTransfer = {
+        kind: 'stake',
+        fromId: from.id,
+        toId: to.id,
+        targetId: target.id,
+      };
+      if (t.shares !== undefined) {
+        if (!isNum(t.shares) || t.shares <= 0) {
+          return flag(`${path}.shares`, 'invalid_value', t.shares);
+        }
+        transfer.shares = bound(`${path}.shares`, Math.floor(t.shares), 1, held);
+      }
+      kept.push(transfer);
+      return;
+    }
+    if (!isNum(t.amount) || t.amount < 0) return flag(`${path}.amount`, 'invalid_value', t.amount);
+    let amount = t.amount;
+    if (!inGroup) {
+      const owed = owedTo(from, to.id);
+      if (t.kind !== 'loan' || owed <= 0) return flag(path, 'invalid_state');
+      amount = bound(`${path}.amount`, amount, 0, owed);
+    }
+    if (t.kind === 'dividend' && (state.stock.registry[from.id]?.[to.id] ?? 0) <= 0) {
+      return flag(path, 'invalid_state');
+    }
+    if (t.kind === 'cash_pool') {
+      if (pools.has(from.id)) return flag(path, 'duplicate');
+      pools.add(from.id);
+    } else if (amount <= 0) return;
+    kept.push({ kind: t.kind, fromId: from.id, toId: to.id, amount });
+  });
+  if (kept.length > 0) out.intraGroup = kept;
+}
 
 /**
  * Takeovers: due diligences (one per target while its results are valid,

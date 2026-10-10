@@ -71,7 +71,7 @@ export function resolveAll(
 export function steadyDecisions(state: GameState, companyId: string): CompanyDecisions {
   const d = emptyDecisions(companyId);
   const company = state.companies[companyId];
-  if (!company || !isOperating(company)) return d;
+  if (!company || !isOperating(company) || company.sector === 'holding') return d;
   const { config } = state;
   const tech = techConfigOf(config, company.sector);
   const staffTargets = tech

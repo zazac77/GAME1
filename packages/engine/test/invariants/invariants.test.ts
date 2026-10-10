@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import type { CompanyDecisions, GameState } from '../../src';
+import type { CompanyDecisions, GameState, IntraGroupTransfer } from '../../src';
 import { defaultConfig } from '../../src/config/default';
 import {
   controlledCompanyIds,
@@ -8,6 +8,7 @@ import {
   isOperating,
   trainees,
 } from '../../src/core/companies';
+import { groupLoansGranted } from '../../src/core/group';
 import { laborPoolKey } from '../../src/core/keys';
 import { sum } from '../../src/core/math';
 import { sectorModule } from '../../src/sectors';
@@ -228,7 +229,7 @@ function checkInvariants(before: GameState, after: GameState): void {
 
   for (const c of Object.values(after.companies)) {
     const { balance: b, cashFlow, quarter } = c.books.current;
-    const assets = b.cash + b.inventory + b.fixedAssets + b.financialAssets;
+    const assets = b.cash + b.inventory + b.fixedAssets + b.financialAssets + b.groupLoans;
     const liabilities = b.debt + b.equity + b.minorityInterests;
     // actif = passif
     expect(Math.abs(assets - liabilities)).toBeLessThanOrEqual(
@@ -240,6 +241,9 @@ function checkInvariants(before: GameState, after: GameState): void {
       const opening = before.companies[c.id]?.books.current.balance.cash ?? 0;
       expect(b.cash - opening).toBeCloseTo(cashFlow.netChange, 3);
       expect(b.debt).toBeCloseTo(sum(c.loans.map((l) => l.principal)), 3);
+      // Intra-group loans granted = what the borrowers owe the company.
+      expect(b.groupLoans).toBeCloseTo(groupLoansGranted(after, c.id), 3);
+      expect(b.financialAssets).toBeCloseTo(sum(Object.values(c.stakeValues)), 3);
     }
     for (const loan of c.loans) expect(loan.principal).toBeGreaterThan(0);
     // stocks ≥ 0
@@ -303,7 +307,7 @@ function checkInvariants(before: GameState, after: GameState): void {
           expect(region).toBeLessThanOrEqual(seats[staff.regionId] ?? 0);
         }
       }
-    } else {
+    } else if (c.sector !== 'holding') {
       const plant = plantConfig(after.config, c.sector);
       const maxLevel = plant.rnd.maxLevel;
       expect(c.processLevel).toBeLessThanOrEqual(maxLevel);
@@ -359,6 +363,39 @@ function checkInvariants(before: GameState, after: GameState): void {
         expect(l.bookValue).toBeGreaterThanOrEqual(0);
         if (live && l.status !== 'operational') expect(l.completesAt).toBeGreaterThan(turn);
       }
+    }
+  }
+
+  // Intra-group loans: between companies, lent by an operating company to an operating one.
+  for (const c of Object.values(after.companies)) {
+    for (const loan of c.loans) {
+      if (loan.kind !== 'group') continue;
+      const lender = after.companies[loan.lenderId ?? ''];
+      expect(lender).toBeDefined();
+      expect(lender?.id).not.toBe(c.id);
+      expect(isOperating(c) && lender !== undefined && isOperating(lender)).toBe(true);
+    }
+    // Consolidated accounts: assets = debt + equity + minorities; group share of the result.
+    const cons = c.books.consolidated?.at(-1);
+    if (!cons) continue;
+    expect(cons.quarter).toBe(turn);
+    const b = cons.balance;
+    const assets = b.cash + b.inventory + b.fixedAssets + b.financialAssets + b.groupLoans;
+    expect(Math.abs(assets - b.debt - b.equity - b.minorityInterests)).toBeLessThanOrEqual(
+      1e-6 * Math.max(1, Math.abs(assets)),
+    );
+    expect(b.groupLoans).toBeGreaterThanOrEqual(-1e-6);
+    const groupIncome = sum(Object.values(cons.members).map((m) => m.share * m.netIncome));
+    expect(cons.pnl.netIncome - cons.minorityNetIncome).toBeCloseTo(groupIncome, 3);
+    expect(cons.cashFlow.operating + cons.cashFlow.investing + cons.cashFlow.financing).toBeCloseTo(
+      cons.cashFlow.netChange,
+      3,
+    );
+    const members = Object.keys(cons.members);
+    expect(members[0]).toBe(c.id);
+    for (const m of Object.values(cons.members)) {
+      expect(m.share).toBeGreaterThan(0);
+      expect(m.share).toBeLessThanOrEqual(1 + 1e-9);
     }
   }
 
@@ -501,6 +538,81 @@ describe('invariants (property-based)', () => {
     expect(state.log.some((e) => e.kind === 'takeover')).toBe(true);
     expect(state.log.some((e) => e.kind === 'ipo')).toBe(true);
   });
+
+  it('hold through any intra-group transfers (holding, loans, dividends, pools, stakes)', () => {
+    const transferArb = fc.record({
+      kind: fc.constantFrom('dividend', 'loan', 'cash_pool', 'stake'),
+      from: fc.nat(),
+      to: fc.nat(),
+      target: fc.nat(),
+      amount: fc.double({ min: 0, max: 8e6, noNaN: true }),
+      part: fc.double({ min: 0, max: 1, noNaN: true }),
+    });
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 0xffffffff }),
+        fc.array(fc.array(transferArb, { maxLength: 6 }), { minLength: 7, maxLength: 7 }),
+        (seed, turns) => {
+          let state = newGame(
+            seed,
+            { mna: { listings: { arrivalProbability: 1 } } },
+            {
+              mode: 'sandbox',
+            },
+          );
+          const actorId = state.meta.playerActorId;
+          turns.forEach((transfers, t) => {
+            const rootId = state.actors[actorId]?.rootCompanyId ?? '';
+            const b = state.companies[rootId]?.books.current.balance;
+            if (b && t === 0) {
+              b.cash += 60_000_000;
+              b.equity += 60_000_000;
+            }
+            const group = [...controlledCompanyIds(state, actorId)].sort();
+            const pick = (n: number) => group[n % group.length] ?? rootId;
+            const decisions = new Map<string, CompanyDecisions>();
+            const of = (id: string) => {
+              if (!decisions.has(id)) decisions.set(id, emptyDecisions(id));
+              return decisions.get(id) as CompanyDecisions;
+            };
+            const root = of(rootId);
+            const listing = state.mna.listings[0];
+            if (t <= 1 && listing)
+              root.mna.push({ kind: 'private_purchase', targetId: listing.id });
+            if (t === 2) root.createHolding = true;
+            // Minorities: a subsidiary goes public when it can.
+            for (const id of group) if (id !== rootId && t >= 4) of(id).finance.ipo = true;
+            root.intraGroup = transfers.map((x): IntraGroupTransfer => {
+              const fromId = pick(x.from);
+              const toId = pick(x.to);
+              if (x.kind === 'stake') {
+                const held = Object.keys(state.stock.registry).filter(
+                  (target) => (state.stock.registry[target]?.[fromId] ?? 0) > 0,
+                );
+                const targetId = held[x.target % Math.max(1, held.length)] ?? pick(x.target);
+                const shares = state.stock.registry[targetId]?.[fromId] ?? 0;
+                return {
+                  kind: 'stake',
+                  fromId,
+                  toId,
+                  targetId,
+                  shares: Math.ceil(x.part * shares),
+                };
+              }
+              return { kind: x.kind, fromId, toId, amount: x.amount };
+            });
+            const next = resolveTurn(state, [...decisions.values()]).state;
+            checkInvariants(state, next);
+            state = next;
+          });
+          expect(state.companies[state.actors[actorId]?.rootCompanyId ?? '']?.sector).toBe(
+            'holding',
+          );
+        },
+      ),
+      { numRuns: 12 },
+    );
+  }, 120_000);
 
   it('hold over a long game of passive companies (distress and bankruptcies)', () => {
     let state = newGame(77, undefined, { mode: 'sandbox' });

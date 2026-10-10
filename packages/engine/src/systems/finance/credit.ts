@@ -1,4 +1,5 @@
 import type { GameConfig } from '../../config/schema';
+import { groupDebt } from '../../core/group';
 import { sum } from '../../core/math';
 import type { Company } from '../../model/company';
 import type { CreditRating } from '../../model/ids';
@@ -46,14 +47,14 @@ export function currentSpread(config: GameConfig, company: Company): number {
 
 /**
  * New term debt the bank grants at the start of the quarter: headroom under
- * the covenant, or a loan-to-value on fixed assets, whichever is larger.
- * Nothing while the covenant is breached.
+ * the covenant, or a loan-to-value on fixed assets, whichever is larger
+ * (intra-group debt is not counted). Nothing while the covenant is breached.
  */
 export function borrowingCapacity(config: GameConfig, company: Company): number {
   if (company.credit.covenantBreached) return 0;
   const { balance } = company.books.current;
   const termDebt = sum(company.loans.filter((l) => l.kind === 'term').map((l) => l.principal));
-  const netDebt = balance.debt - balance.cash;
+  const netDebt = balance.debt - groupDebt(company) - balance.cash;
   const { ebitda } = trailingAnnual(company);
   const covenantHeadroom =
     config.finance.covenant.maxNetDebtToEbitda * Math.max(0, ebitda) - netDebt;

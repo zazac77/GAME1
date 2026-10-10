@@ -273,6 +273,7 @@ export const fr = {
     equityFlows: 'Opérations sur capital (net)',
     mnaCosts: 'Audits et intégration',
     acquisitions: 'Rachats (numéraire)',
+    groupTransfers: 'Flux intra-groupe (fin de trimestre)',
     acquisitionDebt: 'Dette d’acquisition',
     capexTotal: 'Investissements',
     disposals: 'Cessions',
@@ -481,11 +482,75 @@ export const fr = {
     takeOver: 'Reprendre en main',
     delegate: 'Confier à la direction',
     open: 'Afficher',
-    notConsolidated:
-      'Sommes non consolidées (les comptes consolidés arrivent avec la holding, en phase 3).',
+    notConsolidated: 'Sommes non consolidées : votre groupe n’a pas encore de filiale.',
     alone:
       'Votre groupe ne compte qu’une société : rachetez-en d’autres depuis l’écran Rachats & OPA.',
     toDeals: 'Voir les rachats possibles',
+    groupShare: 'Part économique',
+    contribution: 'Contribution au résultat',
+    groupLoans: 'Prêts accordés',
+    groupDebt: 'Dette intra-groupe',
+    consolidated: 'Comptes consolidés',
+    consolidatedHint:
+      'Intégration globale des sociétés contrôlées, flux intra-groupe éliminés (prêts, dividendes, participations). La part des actionnaires minoritaires des filiales est isolée.',
+    pnl: 'Compte de résultat consolidé (trim.)',
+    balance: 'Bilan consolidé',
+    ebitda: 'EBITDA',
+    financial: 'Résultat financier',
+    groupNetIncome: 'Résultat net part du groupe',
+    minorityNetIncome: 'dont part des minoritaires',
+    fixedAssets: 'Immobilisations',
+    inventory: 'Stocks',
+    financialAssets: 'Actifs financiers',
+    debt: 'Dettes financières',
+    groupEquity: 'Capitaux propres part du groupe',
+    minorities: 'Intérêts minoritaires',
+    eliminations: 'Éliminations intra-groupe',
+    elimLoans: 'Prêts entre sociétés du groupe',
+    elimStakes: 'Participations (contre les fonds propres)',
+    elimFinancial: 'Résultat financier intra-groupe',
+    holding: 'Holding de tête',
+    holdingHint:
+      'Créer une holding : vos actions de la société de tête lui sont apportées et elle devient la tête du groupe (non cotée, sans dette). Vous pourrez ensuite lui céder vos filiales et faire remonter la trésorerie.',
+    createHolding: 'Créer la holding en fin de trimestre',
+    cancelHolding: 'Annuler la création',
+    holdingPlanned: 'La holding sera créée à la fin du trimestre.',
+    holdingDecisions:
+      'Une holding n’a pas d’activité opérationnelle : ses décisions se limitent à la finance. Ses flux avec les filiales se décident depuis l’écran Groupe.',
+    loans: 'Prêts intra-groupe en cours',
+    noLoans: 'Aucun prêt intra-groupe.',
+    lender: 'Prêteur',
+    borrower: 'Emprunteur',
+    principal: 'Encours',
+    rate: 'Taux annuel',
+    transfers: 'Flux intra-groupe du trimestre',
+    transfersHint:
+      'Exécutés en fin de trimestre, dans l’ordre, sur la trésorerie alors disponible. Un prêt rembourse d’abord ce que le prêteur doit à l’emprunteur. Le cash pooling se reconduit d’un trimestre à l’autre.',
+    noTransfers: 'Aucun flux prévu.',
+    kind: 'Nature',
+    from: 'De',
+    to: 'Vers',
+    amount: 'Montant',
+    target: 'Titres',
+    shares: 'Actions',
+    allShares: 'toutes',
+    add: 'Ajouter',
+    remove: 'Retirer',
+    kinds: {
+      dividend: 'Dividende remonté',
+      loan: 'Prêt / remboursement',
+      cash_pool: 'Cash pooling (trésorerie gardée)',
+      stake: 'Cession de titres (restructuration)',
+    },
+    transferText: {
+      dividend: (from: string, to: string, amount: string) =>
+        `${from} verse un dividende de ${amount} (dont la part de ${to})`,
+      loan: (from: string, to: string, amount: string) => `${from} prête ${amount} à ${to}`,
+      cash_pool: (from: string, to: string, amount: string) =>
+        `${from} garde ${amount}, le reste va à ${to} (ou ${to} comble le manque)`,
+      stake: (from: string, to: string, shares: string, target: string) =>
+        `${from} cède ${shares} actions ${target} à ${to}, à leur valeur (prêt intra-groupe)`,
+    },
   },
   report: {
     heading: 'Rapport du trimestre',
@@ -674,6 +739,8 @@ const SECTIONS: Record<string, string> = {
   stockOrders: 'Ordre de bourse',
   mna: 'Rachats',
   intraGroup: 'Intra-groupe',
+  createHolding: 'création de la holding',
+  amount: 'montant',
   price: 'prix',
   qualityTarget: 'qualité visée',
   targetOutput: 'objectif',
@@ -901,6 +968,22 @@ export function eventText(e: GameEvent, companyName: (id: string) => string): st
               : 'cible indisponible';
       return `${who} : le rachat de ${companyName(str(d, 'targetId'))} échoue (${why}).`;
     }
+    case 'holding_created':
+      return `${who} est créée et devient la société de tête du groupe de ${companyName(str(d, 'companyId'))}.`;
+    case 'group_loan': {
+      const to = companyName(str(d, 'toId'));
+      const repaid = num(d, 'repaid');
+      const lent = num(d, 'lent');
+      const parts = [
+        repaid > 0 ? `rembourse ${fmtMoney(repaid)} à ${to}` : '',
+        lent > 0 ? `prête ${fmtMoney(lent)} à ${to}` : '',
+      ].filter(Boolean);
+      return `${who} ${parts.join(' et ')}${d?.pool ? ' (cash pooling)' : ''}.`;
+    }
+    case 'stake_transferred':
+      return `${who} cède ${fmtInt(num(d, 'shares'))} actions ${companyName(str(d, 'targetId'))} à ${companyName(str(d, 'toId'))} pour ${fmtMoney(num(d, 'value'))} (prêt intra-groupe).`;
+    case 'group_loan_written_off':
+      return `Prêt intra-groupe à ${companyName(str(d, 'borrowerId'))} passé en perte : ${fmtMoney(num(d, 'amount'))}.`;
     case 'rnd_completed':
       return `${who} achève un projet de R&D ${fr.rndTypes[str(d, 'type') as RndType]?.toLowerCase() ?? ''} : niveau ${fmtDec(num(d, 'level'))}.`;
     default:
@@ -947,6 +1030,10 @@ export const KNOWN_EVENT_KINDS = [
   'tender_offer_rejected',
   'block_purchase_rejected',
   'deal_failed',
+  'holding_created',
+  'group_loan',
+  'stake_transferred',
+  'group_loan_written_off',
 ] as const;
 
 /** "+50 %", "×0,7" for a modifier effect. */

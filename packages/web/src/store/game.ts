@@ -80,6 +80,11 @@ export interface GameStore {
   setManaged(companyId: string, managed: boolean): void;
   /** Edits a copy of the active draft, then refreshes the preview. */
   editDraft(edit: (draft: CompanyDecisions) => void): void;
+  /**
+   * Edits a copy of the root company's draft (group decisions: holding,
+   * intra-group transfers), whatever company is shown.
+   */
+  editGroupDraft(edit: (draft: CompanyDecisions) => void): void;
   /** Brings the defaults back for the active company. */
   resetDraft(): void;
   /** Resolves the quarter with the drafts, autosaves and opens the report. */
@@ -94,14 +99,20 @@ export const playerCompanyId = (state: GameState): string =>
  * fresh default drafts for the root company and the managed subsidiaries
  * still in the group, and their preview.
  */
-function derive(game: GameState, managed: readonly string[] = [], active?: string) {
+function derive(game: GameState, managedIds?: readonly string[], active?: string) {
   const rootId = playerCompanyId(game);
   const rootView = getPlayerView(game);
-  const group = new Set(
-    rootView.groupCompanies
-      .filter((c) => c.status === 'active' || c.status === 'distressed')
-      .map((c) => c.companyId),
+  const live = rootView.groupCompanies.filter(
+    (c) => c.status === 'active' || c.status === 'distressed',
   );
+  const group = new Set(live.map((c) => c.companyId));
+  // A game just loaded under a holding: the player runs the group's main operating company.
+  const main = live
+    .filter((c) => c.sector !== 'holding')
+    .sort((a, b) => b.revenue - a.revenue || a.companyId.localeCompare(b.companyId))[0];
+  const underHolding = game.companies[rootId]?.sector === 'holding';
+  const managed = managedIds ?? (underHolding && main ? [main.companyId] : []);
+  if (active === undefined && underHolding && main) active = main.companyId;
   const activeCompanyId = active && active !== rootId && group.has(active) ? active : rootId;
   const view = activeCompanyId === rootId ? rootView : getPlayerView(game, activeCompanyId);
   const drafts: Record<string, CompanyDecisions> = {};
@@ -204,6 +215,22 @@ export const createGameStore = (saves: SaveStore) =>
       edit(draft);
       const next = { ...drafts, [activeCompanyId]: draft };
       set({ drafts: next, draft, preview: previewDecisions(game, Object.values(next)) });
+    },
+
+    editGroupDraft(edit) {
+      const { game, drafts, activeCompanyId } = get();
+      if (!game) return;
+      const rootId = playerCompanyId(game);
+      const current = drafts[rootId];
+      if (!current) return;
+      const draft = structuredClone(current);
+      edit(draft);
+      const next = { ...drafts, [rootId]: draft };
+      set({
+        drafts: next,
+        draft: next[activeCompanyId] ?? null,
+        preview: previewDecisions(game, Object.values(next)),
+      });
     },
 
     resetDraft() {

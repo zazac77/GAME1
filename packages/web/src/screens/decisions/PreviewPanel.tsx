@@ -47,6 +47,9 @@ export function PreviewPanel() {
             {p.equity !== 0 && <Stat label={t.equityFlows} value={fmtMoney(p.equity)} />}
             {p.mnaCosts > 0 && <Stat label={t.mnaCosts} value={fmtMoney(p.mnaCosts)} />}
             {p.acquisitions > 0 && <Stat label={t.acquisitions} value={fmtMoney(p.acquisitions)} />}
+            {p.groupTransfers !== 0 && (
+              <Stat label={t.groupTransfers} value={fmtMoney(p.groupTransfers)} />
+            )}
             {p.acquisitionDebt > 0 && (
               <Stat label={t.acquisitionDebt} value={fmtMoney(p.acquisitionDebt)} />
             )}

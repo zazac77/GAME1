@@ -1,5 +1,6 @@
 import type { TurnContext } from '../../core/context';
 import { isOperating, operatingCompanies } from '../../core/companies';
+import { sameGroup } from '../../core/control';
 import { newId } from '../../core/ids';
 import type { System } from '../../core/system';
 import type { Company } from '../../model/company';
@@ -71,7 +72,9 @@ function equityTransactions(ctx: TurnContext, company: Company): void {
       const holder = draft.companies[holderId];
       const amount = (fin.dividend * (register[holderId] ?? 0)) / N;
       if (holder && amount > 0 && isOperating(holder)) {
-        ctx.ledger(holderId).dividendsReceived += amount;
+        const ledger = ctx.ledger(holderId);
+        ledger.dividendsReceived += amount;
+        if (sameGroup(draft, company.id, holderId)) ledger.groupDividends += amount;
       }
     }
     if (quote) {

@@ -3,6 +3,7 @@ import { controlledBy, controllingActor, managementProfile } from '../core/contr
 import type {
   ActiveEventView,
   CompetitorView,
+  GroupMemberView,
   GroupView,
   LaborPoolView,
   ListingView,
@@ -76,9 +77,16 @@ export function observe(state: GameState, actorId: Id, companyId?: Id): Observat
   }));
 
   const actorOfGroup = controllingActor(state, own.id);
+  const groupIds = actorOfGroup ? controlledBy(state, actorOfGroup) : [own.id];
   const group: GroupView = {
     isHead: actorOfGroup !== undefined && state.actors[actorOfGroup]?.rootCompanyId === own.id,
-    companies: actorOfGroup ? controlledBy(state, actorOfGroup) : [own.id],
+    companies: groupIds,
+    members: Object.fromEntries(
+      groupIds.flatMap((id) => {
+        const c = state.companies[id];
+        return c ? [[id, memberView(c)]] : [];
+      }),
+    ),
   };
   if (actorOfGroup) group.actorId = actorOfGroup;
   const turn = state.meta.turn;
@@ -129,6 +137,25 @@ export function observe(state: GameState, actorId: Id, companyId?: Id): Observat
   return structuredClone(observation);
 }
 
+function memberView(company: Company): GroupMemberView {
+  const { pnl, balance } = company.books.current;
+  const owes: Record<Id, number> = {};
+  let overdraft = 0;
+  for (const loan of company.loans) {
+    if (loan.kind === 'overdraft') overdraft += loan.principal;
+    if (loan.kind === 'group' && loan.lenderId) {
+      owes[loan.lenderId] = (owes[loan.lenderId] ?? 0) + loan.principal;
+    }
+  }
+  return {
+    status: company.status,
+    cash: balance.cash,
+    overdraft,
+    quarterlyCashCosts: Math.max(0, pnl.revenue - pnl.ebitda + Math.max(0, pnl.interest)),
+    owes,
+  };
+}
+
 function selfView(state: GameState, company: Company): SelfView {
   const cfg = plantConfigOf(state.config, company.sector);
   const ceilings = new Map(
@@ -168,7 +195,10 @@ function selfView(state: GameState, company: Company): SelfView {
 
 function competitorView(state: GameState, company: Company, lastClosed: number): CompetitorView {
   const market = (marketId: Id) => state.productMarkets[marketId]?.lastResult;
-  const actor = Object.values(state.actors).find((a) => a.rootCompanyId === company.id);
+  // Its founder, else the actor controlling it (a company under a holding).
+  const actor =
+    Object.values(state.actors).find((a) => a.rootCompanyId === company.id) ??
+    state.actors[controllingActor(state, company.id) ?? ''];
   const view: CompetitorView = {
     companyId: company.id,
     name: company.name,

@@ -5,6 +5,7 @@ import type { GameEvent, GameEventSeverity, ModifierTargetKind } from './events'
 import type { GameMode, HolderId, Id, ModifierKey, Money, Quarter, SectorId } from './ids';
 import type { HistoryStore } from './state';
 import type { AnnualFigures } from './mna';
+import type { ConsolidatedStatements } from './finance';
 
 export type AlertKind =
   | 'material_low' // stored material + contract deliveries below the alert cover
@@ -135,11 +136,31 @@ export interface GroupCompanyView {
   /** Cost of the stakes held by the group's companies (absent for the root company). */
   cost?: Money;
   revenue: Money;
+  ebitda: Money;
   netIncome: Money;
   cash: Money;
   equity: Money;
+  debt: Money;
+  /** Share of it the head's shareholders own through the group (product of the stakes). */
+  groupShare: number;
+  /** Group share of its net income without its intra-group financial result. */
+  contribution: Money;
+  /** Intra-group loans it granted, and those it owes, outstanding. */
+  groupLoans: Money;
+  groupDebt: Money;
+  /** Its stakes in other companies of the group: shares held and their value. */
+  stakes: { targetId: Id; shares: number; value: Money }[];
   /** Integration under way after its takeover: until this quarter (exclusive). */
   integrationUntil?: Quarter;
+}
+
+/** An intra-group loan outstanding in the player's group. */
+export interface GroupLoanView {
+  lenderId: Id;
+  borrowerId: Id;
+  principal: Money;
+  /** Annual rate this quarter (policy rate + spread). */
+  rate: number;
 }
 
 /** What the UI shows: the player's Observation plus journal, history and alerts. */
@@ -152,12 +173,18 @@ export interface PlayerView extends Observation {
   log: GameEvent[];
   /** Public series and the player's own company series. */
   history: HistoryStore;
-  /** Value of the player's stake in its root company (price × shares held). */
+  /** Value of the player's stake in its root company (share value × shares held). */
   score: Money;
   /** Quotes for investments, disposals, R&D and equity transactions (absent once the company is gone). */
   costs?: PlayerCosts;
   /** Companies of the player's group (root first). */
   groupCompanies: GroupCompanyView[];
+  /** Intra-group loans between the companies of the group (and to former members). */
+  groupLoans: GroupLoanView[];
+  /** Consolidated accounts of the player's group, oldest first (absent: no subsidiary). */
+  consolidated?: ConsolidatedStatements[];
+  /** The root company can be put under a new holding company this quarter. */
+  canCreateHolding: boolean;
   /** Companies the viewed company could buy (listings, then companies by id). */
   deals: DealQuote[];
 }
@@ -191,6 +218,8 @@ export interface CompanyPreview {
   };
   capex: Money;
   disposals: Money;
+  /** Net cash of the intra-group transfers at the end of the quarter (estimate). */
+  groupTransfers: Money;
   borrowing: Money;
   repayment: Money;
   installments: Money;

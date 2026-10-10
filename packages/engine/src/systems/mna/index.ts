@@ -10,7 +10,7 @@ import type { HolderId, Id, Money } from '../../model/ids';
 import type { TenderOffer } from '../../model/stock';
 import { currentSpread } from '../finance/credit';
 import { maxSharesKeepingControl } from '../finance/equity';
-import { holdings } from '../stockmarket/holdings';
+import { holdings, revalueHoldings, type StakeTrades } from '../stockmarket/holdings';
 import { instantiateListing, updateListings } from './listings';
 import {
   askedPremium,
@@ -105,6 +105,8 @@ interface Flows {
   borrowed: Money;
   /** Value of the new shares given in exchange (equity issued in kind). */
   issued: Money;
+  /** Stakes paid for (cash and shares) and sold, by target. */
+  stakes: Record<Id, StakeTrades>;
 }
 
 type Bid = Extract<MnaAction, { kind: 'tender_offer' | 'private_purchase' }>;
@@ -160,7 +162,7 @@ export const mnaSystem: System = {
       .map((id) => draft.companies[id] as Company)) {
       const statements = company.books.current;
       if (statements.quarter !== turn) continue;
-      const f = flows[company.id] ?? { bought: 0, sold: 0, borrowed: 0, issued: 0 };
+      const f = flowsOf(flows, company.id);
       const b = statements.balance;
       // A loan sized to the shortfall lands the cash on 0 exactly (no float residue).
       const cash = Math.max(0, b.cash + f.sold - f.bought + f.borrowed) - b.cash;
@@ -171,12 +173,12 @@ export const mnaSystem: System = {
       statements.cashFlow.financing += cash - (f.sold - f.bought);
       statements.cashFlow.netChange += cash;
       statements.shares = company.sharesOutstanding;
-      const carrying = sum(Object.values(holdings(draft, company, true)).map((h) => h.carrying));
-      // Gains on the stakes sold, impairments, revaluations (cash moved − borrowed = stakes traded).
-      const result = carrying - b.financialAssets - f.issued + cash - f.borrowed;
+      // Gains on the stakes sold, impairments, revaluations.
+      const { carrying, result, groupResult } = revalueHoldings(draft, company, f.stakes);
       b.financialAssets = carrying;
       b.equity += result;
       statements.pnl.financial += result;
+      statements.pnl.groupFinancial += groupResult;
       statements.pnl.netIncome += result;
       const history = company.books.history;
       if (history.at(-1)?.quarter === turn) history[history.length - 1] = statements;
@@ -190,7 +192,10 @@ export const mnaSystem: System = {
 };
 
 const flowsOf = (flows: Record<Id, Flows>, id: Id): Flows =>
-  (flows[id] ??= { bought: 0, sold: 0, borrowed: 0, issued: 0 });
+  (flows[id] ??= { bought: 0, sold: 0, borrowed: 0, issued: 0, stakes: {} });
+
+const stakeOf = (f: Flows, targetId: Id): StakeTrades =>
+  (f.stakes[targetId] ??= { bought: 0, sold: 0 });
 
 /** Cash the buyer still has in this step. */
 function cashLeft(buyer: Company, f: Flows): Money {
@@ -258,7 +263,11 @@ function transfer(
     if (shares <= 0) continue;
     register[holderId] = (register[holderId] ?? 0) - shares;
     register[buyer.id] = (register[buyer.id] ?? 0) + shares;
-    if (ctx.draft.companies[holderId]) flowsOf(flows, holderId).sold += shares * pricePerShare;
+    if (ctx.draft.companies[holderId]) {
+      const f = flowsOf(flows, holderId);
+      f.sold += shares * pricePerShare;
+      stakeOf(f, target.id).sold += shares * pricePerShare;
+    }
     moved += shares;
   }
   return moved;
@@ -289,6 +298,7 @@ function settleBid(ctx: TurnContext, buyer: Company, bid: Bid, flows: Record<Id,
     }
     const company = instantiateListing(ctx, listing, buyer.id);
     buyer.participations[company.id] = { shares: company.sharesOutstanding, cost: price };
+    stakeOf(flowsOf(flows, buyer.id), company.id).bought += price;
     draft.mna.listings = draft.mna.listings.filter((l) => l.id !== listing.id);
     startIntegration(ctx, company, buyer, listing.hiddenLiability);
     ctx.log({
@@ -428,6 +438,7 @@ function settleBid(ctx: TurnContext, buyer: Company, bid: Bid, flows: Record<Id,
 
   const held = draft.stock.registry[target.id]?.[buyer.id] ?? 0;
   buyer.participations[target.id] = { shares: held, cost: priorCarrying + paid };
+  stakeOf(flowsOf(flows, buyer.id), target.id).bought += paid;
   if (controllingActor(draft, target.id) !== controllerBefore) {
     startIntegration(ctx, target, buyer, 0);
   }

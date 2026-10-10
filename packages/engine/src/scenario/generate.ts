@@ -62,10 +62,11 @@ export const zeroStatements = (
     ebit: 0,
     interest: 0,
     financial: 0,
+    groupFinancial: 0,
     tax: 0,
     netIncome: 0,
   },
-  cashFlow: { operating: 0, investing: 0, financing: 0, netChange: 0 },
+  cashFlow: { operating: 0, investing: 0, financing: 0, netChange: 0, groupInvesting: 0 },
   balance,
 });
 
@@ -447,6 +448,7 @@ function createCompany(state: GameState, p: Participant, jitter: (x: number) => 
       taxLossCarryforward: 0,
     },
     participations: {},
+    stakeValues: {},
   };
 
   // Opening inventories: materials and finished goods at estimated cost.
@@ -586,6 +588,7 @@ function createTechCompany(
       taxLossCarryforward: 0,
     },
     participations: {},
+    stakeValues: {},
   };
   const line = company.productLines[productLineId];
   if (line) {
@@ -612,12 +615,13 @@ function createTechCompany(
   return company;
 }
 
-function emptyBalance(): BalanceSheet {
+export function emptyBalance(): BalanceSheet {
   return {
     cash: 0,
     inventory: 0,
     fixedAssets: 0,
     financialAssets: 0,
+    groupLoans: 0,
     debt: 0,
     equity: 0,
     minorityInterests: 0,

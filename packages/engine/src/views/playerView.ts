@@ -4,7 +4,9 @@ import type { GameState, HistoryStore } from '../model/state';
 import type { PlayerView } from '../model/views';
 import { companyAlerts } from './alerts';
 import { playerCosts } from './costs';
-import { dealQuotes, groupView } from './mna';
+import { dealQuotes, groupLoansView, groupView } from './mna';
+import { canCreateHolding } from '../systems/conglomerate';
+import { shareValue } from '../systems/stockmarket';
 import { isVisible } from './visibility';
 
 /**
@@ -12,7 +14,8 @@ import { isVisible } from './visibility';
  * in full, public facts about the others), plus the visible journal, the
  * chart series (the private series of companies outside the group removed),
  * alerts, the score, the quotes of the quarter's one-shot decisions, the
- * player's group and the deals on offer. By default it views the player's
+ * player's group (companies, intra-group loans, consolidated accounts) and
+ * the deals on offer. By default it views the player's
  * root company; `companyId` views another company of the group (a
  * subsidiary to decide for).
  */
@@ -33,6 +36,7 @@ export function getPlayerView(state: GameState, companyId?: string): PlayerView 
     if (company === undefined || own.has(company)) history.series[key] = [...values];
   }
   const rootId = actor.rootCompanyId;
+  const root = state.companies[rootId];
   const held = state.stock.registry[rootId]?.[actorId] ?? 0;
   const viewed = state.companies[viewedId];
   const costs = viewed ? playerCosts(state, viewed) : undefined;
@@ -44,10 +48,14 @@ export function getPlayerView(state: GameState, companyId?: string): PlayerView 
     alerts: companyAlerts(state, viewedId),
     log: structuredClone(state.log.filter((e) => isVisible(e, own))),
     history,
-    score: held * (state.stock.quotes[rootId]?.price ?? 0),
+    score: root ? held * shareValue(state, root) : 0,
     groupCompanies: groupView(state, actorId),
+    groupLoans: groupLoansView(state, actorId),
+    canCreateHolding: state.meta.status === 'running' && canCreateHolding(state, actor),
     deals: viewed && isOperating(viewed) ? dealQuotes(state, viewed) : [],
   };
   if (costs) view.costs = costs;
+  const consolidated = root?.books.consolidated;
+  if (consolidated) view.consolidated = structuredClone(consolidated);
   return view;
 }

@@ -189,6 +189,17 @@ export interface MnaView {
   tenderOffers: TenderOffer[];
 }
 
+/** Finances of a company of the observer's own group (private to the group). */
+export interface GroupMemberView {
+  status: Company['status'];
+  cash: Money;
+  overdraft: Money;
+  /** Cash costs of its last closed quarter (revenue − EBITDA + interest paid). */
+  quarterlyCashCosts: Money;
+  /** Intra-group loans it owes, by lender. */
+  owes: Record<Id, Money>;
+}
+
 /** The observer's group: the companies the same actor controls. */
 export interface GroupView {
   /** Actor at the head of the group (none: nobody controls the company). */
@@ -197,6 +208,8 @@ export interface GroupView {
   isHead: boolean;
   /** Companies of the group, the observed one included. */
   companies: Id[];
+  /** Their finances, by company id. */
+  members: Record<Id, GroupMemberView>;
 }
 
 /**

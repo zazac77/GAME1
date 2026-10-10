@@ -5,6 +5,7 @@ import { accountingSystem } from '../systems/accounting';
 import { aiSystem } from '../systems/ai';
 import { capexSystem } from '../systems/capex';
 import { commoditiesSystem } from '../systems/commodities';
+import { conglomerateSystem } from '../systems/conglomerate';
 import { eventsSystem } from '../systems/events';
 import { financePreSystem } from '../systems/finance';
 import { laborSystem } from '../systems/labor';
@@ -44,7 +45,7 @@ export const PIPELINE: readonly System[] = [
   accountingSystem, // 10. statements, tax, cash, solvency
   stockMarketSystem, // 11. fundamental, price, orders, registry, index
   mnaSystem, // 12. takeovers, changes of control, holdings, listings
-  pending('conglomerate'), // 12. synergies, complexity, consolidation
+  conglomerateSystem, // 12. holdings, intra-group transfers, consolidation
   pending('victory'), // 13. end conditions
   reportingSystem, // 13. history, journal, next quarter
 ];

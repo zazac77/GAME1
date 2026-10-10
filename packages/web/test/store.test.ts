@@ -190,4 +190,39 @@ describe('saves', () => {
     expect(imported).toEqual(game);
     expect(() => importJson('{"not":"a save"}')).toThrow();
   });
+
+  it('puts a holding on top of the company and moves cash inside the group', async () => {
+    const store = newStore();
+    start(store, 11);
+    const rootId = store.getState().activeCompanyId;
+    expect(store.getState().view?.canCreateHolding).toBe(true);
+    store.getState().editGroupDraft((d) => {
+      d.createHolding = true;
+    });
+    expect(store.getState().drafts[rootId]?.createHolding).toBe(true);
+    await store.getState().endTurn();
+    const { game, view, activeCompanyId } = store.getState();
+    const holdingId = game?.actors[game.meta.playerActorId]?.rootCompanyId ?? '';
+    expect(holdingId).not.toBe(rootId);
+    // The operating company stays on screen and in the player's hands.
+    expect(activeCompanyId).toBe(rootId);
+    expect(Object.keys(store.getState().drafts).sort()).toEqual([holdingId, rootId].sort());
+    expect(view?.groupCompanies.map((c) => c.companyId)).toEqual([holdingId, rootId]);
+    expect(view?.consolidated).toHaveLength(1);
+    store.getState().selectCompany(holdingId);
+    expect(store.getState().view?.self.company.sector).toBe('holding');
+    store.getState().editGroupDraft((d) => {
+      d.intraGroup = [{ kind: 'loan', fromId: rootId, toId: holdingId, amount: 500_000 }];
+    });
+    expect(store.getState().preview?.companies[holdingId]?.groupTransfers).toBeGreaterThan(0);
+    await store.getState().endTurn();
+    expect(store.getState().view?.groupLoans).toEqual([
+      expect.objectContaining({ lenderId: rootId, borrowerId: holdingId }),
+    ]);
+    // Loaded again, the operating company stays in the player's hands.
+    const reloaded = newStore();
+    reloaded.getState().loadGame(store.getState().game as never);
+    expect(reloaded.getState().activeCompanyId).toBe(rootId);
+    expect(Object.keys(reloaded.getState().drafts).sort()).toEqual([holdingId, rootId].sort());
+  });
 });

@@ -3,7 +3,7 @@ import { controllingActor, groupHolding } from '../../core/control';
 import type { Company } from '../../model/company';
 import type { Money } from '../../model/ids';
 import type { GameState } from '../../model/state';
-import { fundamentalValue } from '../stockmarket/fundamental';
+import { fundamentalOf } from '../stockmarket/holdings';
 
 /** Price of the new shares of a capital increase this quarter. */
 export const issuePrice = (state: GameState, company: Company): Money =>
@@ -73,7 +73,7 @@ export function ipoTerms(
   const I = state.config.stockMarket.ipo;
   if (company.listed || !isOperating(company)) return undefined;
   if (company.books.history.length < I.minQuarters) return undefined;
-  const value = fundamentalValue(state, company, company.books.history);
+  const value = fundamentalOf(state, company, company.books.history);
   if (value === undefined) return undefined;
   const pricePerShare = value * (1 - I.discount);
   const newShares = Math.round((company.sharesOutstanding * I.floatShare) / (1 - I.floatShare));

@@ -22,15 +22,18 @@ export function publishedStatements(
 /**
  * Fundamental value per share from published accounts:
  * VE = multiples value of the last 12 months (core/valuation.ts);
- * F = max(VE − net debt + financial assets, liquidation value) / shares at
- * the close of the latest published quarter (equity transactions since then
- * show in the price, not yet in the accounts). Undefined until a first
- * quarter is published.
+ * F = max(VE − net debt + financial assets + intra-group loans granted,
+ * liquidation value) / shares at the close of the latest published quarter
+ * (equity transactions since then show in the price, not yet in the
+ * accounts). `stakes` replaces the financial assets of the accounts (a
+ * holding's stakes at their current value). Undefined until a first quarter
+ * is published.
  */
 export function fundamentalValue(
   state: GameState,
   company: Company,
   published: readonly Statements[],
+  stakes?: number,
 ): number | undefined {
   const { config, macro } = state;
   const SM = config.stockMarket;
@@ -47,12 +50,13 @@ export function fundamentalValue(
   const ev = multiplesValue(config, macro.policyRate, company.sector, { revenue, ebitda }, growth);
 
   const b = latest.balance;
-  const equity = ev - (b.debt - b.cash) + b.financialAssets;
+  const financial = (stakes ?? b.financialAssets) + b.groupLoans;
+  const equity = ev - (b.debt - b.cash) + financial;
   const liquidation =
     b.cash +
     b.inventory * f.inventoryLiquidationShare +
     b.fixedAssets * (1 - assetResaleDiscountOf(config, company.sector)) +
-    b.financialAssets -
+    financial -
     b.debt;
   const shares = latest.shares > 0 ? latest.shares : company.sharesOutstanding;
   return Math.max(SM.minPrice, Math.max(equity, liquidation) / shares);

@@ -46,7 +46,7 @@ function sectorCosts(state: GameState, company: Company): Omit<PlayerCosts, 'cap
   const tech = techConfigOf(state.config, company.sector);
   if (tech) return techCosts(state, company, tech);
   const cfg = plantConfigOf(state.config, company.sector);
-  if (!cfg) return undefined;
+  if (!cfg) return company.sector === 'holding' ? holdingCosts() : undefined;
   const { priceLevel } = state.macro;
   const buildSite: PlayerCosts['buildSite'] = {};
   for (const region of Object.values(state.regions)) {
@@ -89,6 +89,18 @@ function sectorCosts(state: GameState, company: Company): Omit<PlayerCosts, 'cap
     costs.farms = farms;
   }
   return costs;
+}
+
+/** A holding company has nothing to build, sell nor research. */
+function holdingCosts(): Omit<PlayerCosts, 'capital'> {
+  const quote: RndQuote = { level: 0, maxLevel: 0, progress: 0, cost: 0, maxBudget: 0 };
+  return {
+    buildSite: {},
+    addLine: 0,
+    modernizeLine: 0,
+    saleValue: {},
+    rnd: { process: { ...quote }, product: { ...quote } },
+  };
 }
 
 /**

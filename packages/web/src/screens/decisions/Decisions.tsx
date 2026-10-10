@@ -37,6 +37,9 @@ export function Decisions() {
       </div>
     );
   }
+  // A holding company has no operations: finance only (its group flows are on the Group screen).
+  const holding = view.self.company.sector === 'holding';
+  const current: TabId = holding ? 'finance' : tab;
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="min-w-0 space-y-3">
@@ -44,14 +47,19 @@ export function Decisions() {
           <p className="text-sm text-slate-600">{fr.decisions.resetHint}</p>
           <Button onClick={resetDraft}>{fr.decisions.reset}</Button>
         </div>
-        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+        {holding && <Notice severity="info">{fr.group.holdingDecisions}</Notice>}
+        <Tabs
+          tabs={holding ? TABS.filter((t) => t.id === 'finance') : TABS}
+          active={current}
+          onChange={setTab}
+        />
         <div className="rounded-b-lg border border-t-0 border-slate-200 bg-white p-4">
-          {tab === 'production' && <ProductionTab />}
-          {tab === 'hr' && <HrTab />}
-          {tab === 'purchasing' && <PurchasingTab />}
-          {tab === 'capex' && <CapexTab />}
-          {tab === 'marketing' && <MarketingTab />}
-          {tab === 'finance' && <FinanceTab />}
+          {current === 'production' && <ProductionTab />}
+          {current === 'hr' && <HrTab />}
+          {current === 'purchasing' && <PurchasingTab />}
+          {current === 'capex' && <CapexTab />}
+          {current === 'marketing' && <MarketingTab />}
+          {current === 'finance' && <FinanceTab />}
         </div>
       </div>
       <PreviewPanel />

@@ -177,6 +177,11 @@ export interface Company {
    * (impaired below their recoverable value): target id → shares and cost.
    */
   participations: Record<Id, { shares: number; cost: Money }>;
+  /**
+   * Carrying value of each holding as last booked (target id → value): their
+   * sum is balance.financialAssets.
+   */
+  stakeValues: Record<Id, Money>;
   /** Profile of the management in place of a company bought without its founder (listings). */
   managementProfileId?: AiProfileId;
   /**

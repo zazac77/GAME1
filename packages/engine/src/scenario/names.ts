@@ -37,3 +37,6 @@ export const TARGET_NAMES: readonly string[] = [
   'Opale Numérique',
   'Mécanique Rivière',
 ];
+
+/** Name of the holding company created on top of a company. */
+export const holdingName = (companyName: string): string => `${companyName} Holding`;

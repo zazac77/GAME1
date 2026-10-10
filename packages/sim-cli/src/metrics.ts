@@ -74,6 +74,10 @@ export interface GameMetrics {
     issues: number;
     buybacks: number;
     ipos: number;
+    /** Intra-group loans granted, repayments, loans written off. */
+    groupLoans: number;
+    groupRepayments: number;
+    groupWriteOffs: number;
   };
 }
 
@@ -136,10 +140,19 @@ function sanity(state: GameState, initialPrices: Record<string, number>): string
         bad(`price ${line.id} ×${r.toFixed(2)}`);
     }
     const b = c.books.current.balance;
-    const assets = b.cash + b.inventory + b.fixedAssets + b.financialAssets;
+    const assets = b.cash + b.inventory + b.fixedAssets + b.financialAssets + b.groupLoans;
     const gap =
       Math.abs(assets - b.debt - b.equity - b.minorityInterests) / Math.max(1, Math.abs(assets));
     if (!(gap <= SANITY.balance)) bad(`balance ${c.id} gap ${gap}`);
+    const cons = c.books.consolidated?.at(-1)?.balance;
+    if (cons) {
+      const total =
+        cons.cash + cons.inventory + cons.fixedAssets + cons.financialAssets + cons.groupLoans;
+      const consGap =
+        Math.abs(total - cons.debt - cons.equity - cons.minorityInterests) /
+        Math.max(1, Math.abs(total));
+      if (!(consGap <= SANITY.balance)) bad(`consolidated ${c.id} gap ${consGap}`);
+    }
     const quote = state.stock.quotes[c.id];
     const p0 = initialPrices[c.id] ?? 1;
     if (quote && !(quote.price > 0 && quote.price <= SANITY.share.max * p0)) {
@@ -237,6 +250,9 @@ export function gameMetrics(record: GameRecord): GameMetrics {
     issues: 0,
     buybacks: 0,
     ipos: 0,
+    groupLoans: 0,
+    groupRepayments: 0,
+    groupWriteOffs: 0,
   };
   record.states.slice(1).forEach((s, i) => {
     const turn = record.states[i]?.meta.turn;
@@ -258,6 +274,10 @@ export function gameMetrics(record: GameRecord): GameMetrics {
       else if (e.kind === 'shares_issued') deals.issues += 1;
       else if (e.kind === 'shares_bought_back') deals.buybacks += 1;
       else if (e.kind === 'ipo') deals.ipos += 1;
+      else if (e.kind === 'group_loan') {
+        if (Number(e.data?.lent ?? 0) > 0) deals.groupLoans += 1;
+        if (Number(e.data?.repaid ?? 0) > 0) deals.groupRepayments += 1;
+      } else if (e.kind === 'group_loan_written_off') deals.groupWriteOffs += 1;
     }
   });
   const playerActor = last.actors[last.meta.playerActorId];

@@ -890,6 +890,19 @@ const aiSchema = z.strictObject({
     /** …and at most this share paid in new shares (listed buyers, within their control). */
     stockShare: share,
   }),
+  /**
+   * Intra-group financing by the group heads: a subsidiary whose cash falls
+   * below rescueCashQuarters of its cash costs (or on the overdraft) gets a
+   * loan bringing it to targetCashQuarters, from the head's cash above
+   * keepCashQuarters of its own; a company repays its group debt with the
+   * cash above repayAboveQuarters.
+   */
+  group: z.strictObject({
+    rescueCashQuarters: nonNeg,
+    targetCashQuarters: nonNeg,
+    keepCashQuarters: nonNeg,
+    repayAboveQuarters: nonNeg,
+  }),
 });
 
 const mnaSchema = z.strictObject({
@@ -956,6 +969,14 @@ const mnaSchema = z.strictObject({
   delegatedProfileId: aiProfileId,
   /** Tender offers kept in stock.tenderOffers. */
   dealHistory: posInt,
+});
+
+const conglomerateSchema = z.strictObject({
+  /**
+   * Annual spread over the policy rate of intra-group loans and cash pool
+   * positions (interest paid by the borrower, received by the lender).
+   */
+  groupLoanSpread: nonNeg,
 });
 
 const viewsSchema = z.strictObject({
@@ -1050,6 +1071,7 @@ export const gameConfigSchema = z
     finance: financeSchema,
     stockMarket: stockMarketSchema,
     mna: mnaSchema,
+    conglomerate: conglomerateSchema,
     ai: aiSchema,
     views: viewsSchema,
     events: eventsSchema,

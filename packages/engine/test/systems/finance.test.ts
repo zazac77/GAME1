@@ -140,6 +140,7 @@ describe('equity transactions (stock market v2)', () => {
     const hb = (state.companies[holderId] as Company).books.current.balance;
     hb.financialAssets += 100_000 * price;
     hb.equity += 100_000 * price;
+    (state.companies[holderId] as Company).stakeValues[id] = 100_000 * price;
 
     const d = emptyDecisions(id);
     d.finance.dividend = 1_000_000;
